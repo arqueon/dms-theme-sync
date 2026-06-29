@@ -18,6 +18,6 @@
   "compositors": ["niri"],
   "distro": ["any"],
   "requires": ["bash"],
-  "requires_dms": ">=1.4.0",
+  "requires_dms": ">=1.5.0",
   "permissions": ["process", "settings_read", "settings_write"]
 }
