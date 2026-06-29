@@ -16,6 +16,38 @@ PluginSettings {
         "label": "Keep current theme",
         "value": "preserve"
     }]
+    property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
+    property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
+    property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
+    readonly property var documentFontOptions: [{
+        "label": "Same as regular font",
+        "value": ""
+    }].concat(installedFonts.map(function(name) {
+        return {
+            "label": name,
+            "value": name
+        };
+    }))
+
+    function parseSimpleList(text, currentValue) {
+        const values = [];
+        const seen = ({
+        });
+        if (currentValue) {
+            values.push(currentValue);
+            seen[currentValue] = true;
+        }
+        const lines = (text || "").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+            const value = lines[i].trim();
+            if (value && !seen[value]) {
+                values.push(value);
+                seen[value] = true;
+            }
+        }
+        return values;
+    }
 
     function parseThemes(text) {
         const options = [{
@@ -44,7 +76,13 @@ PluginSettings {
     }
 
     pluginId: "dmsThemeSync"
-    Component.onCompleted: gtkThemesProcess.running = true
+    Component.onCompleted: {
+        gtkThemesProcess.running = true;
+        fontsProcess.running = true;
+        monoFontsProcess.running = true;
+        iconsProcess.running = true;
+        cursorsProcess.running = true;
+    }
 
     Process {
         id: gtkThemesProcess
@@ -53,6 +91,50 @@ PluginSettings {
 
         stdout: StdioCollector {
             onStreamFinished: root.parseThemes(text)
+        }
+
+    }
+
+    Process {
+        id: fontsProcess
+
+        command: ["sh", "-c", "fc-list --format='%{family[0]}\\n' 2>/dev/null | LC_ALL=C sort -fu"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.installedFonts = root.parseSimpleList(text, SettingsData.fontFamily)
+        }
+
+    }
+
+    Process {
+        id: monoFontsProcess
+
+        command: ["sh", "-c", "fc-list :spacing=100 --format='%{family[0]}\\n' 2>/dev/null | LC_ALL=C sort -fu"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.installedMonoFonts = root.parseSimpleList(text, SettingsData.monoFontFamily)
+        }
+
+    }
+
+    Process {
+        id: iconsProcess
+
+        command: ["sh", "-c", "for root in \"$HOME/.icons\" \"$HOME/.local/share/icons\" /usr/local/share/icons /usr/share/icons; do [ -d \"$root\" ] || continue; for dir in \"$root\"/*; do [ -f \"$dir/index.theme\" ] && basename \"$dir\"; done; done | LC_ALL=C sort -fu"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.installedIconThemes = root.parseSimpleList(text, SettingsData.iconTheme)
+        }
+
+    }
+
+    Process {
+        id: cursorsProcess
+
+        command: ["sh", "-c", "for root in \"$HOME/.icons\" \"$HOME/.local/share/icons\" /usr/local/share/icons /usr/share/icons; do [ -d \"$root\" ] || continue; for dir in \"$root\"/*; do [ -d \"$dir/cursors\" ] && basename \"$dir\"; done; done | LC_ALL=C sort -fu"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.installedCursorThemes = root.parseSimpleList(text, SettingsData.cursorSettings && SettingsData.cursorSettings.theme)
         }
 
     }
@@ -78,6 +160,159 @@ PluginSettings {
         label: "Synchronize automatically"
         description: "Apply after DMS appearance settings or light/dark mode change"
         defaultValue: true
+    }
+
+    ToggleSetting {
+        settingKey: "backupEnabled"
+        label: "Back up before applying"
+        description: "Create a restorable snapshot of files, GSettings and runtime environment before every synchronization"
+        defaultValue: true
+    }
+
+    SliderSetting {
+        settingKey: "backupRetention"
+        label: "Backups to retain"
+        description: "Oldest snapshots are removed after a successful backup"
+        minimum: 1
+        maximum: 30
+        unit: ""
+        defaultValue: 10
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Regular font"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Updates the canonical DMS regular font"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: SettingsData.fontFamily
+            options: root.installedFonts
+            onValueChanged: function(value) {
+                if (value && value !== SettingsData.fontFamily)
+                    SettingsData.set("fontFamily", value);
+
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Monospace font"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Updates the canonical DMS monospace font"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: SettingsData.monoFontFamily
+            options: root.installedMonoFonts
+            onValueChanged: function(value) {
+                if (value && value !== SettingsData.monoFontFamily)
+                    SettingsData.set("monoFontFamily", value);
+
+            }
+        }
+
+    }
+
+    SelectionSetting {
+        settingKey: "documentFontFamily"
+        label: "Document font"
+        description: "Choose an installed family or follow the regular DMS font"
+        options: root.documentFontOptions
+        defaultValue: ""
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Icon theme"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Updates the canonical DMS icon theme"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: SettingsData.iconTheme
+            options: root.installedIconThemes
+            onValueChanged: function(value) {
+                if (value && value !== SettingsData.iconTheme)
+                    SettingsData.setIconTheme(value);
+
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Cursor theme"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Updates the canonical DMS cursor theme"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: (SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"
+            options: root.installedCursorThemes
+            onValueChanged: function(value) {
+                if (value && value !== SettingsData.cursorSettings.theme)
+                    SettingsData.setCursorTheme(value);
+
+            }
+        }
+
     }
 
     SelectionSetting {
@@ -120,20 +355,15 @@ PluginSettings {
         defaultValue: true
     }
 
-    StringSetting {
+    SelectionSetting {
         settingKey: "qtStyle"
         label: "Qt widget style"
-        description: "Fallback style written to qt5ct and qt6ct (for example Fusion, Breeze or kvantum)"
-        placeholder: "Fusion"
+        description: "Fallback style written to qt5ct and qt6ct"
+        options: ["Fusion", "Breeze", "kvantum", "Windows", {
+            "label": "Preserve current style",
+            "value": "preserve"
+        }]
         defaultValue: "Fusion"
-    }
-
-    StringSetting {
-        settingKey: "documentFontFamily"
-        label: "Document font"
-        description: "Empty uses the regular DMS font family"
-        placeholder: "Same as DMS regular font"
-        defaultValue: ""
     }
 
     SliderSetting {
@@ -207,9 +437,34 @@ PluginSettings {
                 onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "apply"])
             }
 
+            Row {
+                spacing: Theme.spacingM
+
+                DankButton {
+                    text: "Back up now"
+                    iconName: "backup"
+                    onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backup"])
+                }
+
+                DankButton {
+                    text: "Restore latest"
+                    iconName: "restore"
+                    onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "restoreLatest"])
+                }
+
+            }
+
             StyledText {
                 width: parent.width
-                text: "IPC: dms ipc call dmsThemeSync apply\nStatus: dms ipc call dmsThemeSync status"
+                text: "Restoring disables automatic synchronization first. Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups."
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+                wrapMode: Text.WordWrap
+            }
+
+            StyledText {
+                width: parent.width
+                text: "IPC: dms ipc call dmsThemeSync apply|backup|restoreLatest\nStatus: dms ipc call dmsThemeSync status"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceVariantText

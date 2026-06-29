@@ -20,6 +20,8 @@ SYNC_KDE=true
 SYNC_XSETTINGSD=true
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
+BACKUP_ENABLED=true
+BACKUP_RETENTION=10
 
 while (( $# )); do
     case "$1" in
@@ -42,6 +44,8 @@ while (( $# )); do
         --sync-xsettingsd) SYNC_XSETTINGSD=${2:?}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
+        --backup-enabled) BACKUP_ENABLED=${2:?}; shift 2 ;;
+        --backup-retention) BACKUP_RETENTION=${2:?}; shift 2 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -56,6 +60,7 @@ case "$QT_PLATFORM_THEME" in gtk3|qtct|preserve) ;; *) printf 'Invalid Qt platfo
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
 }
+[[ $BACKUP_RETENTION =~ ^[0-9]+$ ]] || { printf 'Backup retention must be an integer\n' >&2; exit 2; }
 
 log() { printf '%s\n' "$*"; }
 run() {
@@ -132,6 +137,20 @@ if [[ $ICON_THEME == "System Default" ]]; then
 fi
 if [[ $CURSOR_THEME == "System Default" ]]; then
     CURSOR_THEME=""
+fi
+
+if [[ $BACKUP_ENABLED == true ]]; then
+    if $DRY_RUN; then
+        log "DRY-RUN: create pre-apply snapshot"
+    else
+        snapshot_args=(backup --retention "$BACKUP_RETENTION" --label pre-apply)
+        [[ $NO_RUNTIME == true ]] && snapshot_args+=(--no-runtime)
+        if ! snapshot_output=$("$(dirname "$0")/theme-snapshot.sh" "${snapshot_args[@]}"); then
+            printf 'Failed to create pre-apply backup; synchronization aborted\n' >&2
+            exit 1
+        fi
+        log "$snapshot_output"
+    fi
 fi
 
 update_ini() {
@@ -301,7 +320,7 @@ set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 
 for qt_version in 5 6; do
     qt_file="$XDG_CONFIG_HOME/qt${qt_version}ct/qt${qt_version}ct.conf"
-    update_ini "$qt_file" Appearance style "$QT_STYLE"
+    [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
     update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0\""
     update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,400,0,0,0,0,0\""

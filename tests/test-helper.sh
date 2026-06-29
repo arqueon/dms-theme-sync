@@ -27,6 +27,7 @@ cp "$XDG_CONFIG_HOME/gtk-3.0/dank-colors.css" "$XDG_CONFIG_HOME/gtk-4.0/dank-col
     --mode light --gtk-theme-light auto --gtk-theme-dark auto \
     --qt-platform-theme qtct --qt-style Fusion \
     --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
     --sync-kde true --sync-xsettingsd true --no-runtime >/dev/null
 
 assert_line() {
@@ -60,8 +61,24 @@ before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
     --mode light --gtk-theme-light auto --gtk-theme-dark auto \
     --qt-platform-theme qtct --qt-style Fusion \
     --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
     --sync-kde true --sync-xsettingsd true --no-runtime >/dev/null
 after=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 [[ $before == "$after" ]] || { printf 'Second run was not idempotent\n' >&2; exit 1; }
+
+printf 'pre-backup-marker\n' >> "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+rm -f "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+backup_output=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 3 --label test --no-runtime)
+snapshot=${backup_output#BACKUP_CREATED:}
+printf 'mutated\n' > "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+printf 'created-after-backup\n' > "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+
+"$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$snapshot" --no-runtime >/dev/null
+grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+[[ ! -e $XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf ]] || {
+    printf 'Restore did not remove a file that was absent in the snapshot\n' >&2
+    exit 1
+}
+"$ROOT/scripts/theme-snapshot.sh" list | grep -Fqx "$snapshot"
 
 printf 'helper tests: ok\n'

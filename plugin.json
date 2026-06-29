@@ -3,7 +3,7 @@
   "id": "dmsThemeSync",
   "name": "DMS Theme Sync",
   "description": "Synchronize DMS fonts, sizes, icons, cursor and GTK/Qt application themes across Linux toolkits",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "arqueon",
   "icon": "palette",
