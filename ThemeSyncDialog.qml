@@ -27,7 +27,7 @@ DankModal {
         Item {
             anchors.fill: parent
 
-            Row {
+            Item {
                 id: header
 
                 anchors.top: parent.top
@@ -35,31 +35,36 @@ DankModal {
                 anchors.right: parent.right
                 anchors.margins: Theme.spacingL
                 height: 44
-                spacing: Theme.spacingM
 
                 DankIcon {
+                    id: headerIcon
+
                     name: "palette"
                     size: Theme.iconSizeLarge
                     color: Theme.primary
+                    anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
                 StyledText {
+                    anchors.left: headerIcon.right
+                    anchors.leftMargin: Theme.spacingM
+                    anchors.right: closeButton.left
+                    anchors.rightMargin: Theme.spacingM
+                    anchors.verticalCenter: parent.verticalCenter
                     text: "DMS Theme Sync"
                     font.pixelSize: Theme.fontSizeLarge
                     font.weight: Font.Bold
                     color: Theme.surfaceText
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Item {
-                    width: Math.max(0, parent.width - 250)
-                    height: 1
+                    elide: Text.ElideRight
                 }
 
                 DankButton {
+                    id: closeButton
+
                     text: "Close"
                     iconName: "close"
+                    anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     onClicked: window.close()
                 }

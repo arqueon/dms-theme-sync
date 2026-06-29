@@ -9,13 +9,7 @@ import qs.Widgets
 PluginSettings {
     id: root
 
-    property var installedGtkThemes: [{
-        "label": "Auto-detect matching variant",
-        "value": "auto"
-    }, {
-        "label": "Keep current theme",
-        "value": "preserve"
-    }]
+    property var installedGtkThemes: ["auto", "preserve"]
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
@@ -50,13 +44,7 @@ PluginSettings {
     }
 
     function parseThemes(text) {
-        const options = [{
-            "label": "Auto-detect matching variant",
-            "value": "auto"
-        }, {
-            "label": "Keep current theme",
-            "value": "preserve"
-        }];
+        const options = ["auto", "preserve"];
         const seen = ({
             "auto": true,
             "preserve": true
@@ -65,10 +53,7 @@ PluginSettings {
         for (let i = 0; i < names.length; i++) {
             const name = names[i].trim();
             if (name && !seen[name]) {
-                options.push({
-                    "label": name,
-                    "value": name
-                });
+                options.push(name);
                 seen[name] = true;
             }
         }
