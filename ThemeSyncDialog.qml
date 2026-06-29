@@ -17,7 +17,7 @@ DankModal {
     shouldBeVisible: false
     modalWidth: 680
     modalHeight: Math.min(820, screenHeight - 80)
-    keepContentLoaded: true
+    keepContentLoaded: false
     keepPopoutsOpen: true
     closeOnEscapeKey: true
     closeOnBackgroundClick: true
@@ -75,6 +75,7 @@ DankModal {
                 id: divider
 
                 anchors.top: header.bottom
+                anchors.topMargin: Theme.spacingM
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.leftMargin: Theme.spacingL

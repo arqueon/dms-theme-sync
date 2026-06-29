@@ -30,7 +30,7 @@ PluginComponent {
     readonly property string colorMode: Theme.isLightMode ? "light" : "dark"
     readonly property string gtkThemeLight: pluginData.gtkThemeLight || "auto"
     readonly property string gtkThemeDark: pluginData.gtkThemeDark || "auto"
-    readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "gtk3"
+    readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "preserve"
     readonly property string qtStyle: pluginData.qtStyle || "Fusion"
     readonly property bool applyMatugenColors: pluginData.applyMatugenColors !== undefined ? pluginData.applyMatugenColors : true
     readonly property bool syncKde: pluginData.syncKde !== undefined ? pluginData.syncKde : true

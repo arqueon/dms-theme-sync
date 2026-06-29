@@ -7,10 +7,13 @@
   "license": "MIT",
   "author": "arqueon",
   "icon": "palette",
-  "type": "daemon",
-  "component": "./ThemeSyncService.qml",
+  "type": "composite",
+  "components": {
+    "daemon": "./ThemeSyncService.qml",
+    "widget": "./ThemeSyncWidget.qml"
+  },
   "settings": "./ThemeSyncSettings.qml",
-  "capabilities": ["appearance", "daemon", "ipc"],
+  "capabilities": ["appearance", "daemon", "ipc", "dankbar-widget"],
   "category": "appearance",
   "compositors": ["any"],
   "distro": ["any"],

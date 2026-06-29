@@ -23,13 +23,23 @@ The GTK propagation follows the same model as `nwg-look`: GSettings is applied d
 
 ## Qt policy
 
-The plugin offers three modes:
+The plugin **always** writes the `qt5ct`/`qt6ct` configuration files (style, icons, fonts and the `DankMatugen.colors` palette). The Qt policy only controls the `QT_QPA_PLATFORMTHEME` environment variable, which selects whether Qt applications actually obey those files. Like DMS, the plugin treats that variable as user-owned:
 
-- **Follow GTK (`gtk3`)**: writes `QT_QPA_PLATFORMTHEME=gtk3`, so Qt applications use the chosen GTK theme where the Qt GTK platform plugin is available.
-- **DMS palette (`qt5ct/qt6ct`)**: uses qt5ct and qt6ct with DMS's generated `DankMatugen.colors` palette.
-- **Preserve environment**: updates Qt config files but does not select a platform-theme environment variable.
+- **Leave to my environment (default)**: the plugin does not touch `QT_QPA_PLATFORMTHEME`. Use this if you already set it (for example in `/etc/environment` or a `~/.config/environment.d/*.conf` file). This matches DMS, which never writes the variable either.
+- **Plugin sets Follow GTK (`gtk3`)**: writes `QT_QPA_PLATFORMTHEME=gtk3`, so Qt applications follow the chosen GTK theme where the Qt GTK platform plugin is available.
+- **Plugin sets DMS palette (`qt5ct/qt6ct`)**: writes `QT_QPA_PLATFORMTHEME=qt5ct`/`qt6ct`, so Qt applications use qt5ct/qt6ct with DMS's generated `DankMatugen.colors` palette.
 
-Environment changes apply reliably to new sessions. Existing applications generally need to be restarted; a logout/login may be required after changing the Qt policy.
+When the plugin does write the variable, it goes to `~/.config/environment.d/90-dms-theme-sync.conf`. Environment changes apply reliably only to new sessions; existing applications need to be restarted and a logout/login may be required.
+
+### Niri
+
+`environment.d` is read by the systemd user session, not by the Niri `environment {}` block, so on Niri the plugin uses a dedicated KDL include instead. It writes the managed environment variables — cursor (`XCURSOR_*`/`HYPRCURSOR_*`) and, when you opt in, the Qt platform theme — to:
+
+```text
+~/.config/niri/dms-theme-sync.kdl
+```
+
+and references it once by appending `include "dms-theme-sync.kdl"` to the end of `~/.config/niri/environment.kdl`. The include is regenerated idempotently on every apply and the resulting config is checked with `niri validate`; if validation fails the appended line is rolled back. On Niri the plugin does not write its `environment.d` file. Any `QT_QPA_PLATFORMTHEME` you already set inline in `environment.kdl` is left untouched (with the Qt policy on its default, the plugin does not emit a Qt line at all).
 
 ## Installation
 
