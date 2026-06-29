@@ -210,7 +210,7 @@ PluginComponent {
                 "qtPlatformTheme": root.qtPlatformTheme,
                 "applyMatugenColors": root.applyMatugenColors,
                 "lastOutput": root.lastOutput
-            });
+            }, null, 2);
         }
 
         function backup() : string {

@@ -1,47 +1,33 @@
 # DMS Theme Sync
 
-DMS Theme Sync is a daemon plugin for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell). It treats DMS as the source of truth and propagates its appearance settings to Linux applications without depending on a wallpaper manager.
+**Cross-toolkit theme synchronization for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell).** DMS Theme Sync treats DMS as the single source of truth for appearance and propagates it to GTK, Qt, KDE and X11/XWayland applications — no wallpaper manager required.
 
-It synchronizes:
+It runs as a background **daemon**, adds an optional **bar widget**, and ships a standalone **configuration dialog**.
 
-- DMS regular and monospace font families, plus configurable UI, monospace and document sizes.
-- DMS icon theme.
-- DMS cursor theme **and cursor size**.
-- A selectable GTK theme for DMS light and dark modes. Installed themes such as Matcha, Dracula, Breeze, adw-gtk3 and GTK2 themes using Murrine are supported by name.
-- GTK2 (`~/.gtkrc-2.0`), GTK3 and GTK4 `settings.ini`.
-- GNOME/GSettings and the desktop portal color-scheme hint.
-- Qt5/Qt6 fonts, icons, style and the DMS-generated `DankMatugen.colors` palette.
-- KDE fonts/icons/cursor through `kdeglobals` and `kcminputrc`.
-- Fontconfig generic aliases (`sans-serif`, `serif`, `monospace`).
-- XSettings for legacy GTK2/XWayland applications.
-- XCursor defaults and `environment.d` for applications started after login.
-- Automatic snapshots before changes, including affected files, GSettings and the user-systemd environment.
+## Highlights
 
-DMS itself remains responsible for generating dynamic GTK/Qt colors with Matugen. Keep DMS's **GTK**, **qt5ct** and **qt6ct** Matugen templates enabled. The plugin consumes the resulting `dank-colors.css` and `DankMatugen.colors`; it deliberately does not launch a second Matugen process, which avoids duplicate work and races during wallpaper changes.
+- **One place for everything.** The plugin UI mirrors every DMS appearance control — color theme, light/dark mode, Matugen palette & contrast, fonts, icons, cursor and cursor size — next to its own options, so you never jump between DMS Settings and the plugin.
+- **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, KDE, Fontconfig, XSettings and XCursor.
+- **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass.
+- **Safe by default.** Every apply takes a restorable snapshot first.
+- **Detected dropdowns only.** No free-form theme/font fields; numeric sizes use sliders with reset buttons.
 
-The GTK propagation follows the same model as `nwg-look`: GSettings is applied directly for the running Wayland session, while GTK configuration files are exported for compatibility. `nwg-look` is useful for previewing installed themes but is not a runtime dependency.
+## What it propagates
 
-## Qt policy
+| Area | Targets |
+| --- | --- |
+| **GTK** | `~/.gtkrc-2.0`, GTK3/GTK4 `settings.ini`, safe Matugen color import |
+| **GNOME** | GSettings (theme, icons, cursor + size, fonts) and the portal color-scheme hint |
+| **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette |
+| **KDE** | `kdeglobals`, `kcminputrc` |
+| **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
+| **X11** | XSettings and XCursor defaults |
+| **Session env** | `environment.d` — or a Niri KDL include (see [Niri](#niri)) |
 
-The plugin **always** writes the `qt5ct`/`qt6ct` configuration files (style, icons, fonts and the `DankMatugen.colors` palette). The Qt policy only controls the `QT_QPA_PLATFORMTHEME` environment variable, which selects whether Qt applications actually obey those files. Like DMS, the plugin treats that variable as user-owned:
+> [!IMPORTANT]
+> DMS generates the dynamic colors. Keep DMS's **GTK**, **qt5ct** and **qt6ct** Matugen templates enabled. The plugin consumes the resulting `dank-colors.css` and `DankMatugen.colors` and deliberately does **not** launch a second Matugen process — avoiding duplicate work and races during wallpaper changes.
 
-- **Leave to my environment (default)**: the plugin does not touch `QT_QPA_PLATFORMTHEME`. Use this if you already set it (for example in `/etc/environment` or a `~/.config/environment.d/*.conf` file). This matches DMS, which never writes the variable either.
-- **Plugin sets Follow GTK (`gtk3`)**: writes `QT_QPA_PLATFORMTHEME=gtk3`, so Qt applications follow the chosen GTK theme where the Qt GTK platform plugin is available.
-- **Plugin sets DMS palette (`qt5ct/qt6ct`)**: writes `QT_QPA_PLATFORMTHEME=qt5ct`/`qt6ct`, so Qt applications use qt5ct/qt6ct with DMS's generated `DankMatugen.colors` palette.
-
-When the plugin does write the variable, it goes to `~/.config/environment.d/90-dms-theme-sync.conf`. Environment changes apply reliably only to new sessions; existing applications need to be restarted and a logout/login may be required.
-
-### Niri
-
-`environment.d` is read by the systemd user session, not by the Niri `environment {}` block, so on Niri the plugin uses a dedicated KDL include instead. It writes the managed environment variables — cursor (`XCURSOR_*`/`HYPRCURSOR_*`) and, when you opt in, the Qt platform theme — to:
-
-```text
-~/.config/niri/dms-theme-sync.kdl
-```
-
-and references it once by appending `include "dms-theme-sync.kdl"` to the end of `~/.config/niri/environment.kdl`. The include is regenerated idempotently on every apply and the resulting config is checked with `niri validate`; if validation fails the appended line is rolled back. On Niri the plugin does not write its `environment.d` file. Any `QT_QPA_PLATFORMTHEME` you already set inline in `environment.kdl` is left untouched (with the Qt policy on its default, the plugin does not emit a Qt line at all).
-
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/arqueon/dms-theme-sync.git \
@@ -49,9 +35,7 @@ git clone https://github.com/arqueon/dms-theme-sync.git \
 dms restart
 ```
 
-Enable **DMS Theme Sync** in DMS Settings → Plugins. Configure light/dark GTK themes and font sizes in the plugin settings. Font families, icons, cursor theme and cursor size are selected in the normal DMS Appearance settings.
-
-All appearance choices in the plugin UI use detected dropdown menus; there are no free-form theme or font fields. Regular/monospace fonts, icons and cursors update the canonical DMS settings directly. Numeric sizes use bounded sliders.
+Enable **DMS Theme Sync** in *DMS Settings → Plugins*. Add the **bar widget** from *DMS Settings → Bar → Add Widget* for quick access.
 
 For local development:
 
@@ -61,7 +45,17 @@ ln -s ~/Projects/dms-theme-sync \
 dms ipc call plugins reload dmsThemeSync
 ```
 
-## IPC
+## Configure
+
+Open the dialog any of these ways:
+
+- **Bar widget** — **left click** opens the dialog, **right click** applies immediately.
+- **Keybind / IPC** — `dms ipc call dmsThemeSync configure`.
+- **DMS Settings → Plugins → DMS Theme Sync.**
+
+Controls that mirror DMS (color theme, light/dark, Matugen, fonts, icons, cursor) write the **canonical DMS settings** directly. Plugin-specific options — per-mode **GTK theme**, **font sizes**, **Qt policy** and **backups** — are stored by the plugin. All choices use detected dropdowns and bounded sliders; sliders have a reset-to-default button.
+
+### IPC
 
 ```bash
 dms ipc call dmsThemeSync apply
@@ -69,24 +63,39 @@ dms ipc call dmsThemeSync backup
 dms ipc call dmsThemeSync restoreLatest
 dms ipc call dmsThemeSync restore 20260628-182500
 dms ipc call dmsThemeSync configure
-dms ipc call dmsThemeSync status
+dms ipc call dmsThemeSync status      # pretty-printed JSON
 ```
 
-`configure` opens the plugin's standalone DMS-styled configuration dialog. It provides the same detected dropdowns, sliders, apply, backup and restore actions without navigating through DMS Settings. It can be assigned directly to a compositor keybinding.
+## Qt policy
 
-## Backups and restoration
+The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `DankMatugen.colors`). The Qt policy only controls the **`QT_QPA_PLATFORMTHEME`** variable, which decides whether Qt apps actually obey those files.
 
-Automatic backup is enabled by default. Before each application, the plugin snapshots every file it may change, relevant GNOME GSettings values, and cursor/Qt variables in the user-systemd environment. Retention is configurable from 1 to 30 snapshots; the default is 10.
+- **Leave to my environment** *(default)* — the plugin does not touch the variable. Use this if you set it yourself (e.g. `/etc/environment`, `environment.d`, or your compositor config). This matches DMS, which never writes it either.
+- **Plugin sets Follow GTK (`gtk3`)** — Qt apps follow the chosen GTK theme.
+- **Plugin sets DMS palette (`qt5ct`/`qt6ct`)** — Qt apps use the `DankMatugen.colors` palette.
 
-Snapshots live in:
+> [!NOTE]
+> Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
+
+### Niri
+
+`environment.d` is read by the systemd session, **not** by Niri's `environment {}` block. On **Niri** the plugin instead writes the managed variables — cursor (`XCURSOR_*`/`HYPRCURSOR_*`) and, when you opt in, the Qt platform theme — to a generated include:
+
+```text
+~/.config/niri/dms-theme-sync.kdl
+```
+
+referenced once by an `include "dms-theme-sync.kdl"` line appended to the end of `~/.config/niri/environment.kdl`. The include is regenerated idempotently and the result is checked with `niri validate`; a failing change is rolled back. The plugin's `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
+
+## Backups & restore
+
+Enabled by default. Before each apply, the plugin snapshots every file it may change, the relevant GSettings values, and the cursor/Qt session environment. Retention: **1–30** snapshots (default **10**).
 
 ```text
 ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/
 ```
 
-Restoring through the settings button or IPC disables automatic synchronization first, preventing the recovered configuration from being overwritten immediately. Files that did not exist when the snapshot was created are removed during restoration. Restart applications after restoring; Qt environment changes may require logging out and back in.
-
-The helper is also usable directly:
+Restore from the dialog's **backup-by-date** selector or via IPC. Restoring **disables auto-apply first** so the recovered state is not immediately overwritten; files that were absent when the snapshot was taken are removed.
 
 ```bash
 scripts/theme-snapshot.sh list
@@ -94,32 +103,35 @@ scripts/theme-snapshot.sh backup --retention 10 --label manual
 scripts/theme-snapshot.sh restore --snapshot latest
 ```
 
-## Optional packages
+## Files the plugin owns
 
-The helper degrades gracefully when a toolkit is absent. Install the components you use:
-
-- `gsettings`/`dconf` for GNOME settings and portal hints.
-- `qt5ct` and `qt6ct` (or `qt6ct-kde`, depending on distribution) for Qt configuration.
-- `xsettingsd` for legacy X11/XWayland clients.
-- The selected GTK theme and its engine. For GTK2 themes based on Murrine, install the GTK2 Murrine engine.
-
-GTK4/libadwaita does not fully honor arbitrary `GTK_THEME` widget themes. DMS's generated GTK4 CSS remains the color source; the plugin still synchronizes fonts, icons, cursor and dark/light preference.
-
-## Safety and files changed
-
-The helper performs key-level, idempotent updates. It does not replace complete GTK, Qt or KDE configuration files. Plugin-owned files are:
+The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt/KDE files. Files it creates:
 
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
-- `~/.config/environment.d/90-dms-theme-sync.conf`
+- `~/.config/environment.d/90-dms-theme-sync.conf` — non-Niri sessions
+- `~/.config/niri/dms-theme-sync.kdl` — Niri sessions (plus one `include` line in `environment.kdl`)
 
-These files are included in snapshots, including their prior absence, so restoration removes them when appropriate.
+The fontconfig and `environment.d` files are captured in snapshots (including their prior absence), so restore can remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
 
-Use the helper's `--dry-run` option during development to list intended writes. `--no-runtime` writes only into the selected HOME/XDG paths without calling GSettings, Fontconfig, XSettings or systemd; it is intended for isolated tests.
+> [!TIP]
+> `--dry-run` lists intended writes; `--no-runtime` writes only into the target HOME/XDG paths without calling GSettings, Fontconfig, XSettings, systemd or niri — intended for isolated tests.
 
-## License
+## Optional packages
 
-MIT
+Everything degrades gracefully when a toolkit is missing. Install what you use:
+
+- `gsettings`/`dconf` — GNOME settings and portal hints
+- `qt5ct` and `qt6ct` (or `qt6ct-kde`) — Qt configuration
+- `xsettingsd` — legacy X11/XWayland clients
+- the selected GTK theme and its engine (e.g. the **Murrine** engine for GTK2 themes)
+
+> [!NOTE]
+> GTK4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's generated GTK4 CSS stays the color source; the plugin still syncs fonts, icons, cursor and dark/light preference.
 
 ## Publishing
 
-After pushing the repository to `https://github.com/arqueon/dms-theme-sync`, copy `packaging/arqueon-dms-theme-sync.json` into the official registry's `plugins/` directory, run its validation commands, and submit the registry pull request. Add a screenshot URL to that entry when the settings-page screenshot is available.
+Push to `https://github.com/arqueon/dms-theme-sync`, copy `packaging/arqueon-dms-theme-sync.json` into the official registry's `plugins/` directory, run its validation commands, and open the pull request. Add a screenshot URL to that entry once the settings-page screenshot is available.
+
+## License
+
+[GPL-3.0-or-later](LICENSE)
