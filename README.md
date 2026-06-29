@@ -4,6 +4,8 @@
 
 It runs as a background **daemon**, adds an optional **bar widget**, and ships a standalone **configuration dialog**.
 
+<img width="809" height="930" alt="1782710026434229332" src="https://github.com/user-attachments/assets/14829950-5538-4334-8222-ec9ca35233c2" />
+
 ## Highlights
 
 - **One place for everything.** The plugin UI mirrors every DMS appearance control — color theme, light/dark mode, Matugen palette & contrast, fonts, icons, cursor and cursor size — next to its own options, so you never jump between DMS Settings and the plugin.
