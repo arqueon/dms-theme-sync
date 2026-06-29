@@ -1,0 +1,20 @@
+{
+  "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
+  "id": "dmsThemeSync",
+  "name": "DMS Theme Sync",
+  "description": "Synchronize DMS fonts, sizes, icons, cursor and GTK/Qt application themes across Linux toolkits",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "arqueon",
+  "icon": "palette",
+  "type": "daemon",
+  "component": "./ThemeSyncService.qml",
+  "settings": "./ThemeSyncSettings.qml",
+  "capabilities": ["appearance", "daemon", "ipc"],
+  "category": "appearance",
+  "compositors": ["any"],
+  "distro": ["any"],
+  "requires": ["bash"],
+  "requires_dms": ">=1.4.0",
+  "permissions": ["process", "settings_read", "settings_write"]
+}

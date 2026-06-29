@@ -1,0 +1,12 @@
+{
+  "id": "dmsThemeSync",
+  "name": "DMS Theme Sync",
+  "capabilities": ["appearance", "daemon", "ipc"],
+  "category": "appearance",
+  "repo": "https://github.com/arqueon/dms-theme-sync",
+  "author": "arqueon",
+  "description": "Synchronize DMS themes, fonts, sizes, icons and cursors across GTK, Qt, KDE and XWayland applications",
+  "dependencies": ["bash"],
+  "compositors": ["any"],
+  "distro": ["any"]
+}
