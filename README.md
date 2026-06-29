@@ -130,9 +130,9 @@ Everything degrades gracefully when a toolkit is missing. Install what you use:
 > [!NOTE]
 > GTK4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's generated GTK4 CSS stays the color source; the plugin still syncs fonts, icons, cursor and dark/light preference.
 
-## Publishing
+## Availability
 
-Push to `https://github.com/arqueon/dms-theme-sync`, copy `packaging/arqueon-dms-theme-sync.json` into the official registry's `plugins/` directory, run its validation commands, and open the pull request. Add a screenshot URL to that entry once the settings-page screenshot is available.
+Source: <https://github.com/arqueon/dms-theme-sync>. Submitted to the [DMS plugin registry](https://danklinux.com/plugins); once listed it can also be browsed from *DMS Settings → Plugins*.
 
 ## License
 
