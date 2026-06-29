@@ -87,7 +87,7 @@ The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `Da
 ~/.config/niri/dms-theme-sync.kdl
 ```
 
-referenced once by an `include "dms-theme-sync.kdl"` line appended to the end of `~/.config/niri/environment.kdl`. The include is regenerated idempotently and the result is checked with `niri validate`; a failing change is rolled back. The plugin's `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
+referenced once by an `include "dms-theme-sync.kdl"` line appended to the end of `~/.config/niri/environment.kdl` — or to `config.kdl` if your config is not split into includes. The include is regenerated idempotently and the result is checked with `niri validate`; a failing change is rolled back. The plugin's `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
 
 ## Backups & restore
 

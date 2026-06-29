@@ -396,6 +396,7 @@ ENV_FILE="$ENV_DIR/90-dms-theme-sync.conf"
 NIRI_DIR="$XDG_CONFIG_HOME/niri"
 NIRI_INCLUDE="$NIRI_DIR/dms-theme-sync.kdl"
 NIRI_ENV_KDL="$NIRI_DIR/environment.kdl"
+NIRI_CONFIG_KDL="$NIRI_DIR/config.kdl"
 
 running_niri() {
     [[ -n ${NIRI_SOCKET:-} ]] && return 0
@@ -432,15 +433,23 @@ write_niri_env_include() {
     } > "$tmp"
     mv "$tmp" "$NIRI_INCLUDE"
 
-    # Reference the include once, at the end of environment.kdl. Validate the
-    # resulting Niri config and roll the line back if it does not parse.
-    if [[ -f $NIRI_ENV_KDL ]] && ! grep -q 'dms-theme-sync.kdl' "$NIRI_ENV_KDL"; then
-        printf '\ninclude "dms-theme-sync.kdl"\n' >> "$NIRI_ENV_KDL"
+    # Reference the include once, at the end of the user's config. Prefer
+    # environment.kdl when the config is split into includes; otherwise fall back
+    # to config.kdl (monolithic configs). The include path is relative to the
+    # same directory either way. Validate and roll the line back if it fails.
+    local target=""
+    if [[ -f $NIRI_ENV_KDL ]]; then
+        target="$NIRI_ENV_KDL"
+    elif [[ -f $NIRI_CONFIG_KDL ]]; then
+        target="$NIRI_CONFIG_KDL"
+    fi
+    if [[ -n $target ]] && ! grep -q 'dms-theme-sync.kdl' "$target"; then
+        printf '\ninclude "dms-theme-sync.kdl"\n' >> "$target"
         if [[ $NO_RUNTIME != true ]] && command -v niri >/dev/null 2>&1 && ! niri validate >/dev/null 2>&1; then
-            grep -v '^include "dms-theme-sync.kdl"$' "$NIRI_ENV_KDL" > "$NIRI_ENV_KDL.tmp.$$" \
-                && cat "$NIRI_ENV_KDL.tmp.$$" > "$NIRI_ENV_KDL"
-            rm -f "$NIRI_ENV_KDL.tmp.$$"
-            log "WARN: niri validate failed; reverted include in environment.kdl"
+            grep -v '^include "dms-theme-sync.kdl"$' "$target" > "$target.tmp.$$" \
+                && cat "$target.tmp.$$" > "$target"
+            rm -f "$target.tmp.$$"
+            log "WARN: niri validate failed; reverted include in $(basename "$target")"
         fi
     fi
 }
