@@ -1,12 +1,14 @@
 {
   "id": "dmsThemeSync",
   "name": "DMS Theme Sync",
-  "capabilities": ["appearance", "daemon", "ipc"],
+  "capabilities": ["dankbar-widget", "daemon", "ipc"],
   "category": "appearance",
   "repo": "https://github.com/arqueon/dms-theme-sync",
   "author": "arqueon",
-  "description": "Synchronize DMS themes, fonts, sizes, icons and cursors across GTK, Qt, KDE and XWayland applications",
+  "description": "Make DMS the source of truth for appearance and propagate it to GTK, Qt, KDE, Fontconfig and XWayland apps — theme, light/dark, fonts, sizes, icons and cursor.",
   "dependencies": ["bash"],
-  "compositors": ["any"],
-  "distro": ["any"]
+  "compositors": ["niri"],
+  "distro": ["any"],
+  "license": "GPL-3.0-or-later",
+  "screenshot": "https://raw.githubusercontent.com/arqueon/dms-theme-sync/main/assets/screenshot.png"
 }

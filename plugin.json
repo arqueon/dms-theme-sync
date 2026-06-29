@@ -15,7 +15,7 @@
   "settings": "./ThemeSyncSettings.qml",
   "capabilities": ["appearance", "daemon", "ipc", "dankbar-widget"],
   "category": "appearance",
-  "compositors": ["any"],
+  "compositors": ["niri"],
   "distro": ["any"],
   "requires": ["bash"],
   "requires_dms": ">=1.4.0",
