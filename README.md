@@ -24,7 +24,7 @@ It runs as a background **daemon**, adds an optional **bar widget**, and ships a
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
-| **Session env** | `environment.d` — or a Niri KDL include (see [Niri](#niri)) |
+| **Session env** | `environment.d` + live systemd user env — or a Niri KDL include (see [Compositors](#compositors)) |
 
 > [!IMPORTANT]
 > DMS generates the dynamic colors. Keep DMS's **GTK**, **qt5ct** and **qt6ct** Matugen templates enabled. The plugin consumes the resulting `dank-colors.css` and `DankMatugen.colors` and deliberately does **not** launch a second Matugen process — avoiding duplicate work and races during wallpaper changes.
@@ -79,15 +79,42 @@ The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `Da
 > [!NOTE]
 > Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
 
-### Niri
+### Compositors
 
-`environment.d` is read by the systemd session, **not** by Niri's `environment {}` block. On **Niri** the plugin instead writes the managed variables — cursor (`XCURSOR_*`/`HYPRCURSOR_*`) and, when you opt in, the Qt platform theme — to a generated include:
+Only the **session-environment** variables — cursor (`XCURSOR_*`/`HYPRCURSOR_*`) and, when you opt in, the Qt platform theme — depend on the compositor. Everything else (GTK, Qt, KDE, Fontconfig, GSettings, XSettings) is compositor-agnostic and applies identically everywhere.
 
-```text
-~/.config/niri/dms-theme-sync.kdl
-```
+The plugin detects the running compositor (via DMS's `CompositorService`) and always refreshes the **live** systemd user environment (`systemctl --user set-environment`) so apps launched after an apply pick up the new values immediately. The persistent env is written per compositor:
 
-referenced once by an `include "dms-theme-sync.kdl"` line appended to the end of `~/.config/niri/environment.kdl` — or to `config.kdl` if your config is not split into includes. The include is regenerated idempotently and the result is checked with `niri validate`; a failing change is rolled back. The plugin's `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
+- **Niri** — `environment.d` is read by the systemd session, **not** by Niri's `environment {}` block, so on Niri the plugin writes a generated KDL include:
+
+  ```text
+  ~/.config/niri/dms-theme-sync.kdl
+  ```
+
+  referenced once by an `include "dms-theme-sync.kdl"` line appended to `~/.config/niri/environment.kdl` — or to `config.kdl` if your config is not split into includes. The include is regenerated idempotently and checked with `niri validate`; a failing change is rolled back. The `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
+
+- **Hyprland** — a generated include `source`d once from your main config, written in whichever format you actually use (Hyprland 0.55 switched from hyprlang to Lua, both still supported):
+  - `~/.config/hypr/dms-theme-sync.conf` (`env = …`) sourced from `hyprland.conf`, **and/or**
+  - `~/.config/hypr/dms-theme-sync.lua` (`hl.env(…)`) `require()`d from `hyprland.lua`.
+
+  The plugin only writes the format whose main config exists and never creates a main config, so a Lua-only setup never gets a hyprlang file and vice-versa.
+
+- **labwc** — a delimited block (your other lines untouched) in labwc's native env file:
+
+  ```text
+  ~/.config/labwc/environment
+  ```
+
+- **Sway, Scroll, MangoWC, Miracle WM and any other Wayland compositor** — these have no directive to export env to child apps, so the plugin relies on the universal baseline:
+
+  ```text
+  ~/.config/environment.d/90-dms-theme-sync.conf
+  ```
+
+  imported automatically by sessions started through **[uwsm](https://github.com/Vladimir-csp/uwsm)** (the launcher DMS recommends) or any systemd user session. The baseline is **also** written on Hyprland and labwc, so they are covered whether or not the compositor reads its native env file.
+
+> [!NOTE]
+> Compositor env files only apply at startup. Newly launched apps pick up changes; existing apps and `exec-once`/autostart entries that ran before the include is parsed need a relog. The live-session refresh still updates already-running DMS on each apply. If you start a compositor **without** uwsm/systemd and without one of the native configs above, you fall into the "reduced features" case in the [DMS compositor guide](https://danklinux.com/docs/dankmaterialshell/compositors).
 
 ## Backups & restore
 
@@ -110,10 +137,12 @@ scripts/theme-snapshot.sh restore --snapshot latest
 The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt/KDE files. Files it creates:
 
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
-- `~/.config/environment.d/90-dms-theme-sync.conf` — non-Niri sessions
-- `~/.config/niri/dms-theme-sync.kdl` — Niri sessions (plus one `include` line in `environment.kdl`)
+- `~/.config/environment.d/90-dms-theme-sync.conf` — every compositor except Niri
+- `~/.config/niri/dms-theme-sync.kdl` — Niri only (plus one `include` line in `environment.kdl`)
+- `~/.config/hypr/dms-theme-sync.conf` / `dms-theme-sync.lua` — Hyprland only (plus one `source`/`require` line in your main config)
+- `~/.config/labwc/environment` — labwc only (a delimited `dmsThemeSync` block; surrounding lines untouched)
 
-The fontconfig and `environment.d` files are captured in snapshots (including their prior absence), so restore can remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
+The fontconfig, `environment.d`, Hyprland include and labwc env files are captured in snapshots (including their prior absence), so restore can revert or remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
 
 > [!TIP]
 > `--dry-run` lists intended writes; `--no-runtime` writes only into the target HOME/XDG paths without calling GSettings, Fontconfig, XSettings, systemd or niri — intended for isolated tests.

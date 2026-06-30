@@ -41,6 +41,9 @@ TARGETS=(
     "$HOME/.icons/default/index.theme"
     "$XDG_DATA_HOME/icons/default/index.theme"
     "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+    "$XDG_CONFIG_HOME/hypr/dms-theme-sync.conf"
+    "$XDG_CONFIG_HOME/hypr/dms-theme-sync.lua"
+    "$XDG_CONFIG_HOME/labwc/environment"
 )
 
 GSETTINGS=(
