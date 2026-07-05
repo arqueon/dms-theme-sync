@@ -546,7 +546,12 @@ write_labwc_env_block() {
 
 # Niri reads env vars from its environment {} block, not environment.d. On Niri
 # we generate a dedicated include (cursor + Qt platform theme) and reference it
-# once from the end of environment.kdl, mirroring how DMS manages dms/*.kdl.
+# once as a TOP-LEVEL include in config.kdl. Placement matters: it must come
+# after the dms/*.kdl includes (so the synced theme overrides DMS-generated
+# cursor/theme values) and before any user override includes (user*.kdl keeps
+# the last word), so on fresh setups the line is inserted before the first
+# `include "user..."` if present. If the line already exists anywhere in
+# config.kdl, its position is respected and nothing is moved.
 write_niri_env_include() {
     local qt5="" qt6=""
     case "$QT_PLATFORM_THEME" in
@@ -573,30 +578,47 @@ write_niri_env_include() {
     } > "$tmp"
     mv "$tmp" "$NIRI_INCLUDE"
 
-    # Reference the include once, at the end of the user's config. Prefer
-    # environment.kdl when the config is split into includes; otherwise fall back
-    # to config.kdl (monolithic configs). The include path is relative to the
-    # same directory either way. Validate and roll the line back if it fails.
-    local target=""
-    if [[ -f $NIRI_ENV_KDL ]]; then
-        target="$NIRI_ENV_KDL"
-    elif [[ -f $NIRI_CONFIG_KDL ]]; then
-        target="$NIRI_CONFIG_KDL"
+    [[ -f $NIRI_CONFIG_KDL ]] || return 0
+
+    # All writes go through `cat > target` so symlinked configs (dotfile
+    # managers like lnk) are written through, never replaced.
+    local changed=false backup_env="" backup_cfg=""
+
+    # Migration: versions <=0.3.0 appended the include to environment.kdl.
+    # Remove it there so config.kdl is the single reference point.
+    if [[ -f $NIRI_ENV_KDL ]] && grep -q '^include "dms-theme-sync.kdl"$' "$NIRI_ENV_KDL"; then
+        backup_env=$(cat "$NIRI_ENV_KDL")
+        grep -v '^include "dms-theme-sync.kdl"$' "$NIRI_ENV_KDL" > "$NIRI_ENV_KDL.tmp.$$" \
+            && cat "$NIRI_ENV_KDL.tmp.$$" > "$NIRI_ENV_KDL"
+        rm -f "$NIRI_ENV_KDL.tmp.$$"
+        changed=true
     fi
-    if [[ -n $target ]] && ! grep -q 'dms-theme-sync.kdl' "$target"; then
-        printf '\ninclude "dms-theme-sync.kdl"\n' >> "$target"
-        if [[ $NO_RUNTIME != true ]] && command -v niri >/dev/null 2>&1 && ! niri validate >/dev/null 2>&1; then
-            grep -v '^include "dms-theme-sync.kdl"$' "$target" > "$target.tmp.$$" \
-                && cat "$target.tmp.$$" > "$target"
-            rm -f "$target.tmp.$$"
-            log "WARN: niri validate failed; reverted include in $(basename "$target")"
+
+    if ! grep -q 'dms-theme-sync.kdl' "$NIRI_CONFIG_KDL"; then
+        backup_cfg=$(cat "$NIRI_CONFIG_KDL")
+        if grep -q '^include "user' "$NIRI_CONFIG_KDL"; then
+            awk '!done && /^include "user/ { print "include \"dms-theme-sync.kdl\""; done=1 } { print }' \
+                "$NIRI_CONFIG_KDL" > "$NIRI_CONFIG_KDL.tmp.$$" \
+                && cat "$NIRI_CONFIG_KDL.tmp.$$" > "$NIRI_CONFIG_KDL"
+            rm -f "$NIRI_CONFIG_KDL.tmp.$$"
+        else
+            printf '\ninclude "dms-theme-sync.kdl"\n' >> "$NIRI_CONFIG_KDL"
         fi
+        changed=true
+    fi
+
+    # Validate the combined result; on failure restore both files verbatim.
+    if [[ $changed == true && $NO_RUNTIME != true ]] && command -v niri >/dev/null 2>&1 \
+        && ! niri validate >/dev/null 2>&1; then
+        [[ -n $backup_cfg ]] && printf '%s\n' "$backup_cfg" > "$NIRI_CONFIG_KDL"
+        [[ -n $backup_env ]] && printf '%s\n' "$backup_env" > "$NIRI_ENV_KDL"
+        log "WARN: niri validate failed; reverted include changes in config.kdl/environment.kdl"
     fi
 }
 
 if $DRY_RUN; then
     case "$COMPOSITOR" in
-        niri)     log "DRY-RUN: write Niri include $NIRI_INCLUDE (+ include line), drop $ENV_FILE" ;;
+        niri)     log "DRY-RUN: write Niri include $NIRI_INCLUDE (+ top-level include in config.kdl), drop $ENV_FILE" ;;
         hyprland) log "DRY-RUN: write $ENV_FILE + Hyprland include (hyprlang and/or Lua, whichever main config exists)" ;;
         labwc)    log "DRY-RUN: write $ENV_FILE + labwc block in $LABWC_ENV" ;;
         *)        log "DRY-RUN: write $ENV_FILE (environment.d baseline)" ;;

@@ -91,7 +91,7 @@ The plugin detects the running compositor (via DMS's `CompositorService`) and al
   ~/.config/niri/dms-theme-sync.kdl
   ```
 
-  referenced once by an `include "dms-theme-sync.kdl"` line appended to `~/.config/niri/environment.kdl` — or to `config.kdl` if your config is not split into includes. The include is regenerated idempotently and checked with `niri validate`; a failing change is rolled back. The `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
+  referenced once by a top-level `include "dms-theme-sync.kdl"` line in `~/.config/niri/config.kdl`. On fresh setups the line is inserted **before** the first `include "user..."` line if you have one, so it overrides the DMS-generated `dms/*.kdl` values (cursor, Qt platform theme) while your own override files keep the last word; if the line already exists, its position is respected. Setups migrated from older plugin versions (<=0.3.0) get the stray include removed from `environment.kdl` automatically. Every change is checked with `niri validate` and rolled back verbatim on failure. The `environment.d` file is **not** used on Niri, and any `QT_QPA_PLATFORMTHEME` you set inline in `environment.kdl` is left untouched.
 
 - **Hyprland** — a generated include `source`d once from your main config, written in whichever format you actually use (Hyprland 0.55 switched from hyprlang to Lua, both still supported):
   - `~/.config/hypr/dms-theme-sync.conf` (`env = …`) sourced from `hyprland.conf`, **and/or**
@@ -138,7 +138,7 @@ The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt
 
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
 - `~/.config/environment.d/90-dms-theme-sync.conf` — every compositor except Niri
-- `~/.config/niri/dms-theme-sync.kdl` — Niri only (plus one `include` line in `environment.kdl`)
+- `~/.config/niri/dms-theme-sync.kdl` — Niri only (plus one top-level `include` line in `config.kdl`)
 - `~/.config/hypr/dms-theme-sync.conf` / `dms-theme-sync.lua` — Hyprland only (plus one `source`/`require` line in your main config)
 - `~/.config/labwc/environment` — labwc only (a delimited `dmsThemeSync` block; surrounding lines untouched)
 

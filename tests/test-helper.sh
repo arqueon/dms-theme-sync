@@ -81,4 +81,56 @@ grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 }
 "$ROOT/scripts/theme-snapshot.sh" list | grep -Fqx "$snapshot"
 
+# --- Niri: top-level include in config.kdl, migration from environment.kdl ---
+NIRI_DIR="$XDG_CONFIG_HOME/niri"
+mkdir -p "$NIRI_DIR"
+printf 'include "input.kdl"\ninclude "dms/colors.kdl"\ninclude "user-common.kdl"\ninclude "user.kdl"\n' \
+    > "$NIRI_DIR/config.kdl"
+# legacy layout (<=0.3.0): include appended to environment.kdl
+printf 'environment {\n    FOO "bar"\n}\n\ninclude "dms-theme-sync.kdl"\n' > "$NIRI_DIR/environment.kdl"
+
+run_niri() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --qt-style Fusion \
+        --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd true --no-runtime \
+        --compositor niri >/dev/null
+}
+run_niri
+
+[[ -f $NIRI_DIR/dms-theme-sync.kdl ]] || { printf 'Niri include file not generated\n' >&2; exit 1; }
+grep -Fqx 'include "dms-theme-sync.kdl"' "$NIRI_DIR/config.kdl" \
+    || { printf 'Include line missing from config.kdl\n' >&2; exit 1; }
+# inserted before the first user include, after dms/ includes
+expected=$(printf 'include "input.kdl"\ninclude "dms/colors.kdl"\ninclude "dms-theme-sync.kdl"\ninclude "user-common.kdl"\ninclude "user.kdl"\n')
+[[ $(cat "$NIRI_DIR/config.kdl") == "$expected" ]] \
+    || { printf 'Include not placed before user includes:\n%s\n' "$(cat "$NIRI_DIR/config.kdl")" >&2; exit 1; }
+grep -q 'dms-theme-sync.kdl' "$NIRI_DIR/environment.kdl" \
+    && { printf 'Legacy include not migrated out of environment.kdl\n' >&2; exit 1; }
+grep -Fqx '    FOO "bar"' "$NIRI_DIR/environment.kdl" \
+    || { printf 'environment.kdl content damaged by migration\n' >&2; exit 1; }
+[[ ! -e $XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf ]] \
+    || { printf 'environment.d baseline should be dropped on Niri\n' >&2; exit 1; }
+
+# idempotent second run: config.kdl untouched, position respected
+before_niri=$(cat "$NIRI_DIR/config.kdl")
+run_niri
+[[ $(cat "$NIRI_DIR/config.kdl") == "$before_niri" ]] \
+    || { printf 'Second Niri run moved or duplicated the include\n' >&2; exit 1; }
+
+# config.kdl written through symlinks (dotfile managers), never replaced
+repo_dir="$TMP/lnk-repo"; mkdir -p "$repo_dir"
+mv "$NIRI_DIR/config.kdl" "$repo_dir/config.kdl"
+sed -i '/dms-theme-sync/d' "$repo_dir/config.kdl"
+ln -s "$repo_dir/config.kdl" "$NIRI_DIR/config.kdl"
+run_niri
+[[ -L $NIRI_DIR/config.kdl ]] || { printf 'Symlinked config.kdl was replaced by a regular file\n' >&2; exit 1; }
+grep -Fqx 'include "dms-theme-sync.kdl"' "$repo_dir/config.kdl" \
+    || { printf 'Include not written through the symlink\n' >&2; exit 1; }
+
 printf 'helper tests: ok\n'
