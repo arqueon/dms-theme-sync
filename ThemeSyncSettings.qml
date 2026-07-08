@@ -902,6 +902,13 @@ PluginSettings {
         defaultValue: true
     }
 
+    ToggleSetting {
+        settingKey: "syncTerminalFonts"
+        label: "Synchronize terminal fonts"
+        description: "Terminals read their own config, not GTK/Qt, so the monospace font never reaches them otherwise. When on, the plugin writes a font include per terminal in ~/.config/dms-theme-sync/ (kitty.conf, alacritty.toml, ghostty.conf) using the DMS monospace font and size. Opt-in: reference each file from your terminal config once — kitty: include ~/.config/dms-theme-sync/kitty.conf · ghostty: config-file = ~/.config/dms-theme-sync/ghostty.conf · alacritty: add it to [general] import. Each generated file also prints its exact reference line in its header."
+        defaultValue: false
+    }
+
     // --- Synchronization and backups ---
 
     ToggleSetting {

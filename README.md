@@ -24,6 +24,7 @@ It runs as a background **daemon**, adds an optional **bar widget**, and ships a
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
+| **Terminals** | opt-in font includes for kitty, Alacritty and Ghostty (see [Terminal fonts](#terminal-fonts)) |
 | **Session env** | `environment.d` + live systemd user env — or a Niri KDL include (see [Compositors](#compositors)) |
 
 > [!IMPORTANT]
@@ -116,6 +117,36 @@ The plugin detects the running compositor (via DMS's `CompositorService`) and al
 > [!NOTE]
 > Compositor env files only apply at startup. Newly launched apps pick up changes; existing apps and `exec-once`/autostart entries that ran before the include is parsed need a relog. The live-session refresh still updates already-running DMS on each apply. If you start a compositor **without** uwsm/systemd and without one of the native configs above, you fall into the "reduced features" case in the [DMS compositor guide](https://danklinux.com/docs/dankmaterialshell/compositors).
 
+## Terminal fonts
+
+Terminal emulators read **their own** config, not GTK/Qt/GSettings/Fontconfig, so the DMS monospace font never reaches them through the toolkit sync — a terminal with no `font_family` of its own falls back to the generic `monospace`, which fontconfig may resolve to something other than your DMS choice.
+
+This is **opt-in** (off by default) so it never rewrites a terminal config you did not ask it to. Enable **Synchronize terminal fonts** in the plugin settings. The plugin then writes one font include per terminal — each in that terminal's **own syntax** — using the DMS monospace family and size, into a single stable directory:
+
+```text
+~/.config/dms-theme-sync/kitty.conf      # font_family / font_size
+~/.config/dms-theme-sync/alacritty.toml  # [font] size + [font.normal] family
+~/.config/dms-theme-sync/ghostty.conf    # font-family = / font-size =
+```
+
+The plugin only **generates** these files; you reference each one from your terminal config **once** (the exact line is printed in every file's header):
+
+- **kitty** — in `~/.config/kitty/kitty.conf`:
+  ```conf
+  include ~/.config/dms-theme-sync/kitty.conf
+  ```
+- **Ghostty** — in your Ghostty config:
+  ```conf
+  config-file = ~/.config/dms-theme-sync/ghostty.conf
+  ```
+- **Alacritty** — in `~/.config/alacritty/alacritty.toml`:
+  ```toml
+  [general]
+  import = ["~/.config/dms-theme-sync/alacritty.toml"]
+  ```
+
+Place the reference where it should win: kitty and Ghostty let a later line override an earlier one, so put it **after** any `font_family`/`font-family` you keep, or remove yours and let the include own it. Changes apply on the terminal's next launch or config reload (e.g. kitty `ctrl+shift+F5`, or `kill -SIGUSR1 $(pidof kitty)`).
+
 ## Backups & restore
 
 Enabled by default. Before each apply, the plugin snapshots every file it may change, the relevant GSettings values, and the cursor/Qt session environment. Retention: **1–30** snapshots (default **10**).
@@ -141,8 +172,9 @@ The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt
 - `~/.config/niri/dms-theme-sync.kdl` — Niri only (plus one top-level `include` line in `config.kdl`)
 - `~/.config/hypr/dms-theme-sync.conf` / `dms-theme-sync.lua` — Hyprland only (plus one `source`/`require` line in your main config)
 - `~/.config/labwc/environment` — labwc only (a delimited `dmsThemeSync` block; surrounding lines untouched)
+- `~/.config/dms-theme-sync/{kitty.conf,alacritty.toml,ghostty.conf}` — only when **Synchronize terminal fonts** is on; referenced from your terminal configs, never injected into them
 
-The fontconfig, `environment.d`, Hyprland include and labwc env files are captured in snapshots (including their prior absence), so restore can revert or remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
+The fontconfig, `environment.d`, Hyprland include, labwc env and terminal font files are captured in snapshots (including their prior absence), so restore can revert or remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
 
 > [!TIP]
 > `--dry-run` lists intended writes; `--no-runtime` writes only into the target HOME/XDG paths without calling GSettings, Fontconfig, XSettings, systemd or niri — intended for isolated tests.

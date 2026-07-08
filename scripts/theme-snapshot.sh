@@ -44,6 +44,12 @@ TARGETS=(
     "$XDG_CONFIG_HOME/hypr/dms-theme-sync.conf"
     "$XDG_CONFIG_HOME/hypr/dms-theme-sync.lua"
     "$XDG_CONFIG_HOME/labwc/environment"
+    # Terminal font includes (only present when "Synchronize terminal fonts" is
+    # on). Appended last on purpose: backups map array index -> payload, so new
+    # entries must never shift existing indices or old snapshots misrestore.
+    "$XDG_CONFIG_HOME/dms-theme-sync/kitty.conf"
+    "$XDG_CONFIG_HOME/dms-theme-sync/alacritty.toml"
+    "$XDG_CONFIG_HOME/dms-theme-sync/ghostty.conf"
 )
 
 GSETTINGS=(

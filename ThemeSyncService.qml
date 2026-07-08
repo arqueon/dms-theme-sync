@@ -35,9 +35,10 @@ PluginComponent {
     readonly property bool applyMatugenColors: pluginData.applyMatugenColors !== undefined ? pluginData.applyMatugenColors : true
     readonly property bool syncKde: pluginData.syncKde !== undefined ? pluginData.syncKde : true
     readonly property bool syncXsettingsd: pluginData.syncXsettingsd !== undefined ? pluginData.syncXsettingsd : true
+    readonly property bool syncTerminalFonts: pluginData.syncTerminalFonts !== undefined ? pluginData.syncTerminalFonts : false
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, applyMatugenColors, syncKde, syncXsettingsd])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts])
 
     function helperPath() {
         return Paths.strip(Qt.resolvedUrl("scripts/apply-theme.sh").toString());
@@ -48,7 +49,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 

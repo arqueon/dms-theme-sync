@@ -133,4 +133,51 @@ run_niri
 grep -Fqx 'include "dms-theme-sync.kdl"' "$repo_dir/config.kdl" \
     || { printf 'Include not written through the symlink\n' >&2; exit 1; }
 
+# --- Terminal font includes: off by default, generated only when opted in ---
+TERMINAL_DIR="$XDG_CONFIG_HOME/dms-theme-sync"
+
+run_terminal() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --qt-style Fusion \
+        --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd true --no-runtime "$@" >/dev/null
+}
+
+# default (flag absent): nothing written
+run_terminal
+[[ ! -e $TERMINAL_DIR ]] || { printf 'Terminal includes written without opt-in\n' >&2; exit 1; }
+# explicit false: still nothing
+run_terminal --sync-terminal-fonts false
+[[ ! -e $TERMINAL_DIR ]] || { printf 'Terminal includes written with --sync-terminal-fonts false\n' >&2; exit 1; }
+
+# opt-in: three files, each in its terminal's own syntax
+run_terminal --sync-terminal-fonts true
+assert_line "$TERMINAL_DIR/kitty.conf" "font_family Cascadia Mono"
+assert_line "$TERMINAL_DIR/kitty.conf" "font_size 12"
+assert_line "$TERMINAL_DIR/ghostty.conf" "font-family = Cascadia Mono"
+assert_line "$TERMINAL_DIR/ghostty.conf" "font-size = 12"
+assert_line "$TERMINAL_DIR/alacritty.toml" 'family = "Cascadia Mono"'
+assert_line "$TERMINAL_DIR/alacritty.toml" "size = 12"
+
+# idempotent second run with the flag on
+before_term=$(find "$TERMINAL_DIR" -type f -exec sha256sum {} + | LC_ALL=C sort)
+run_terminal --sync-terminal-fonts true
+after_term=$(find "$TERMINAL_DIR" -type f -exec sha256sum {} + | LC_ALL=C sort)
+[[ $before_term == "$after_term" ]] || { printf 'Terminal include run was not idempotent\n' >&2; exit 1; }
+
+# terminal includes are captured in snapshots and restore can remove them
+BACKUP_ROOT="$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups"
+term_backup=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 3 --label term --no-runtime)
+term_snapshot=${term_backup#BACKUP_CREATED:}
+grep -Fq "$TERMINAL_DIR/kitty.conf" "$BACKUP_ROOT/$term_snapshot/manifest.tsv" \
+    || { printf 'Terminal include not recorded in snapshot manifest\n' >&2; exit 1; }
+rm -rf "$TERMINAL_DIR"
+"$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$term_snapshot" --no-runtime >/dev/null
+assert_line "$TERMINAL_DIR/kitty.conf" "font_family Cascadia Mono"
+
 printf 'helper tests: ok\n'
