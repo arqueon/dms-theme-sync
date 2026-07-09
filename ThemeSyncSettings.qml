@@ -13,6 +13,20 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    // Only Papirus ships the folder colour variants the accent sync needs. Once
+    // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
+    // base theme rather than the applied one.
+    readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
+
+    // Visible section divider. The file used to mark its sections with `// ---`
+    // comments, which organise the source and nothing else: in the UI the ~30
+    // controls ran together as one flat list.
+    component SectionHeader: StyledText {
+        width: parent ? parent.width : 0
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Bold
+        color: Theme.primary
+    }
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     property var snapshots: []
 
@@ -253,7 +267,9 @@ PluginSettings {
         wrapMode: Text.WordWrap
     }
 
-    // --- DMS appearance (acts directly on DMS, identical to DMS Settings) ---
+    SectionHeader {
+        text: "DMS appearance"
+    }
 
     Column {
         width: parent.width
@@ -390,7 +406,9 @@ PluginSettings {
 
     }
 
-    // --- Fonts, icons and cursor (write the canonical DMS settings) ---
+    SectionHeader {
+        text: "Fonts, icons and cursor"
+    }
 
     Column {
         width: parent.width
@@ -610,7 +628,9 @@ PluginSettings {
 
     }
 
-    // --- GTK theme (plugin-owned, propagated to applications) ---
+    SectionHeader {
+        text: "GTK theme"
+    }
 
     Column {
         width: parent.width
@@ -680,6 +700,19 @@ PluginSettings {
 
     }
 
+    // Not a Qt setting: it drives the GTK CSS import *and* the Qt palette, and
+    // used to sit wedged between the two Qt dropdowns.
+    ToggleSetting {
+        settingKey: "applyMatugenColors"
+        label: "Apply DMS Matugen colors"
+        description: "Import DMS dynamic colors over the selected GTK theme and use DankMatugen.colors for Qt"
+        defaultValue: true
+    }
+
+    SectionHeader {
+        text: "Qt applications"
+    }
+
     SelectionSetting {
         settingKey: "qtPlatformTheme"
         label: "Qt5/Qt6 platform theme"
@@ -697,13 +730,6 @@ PluginSettings {
         defaultValue: "preserve"
     }
 
-    ToggleSetting {
-        settingKey: "applyMatugenColors"
-        label: "Apply DMS Matugen colors"
-        description: "Import DMS dynamic colors over the selected GTK theme and use DankMatugen.colors for Qt"
-        defaultValue: true
-    }
-
     SelectionSetting {
         settingKey: "qtStyle"
         label: "Qt widget style"
@@ -715,7 +741,9 @@ PluginSettings {
         defaultValue: "Fusion"
     }
 
-    // --- Font sizes (plugin-owned, with reset-to-default) ---
+    SectionHeader {
+        text: "Font sizes"
+    }
 
     Column {
         width: parent.width
@@ -888,6 +916,10 @@ PluginSettings {
 
     }
 
+    SectionHeader {
+        text: "Propagation targets"
+    }
+
     ToggleSetting {
         settingKey: "syncKde"
         label: "Synchronize KDE configuration"
@@ -909,7 +941,31 @@ PluginSettings {
         defaultValue: false
     }
 
-    // --- Synchronization and backups ---
+    ToggleSetting {
+        settingKey: "syncKvantum"
+        label: "Generate a Kvantum theme from the DMS palette"
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'."
+        defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "syncFlatpak"
+        label: "Synchronize Flatpak applications"
+        description: "Sandboxed apps never see the files written above. Dark/light already reaches them through the portal, but the theme names and the host's gtk.css do not. When on, the plugin sets GTK_THEME, ICON_THEME and XCURSOR_THEME as user-wide flatpak overrides and grants read-only access to the theme directories. This is also the only sane way to reach Electron apps: exporting GTK_THEME globally would override settings.ini for every GTK app on the machine, while inside the sandbox the variable is scoped to the sandbox."
+        defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "syncFolderColor"
+        label: "Sync icon folder color (requires Papirus)"
+        description: "Recolors the folder icons to follow the Material You accent. Only Papirus ships the ~80 folder color variants this needs, so the toggle does nothing with any other icon theme — yours is kept exactly as you set it. When on, the plugin generates a small overlay theme in ~/.local/share/icons that inherits Papirus and only overrides the folders (about 4 MB of symlinks, no root needed, and Papirus updates are inherited). The accent is matched by hue, not by nearest RGB, because Material You hands out pastel tints in dark mode."
+        defaultValue: false
+        enabled: root.iconThemeSupportsFolderColor
+    }
+
+    SectionHeader {
+        text: "Synchronization and backups"
+    }
 
     ToggleSetting {
         settingKey: "autoSync"

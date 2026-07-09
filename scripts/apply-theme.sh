@@ -20,6 +20,11 @@ APPLY_MATUGEN_COLORS=true
 SYNC_KDE=true
 SYNC_XSETTINGSD=true
 SYNC_TERMINAL_FONTS=false
+SYNC_FOLDER_COLOR=false
+FOLDER_BASE_THEME=""
+SYNC_FLATPAK=false
+SYNC_KVANTUM=false
+KV_COLORS=""
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 BACKUP_ENABLED=true
@@ -46,6 +51,11 @@ while (( $# )); do
         --sync-kde) SYNC_KDE=${2:?}; shift 2 ;;
         --sync-xsettingsd) SYNC_XSETTINGSD=${2:?}; shift 2 ;;
         --sync-terminal-fonts) SYNC_TERMINAL_FONTS=${2:?}; shift 2 ;;
+        --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
+        --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
+        --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
+        --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
+        --kvantum-colors) KV_COLORS=${2-}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
         --backup-enabled) BACKUP_ENABLED=${2:?}; shift 2 ;;
@@ -141,6 +151,214 @@ if [[ $ICON_THEME == "System Default" ]]; then
 fi
 if [[ $CURSOR_THEME == "System Default" ]]; then
     CURSOR_THEME=""
+fi
+
+# --- Folder accent overlay ---------------------------------------------------
+#
+# Papirus ships ~80 folder colours, and papirus-folders(1) switches between them
+# by re-pointing folder*.svg symlinks. It cannot help us here: the Arch package
+# installs the theme under /usr/share/icons, so the tool re-execs itself through
+# sudo, and a shell plugin has no way to prompt for a password.
+#
+# Instead we generate a small overlay theme under $XDG_DATA_HOME that inherits
+# the base theme and carries *only* the Places folder icons, each a symlink to
+# the base theme's coloured variant. ~4 MB instead of a ~320 MB copy, no root,
+# and pacman updates to the base theme are inherited for free because the
+# symlinks point into it. Everything else (app icons, mimetypes) resolves
+# through Inherits=.
+#
+# The colour itself is derived from the Matugen accent by HUE, not by nearest
+# RGB: in dark mode Material You hands out a pastel tint (e.g. #a1c9ff), and a
+# plain euclidean match against Papirus's saturated folders always lands on the
+# washed-out entries.
+
+OVERLAY_SUFFIX="-DankFolders"
+
+icon_theme_dir() {
+    local name=$1 d
+    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/icons" "$HOME/.icons" \
+             /usr/local/share/icons /usr/share/icons; do
+        [[ -d $d/$name ]] && { printf '%s' "$d/$name"; return 0; }
+    done
+    return 1
+}
+
+# hex -> "hue chroma" in CIE LCh. Pure awk so we keep the zero-dependency rule.
+hue_chroma() {
+    printf '%s' "${1#\#}" | awk '{
+        r = strtonum("0x" substr($0,1,2)) / 255
+        g = strtonum("0x" substr($0,3,2)) / 255
+        b = strtonum("0x" substr($0,5,2)) / 255
+        r = (r <= 0.04045) ? r/12.92 : ((r+0.055)/1.055)^2.4
+        g = (g <= 0.04045) ? g/12.92 : ((g+0.055)/1.055)^2.4
+        b = (b <= 0.04045) ? b/12.92 : ((b+0.055)/1.055)^2.4
+        x = (0.4124*r + 0.3576*g + 0.1805*b) / 0.95047
+        y = (0.2126*r + 0.7152*g + 0.0722*b)
+        z = (0.0193*r + 0.1192*g + 0.9505*b) / 1.08883
+        x = (x > 0.008856) ? x^(1/3) : 7.787*x + 16/116
+        y = (y > 0.008856) ? y^(1/3) : 7.787*y + 16/116
+        z = (z > 0.008856) ? z^(1/3) : 7.787*z + 16/116
+        A = 500*(x-y); B = 200*(y-z)
+        h = atan2(B, A) * 57.2957795; if (h < 0) h += 360
+        printf "%.3f %.3f", h, sqrt(A*A + B*B)
+    }'
+}
+
+# The perceived folder colour is the most chromatic fill in the SVG. Its
+# position is not stable: in folder-red.svg it is the 3rd fill, in folder-yaru
+# .svg the 2nd, and picking by index silently grabs a grey.
+dominant_fill() {
+    local svg=$1 best="" best_c=-1 hex c
+    while read -r hex; do
+        c=$(hue_chroma "$hex" | cut -d' ' -f2)
+        awk -v a="$c" -v b="$best_c" 'BEGIN{exit !(a>b)}' && { best=$hex; best_c=$c; }
+    done < <(grep -oE 'fill:#[0-9a-fA-F]{6}' "$svg" | sed 's/fill://' | sort -u)
+    printf '%s' "$best"
+}
+
+# A colour is any X for which both folder-X.svg and folder-X-<variant>.svg
+# exist. Splitting folder-*.svg on dashes would shred `cat-mocha-blue`.
+#
+# Papirus carries themed palettes (cat-*, nordic, yaru, breeze, adwaita) whose
+# hues collide with the plain ones, so a pure hue match resolves ties at random
+# — #a1c9ff lands on `nordic` as readily as on `blue`. Search the plain palette
+# first and only fall back to the themed entries when nothing plain is close.
+_folder_palette_match() {
+    local places=$1 ah=$2 plain_only=$3 name hex h c d best="" bestd=999 bestc=-1
+    for f in "$places"/folder-*.svg; do
+        name=$(basename "$f" .svg); name=${name#folder-}
+        [[ -e $places/folder-$name-documents.svg ]] || continue
+        if [[ $plain_only == true ]]; then
+            [[ $name == *-* ]] && continue
+            case $name in nordic|yaru|breeze|adwaita|black|white) continue ;; esac
+        fi
+        hex=$(dominant_fill "$f"); [[ -n $hex ]] || continue
+        read -r h c <<<"$(hue_chroma "$hex")"
+        awk -v c="$c" 'BEGIN{exit !(c < 12)}' && continue
+        d=$(awk -v a="$ah" -v b="$h" 'BEGIN{d=(b-a+180)%360-180; if(d<0)d=-d; print d}')
+        # Hue decides; within 5 degrees prefer the more saturated folder, else an
+        # amber accent lands on `paleorange` rather than `yellow`.
+        if awk -v d="$d" -v bd="$bestd" -v c="$c" -v bc="$bestc" \
+            'BEGIN{exit !(d < bd-5 || (d <= bd+5 && c > bc))}'; then
+            best=$name; bestd=$d; bestc=$c
+        fi
+    done
+    [[ -n $best ]] && printf '%s %s' "$best" "$bestd"
+}
+
+nearest_folder_color() {
+    local places=$1 accent=$2 ah ac best d
+    read -r ah ac <<<"$(hue_chroma "$accent")"
+    awk -v c="$ac" 'BEGIN{exit !(c < 12)}' && { printf 'grey'; return 0; }
+    read -r best d <<<"$(_folder_palette_match "$places" "$ah" true)"
+    if [[ -n $best ]] && awk -v d="$d" 'BEGIN{exit !(d <= 30)}'; then
+        printf '%s' "$best"; return 0
+    fi
+    read -r best d <<<"$(_folder_palette_match "$places" "$ah" false)"
+    [[ -n $best ]] && printf '%s' "$best"
+}
+
+build_folder_overlay() {
+    local base=$1 color=$2 out=$3 places size target name src
+    rm -rf "$out"; mkdir -p "$out"
+    local -a dirs=()
+    while IFS= read -r places; do
+        size=$(basename "$(dirname "$places")")
+        local made=false
+        for prefix in folder user; do
+            for src in "$places/$prefix-$color"{-*,}.svg; do
+                [[ -e $src ]] || continue
+                name=$(basename "$src" .svg)
+                if [[ $name == "$prefix-$color" ]]; then target=$prefix
+                else target=${name/$prefix-$color-/$prefix-}; fi
+                mkdir -p "$out/$size/places"
+                ln -sfn "$src" "$out/$size/places/$target.svg"
+                made=true
+            done
+        done
+        # Papirus reaches the folder icons through ~220 aliases per size:
+        # inode-directory.svg -> folder.svg, gtk-directory.svg -> folder.svg,
+        # desktop.svg -> user-desktop.svg, and so on. They are *relative*
+        # symlinks, so an alias we do not carry over resolves inside the base
+        # theme and paints the base colour. That is how GTK apps (which ask for
+        # `folder`) and KDE apps (which ask for `inode-directory`) end up with
+        # two different folder colours on the same desktop.
+        if $made; then
+            local alias_src alias_name alias_target
+            # No -L here: it would dereference the very symlinks we are looking for.
+            while IFS= read -r alias_src; do
+                alias_name=$(basename "$alias_src")
+                alias_target=$(readlink "$alias_src")
+                [[ $alias_target == */* ]] && continue          # not a sibling alias
+                [[ -e $out/$size/places/$alias_target ]] || continue
+                ln -sfn "$alias_target" "$out/$size/places/$alias_name"
+            done < <(find "$places/" -maxdepth 1 -type l \
+                        \( -lname 'folder*' -o -lname 'user*' \) 2>/dev/null)
+        fi
+        $made && dirs+=("$size/places")
+    done < <(find -L "$base" -mindepth 2 -maxdepth 2 -type d -name places | sort)
+    (( ${#dirs[@]} )) || { rm -rf "$out"; return 1; }
+
+    {
+        printf '[Icon Theme]\nName=%s\n' "${out##*/}"
+        printf 'Comment=Folder accent overlay generated by dms-theme-sync\n'
+        printf 'Inherits=%s,hicolor\n' "$(basename "$base")"
+        printf 'Directories=%s\n\n' "$(IFS=,; printf '%s' "${dirs[*]}")"
+        local d sz scale
+        for d in "${dirs[@]}"; do
+            sz=${d%%/*}; scale=1
+            case "$sz" in *@*x) scale=${sz##*@}; scale=${scale%x}; sz=${sz%@*};; esac
+            printf '[%s]\nSize=%s\nScale=%s\nContext=Places\nType=Fixed\n\n' "$d" "${sz%%x*}" "$scale"
+        done
+    } > "$out/index.theme"
+}
+
+icons_home="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+# DMS owns the icon theme. Once the overlay is applied, SettingsData.iconTheme
+# *is* the overlay, so the base to derive from must be remembered by the plugin
+# and passed in; deriving it by stripping the suffix would break the moment the
+# user renames anything.
+folder_base=${FOLDER_BASE_THEME:-$ICON_THEME}
+[[ $folder_base == *"$OVERLAY_SUFFIX" ]] && folder_base=${folder_base%"$OVERLAY_SUFFIX"}
+overlay_dir="$icons_home/${folder_base}${OVERLAY_SUFFIX}"
+
+# Sweep overlays left behind by a previous base theme. Without this, switching
+# Papirus-Dark -> Tela strands `Papirus-Dark-DankFolders` in the theme picker.
+if ! $DRY_RUN; then
+    for stale in "$icons_home"/*"$OVERLAY_SUFFIX"; do
+        [[ -d $stale && $stale != "$overlay_dir" ]] && rm -rf "$stale"
+    done
+fi
+
+if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
+    base_dir=$(icon_theme_dir "$folder_base" || true)
+    places_dir="$base_dir/64x64/places"
+    accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
+        | grep -oE '#[0-9a-fA-F]{6}' || true)
+
+    if [[ -z $base_dir || ! -d $places_dir ]]; then
+        log "folder-color: '$folder_base' has no Places icons; skipping"
+    elif [[ -z $accent ]]; then
+        log "folder-color: no Matugen accent found; skipping"
+    else
+        color=$(nearest_folder_color "$places_dir" "$accent" || true)
+        if [[ -z $color ]]; then
+            log "folder-color: no folder colour matches accent $accent; skipping"
+        elif $DRY_RUN; then
+            log "DRY-RUN: build overlay $overlay_dir (accent $accent -> $color)"
+        elif build_folder_overlay "$base_dir" "$color" "$overlay_dir"; then
+            # The overlay is a derived asset, not a decision. We build it and
+            # name it; DMS decides whether it becomes the icon theme, so its own
+            # drift check (checkIconThemeDrift) never sees a stranger in
+            # gsettings and never falls back to "System Default".
+            log "folder-color: accent $accent -> $color (overlay ${overlay_dir##*/})"
+        else
+            log "folder-color: overlay build failed; keeping $folder_base"
+        fi
+    fi
+elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
+    rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
 fi
 
 if [[ $BACKUP_ENABLED == true ]]; then
@@ -375,17 +593,123 @@ else
     mono_xml=$(xml_escape "$MONO_FONT")
     document_xml=$(xml_escape "$DOCUMENT_FONT")
     tmp="$FONTCONFIG_FILE.tmp.$$"
+    # /etc/fonts/conf.d/50-user.conf pulls in the whole of
+    # $XDG_CONFIG_HOME/fontconfig, so this file is parsed at position ~50 —
+    # BEFORE 60-latin.conf (which prefers Noto Sans Mono for monospace) and
+    # 66-noto-sans.conf (Noto Sans for sans-serif). An <alias><prefer> from here
+    # therefore never wins, whatever the 99- prefix suggests. A strong-bound
+    # prepend does: later <prefer> families are inserted behind it.
     printf '%s\n' \
         '<?xml version="1.0"?>' \
         '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
         '<fontconfig>' \
-        '  <alias><family>sans-serif</family><prefer><family>'"$font_xml"'</family></prefer></alias>' \
-        '  <alias><family>monospace</family><prefer><family>'"$mono_xml"'</family></prefer></alias>' \
-        '  <alias><family>serif</family><prefer><family>'"$document_xml"'</family></prefer></alias>' \
+        '  <match target="pattern"><test name="family"><string>sans-serif</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$font_xml"'</string></edit></match>' \
+        '  <match target="pattern"><test name="family"><string>monospace</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$mono_xml"'</string></edit></match>' \
+        '  <match target="pattern"><test name="family"><string>serif</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$document_xml"'</string></edit></match>' \
         '</fontconfig>' > "$tmp"
     mv "$tmp" "$FONTCONFIG_FILE"
     if [[ $NO_RUNTIME != true ]] && command -v fc-cache >/dev/null 2>&1; then
         fc-cache -f >/dev/null 2>&1 || true
+    fi
+fi
+
+# --- Flatpak ------------------------------------------------------------------
+#
+# Sandboxed apps see none of the files written above. Dark/light already reaches
+# them through the portal (org.freedesktop.appearance), but the theme names and
+# the host's gtk.css do not: they need an explicit env override plus read-only
+# access to the theme directories.
+#
+# This is also the only place where Electron apps can be reached in a sensible
+# way. Native Electron mostly ignores the system theme, and the usual workaround
+# — exporting GTK_THEME globally — would override settings.ini for *every* GTK
+# app on the machine. Not worth it. Inside the Flatpak sandbox the same variable
+# is scoped to the sandbox, so it is safe there and nowhere else.
+#
+# `flatpak override` is declarative, so re-running it is idempotent.
+sync_flatpak_overrides() {
+    command -v flatpak >/dev/null 2>&1 || return 0
+    local -a args=(override --user)
+    [[ -n $GTK_THEME ]]    && args+=("--env=GTK_THEME=$GTK_THEME")
+    [[ -n $ICON_THEME ]]   && args+=("--env=ICON_THEME=$ICON_THEME")
+    [[ -n $CURSOR_THEME ]] && args+=("--env=XCURSOR_THEME=$CURSOR_THEME" "--env=XCURSOR_SIZE=$CURSOR_SIZE")
+    (( ${#args[@]} > 2 )) || return 0
+    args+=(
+        "--filesystem=xdg-config/gtk-3.0:ro"
+        "--filesystem=xdg-config/gtk-4.0:ro"
+        "--filesystem=xdg-data/themes:ro"
+        "--filesystem=xdg-data/icons:ro"
+        "--filesystem=~/.themes:ro"
+        "--filesystem=~/.icons:ro"
+    )
+    if $DRY_RUN; then
+        run flatpak "${args[@]}"      # `run` prints the command; do not swallow it
+    else
+        flatpak "${args[@]}" >/dev/null 2>&1 || log "flatpak: could not write user overrides"
+    fi
+}
+
+if [[ $SYNC_FLATPAK == true ]] && { $DRY_RUN || [[ $NO_RUNTIME != true ]]; }; then
+    sync_flatpak_overrides
+fi
+
+# --- Kvantum ------------------------------------------------------------------
+#
+# Kvantum draws Qt widgets from an SVG and takes its colours from its own theme
+# (<name>.kvconfig + <name>.svg), not from the qt5ct/qt6ct palette. So selecting
+# the kvantum style without giving it a theme does not add Material You to Qt —
+# it removes it, swapping the DMS palette for whatever Kvantum was last set to.
+#
+# Render both files from the templates in assets/kvantum/ (vendored from
+# InioX/matugen-themes, MIT) with the 12 Material roles DMS hands us, then point
+# kvantum.kvconfig at the result. The SVG has to be recoloured too: it is where
+# every widget shape lives, and it contains no hard-coded hex at all.
+kvantum_style_plugin_installed() {
+    find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
+}
+
+sync_kvantum_theme() {
+    local tpl_dir out_dir name=DankMatugen role hex
+    tpl_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../assets/kvantum" 2>/dev/null && pwd)" || return 1
+    [[ -f $tpl_dir/$name.kvconfig.in && -f $tpl_dir/$name.svg.in ]] || {
+        log "kvantum: templates missing at assets/kvantum"; return 1; }
+    [[ -n $KV_COLORS ]] || { log "kvantum: no colours supplied; skipping"; return 1; }
+
+    out_dir="$XDG_CONFIG_HOME/Kvantum/$name"
+    if $DRY_RUN; then log "DRY-RUN: render $out_dir/$name.{kvconfig,svg} and select it"; return 0; fi
+    mkdir -p "$out_dir"
+
+    local -a sed_args=()
+    # KV_COLORS is "role=#hex;role=#hex;..." — no trailing separator, so the last
+    # pair has no newline and plain `read` would silently drop it.
+    while IFS='=' read -r role hex || [[ -n $role ]]; do
+        [[ -n $role && $hex =~ ^#[0-9a-fA-F]{6}$ ]] || continue
+        sed_args+=(-e "s|{{colors\.${role}\.default\.hex}}|${hex}|g")
+    done < <(printf '%s' "$KV_COLORS" | tr ';' '\n')
+    (( ${#sed_args[@]} )) || { log "kvantum: no usable colours; skipping"; return 1; }
+
+    local f
+    for f in kvconfig svg; do
+        sed "${sed_args[@]}" "$tpl_dir/$name.$f.in" > "$out_dir/$name.$f.tmp.$$" || return 1
+        mv "$out_dir/$name.$f.tmp.$$" "$out_dir/$name.$f"
+    done
+
+    # Any leftover placeholder means a role DMS did not give us: Kvantum would
+    # render a literal "{{...}}" as an invalid colour and fall back to grey.
+    local leftover
+    leftover=$(grep -ohE '\{\{colors\.[a-z_]+' "$out_dir/$name.kvconfig" "$out_dir/$name.svg" | sort -u | head -3)
+    [[ -n $leftover ]] && log "kvantum: unresolved roles: $(tr '\n' ' ' <<<"$leftover")"
+
+    update_ini "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" General theme "$name"
+    log "kvantum: theme '$name' rendered and selected"
+}
+
+if [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
+    if $DRY_RUN || kvantum_style_plugin_installed; then
+        sync_kvantum_theme || true
     fi
 fi
 
@@ -715,6 +1039,123 @@ if ! $DRY_RUN && [[ $NO_RUNTIME != true ]] && command -v systemctl >/dev/null 2>
         env_args+=("QT_QPA_PLATFORMTHEME=qt5ct" "QT_QPA_PLATFORMTHEME_QT6=qt6ct")
     fi
     systemctl --user set-environment "${env_args[@]}" >/dev/null 2>&1 || true
+fi
+
+# --- Reconcile ----------------------------------------------------------------
+#
+# Writing a file is not the same as the setting taking effect. Every surface
+# here has at least one way to be silently overruled: gsettings can be rewritten
+# by nwg-look or lxappearance, fontconfig's user directory is parsed *before*
+# /etc/fonts/conf.d/60-latin.conf, GTK4 apps choke on symlinks left behind by
+# uninstalled themes, and a theme name can point at a directory nobody
+# installed. So after writing, read the system back and reconcile.
+#
+# Anything unambiguously broken is repaired. Anything that needs a human
+# decision is reported with the exact file to look at, never silently changed.
+
+RECONCILE_ISSUES=0
+note() { RECONCILE_ISSUES=$((RECONCILE_ISSUES + 1)); log "reconcile: $*"; }
+
+# 1. Dangling symlinks under the GTK config dirs. nwg-look points gtk.css and
+#    gtk-dark.css at whatever theme was selected; uninstall the theme and the
+#    link dangles. libadwaita then fails to load its assets.
+prune_broken_links() {
+    local d f
+    for d in "${XDG_CONFIG_HOME:-$HOME/.config}"/gtk-{3,4}.0; do
+        [[ -d $d ]] || continue
+        while IFS= read -r -d '' f; do
+            note "removed dangling symlink ${f#$HOME/} -> $(readlink "$f")"
+            rm -f "$f"
+        done < <(find "$d" -maxdepth 1 -xtype l -print0 2>/dev/null)
+    done
+}
+
+# 2. gsettings is the source GTK3 actually consults on Wayland. If it disagrees
+#    with what we just wrote, something else is writing it too: re-assert, then
+#    check again and name the likely culprit if it still drifts.
+verify_gsettings() {
+    local key want got
+    for pair in "gtk-theme:$GTK_THEME" "icon-theme:$ICON_THEME" "cursor-theme:$CURSOR_THEME"; do
+        key=${pair%%:*}; want=${pair#*:}
+        [[ -n $want ]] || continue
+        got=$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null | tr -d "'")
+        [[ $got == "$want" ]] && continue
+        set_gsetting_string org.gnome.desktop.interface "$key" "$want"
+        got=$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null | tr -d "'")
+        [[ $got == "$want" ]] || note "gsettings $key stays '$got', expected '$want'"
+    done
+}
+
+# 3. Our fontconfig file lives in $XDG_CONFIG_HOME/fontconfig/conf.d, which
+#    50-user.conf pulls in at position ~50 — before 60-latin.conf. Strong-bound
+#    prepends survive that, a plain <prefer> in the user's own fonts.conf does
+#    not: it is parsed later still and wins. Check the outcome, not the file.
+verify_fontconfig() {
+    local generic want got user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/fonts.conf"
+    for pair in "monospace:$MONO_FONT" "sans-serif:$FONT" "serif:$DOCUMENT_FONT"; do
+        generic=${pair%%:*}; want=${pair#*:}
+        [[ -n $want ]] || continue
+        got=$(fc-match "$generic" 2>/dev/null | cut -d'"' -f2)
+        [[ $got == "$want" ]] && continue
+        if [[ -f $user_conf ]] && grep -q "<family>$generic</family>" "$user_conf"; then
+            note "fc-match $generic gives '$got', not '$want' — $user_conf overrides us; remove its <alias> for $generic"
+        elif ! fc-list -q :family="$want"; then
+            note "font '$want' is not installed; $generic falls back to '$got'"
+        else
+            note "fc-match $generic gives '$got', not '$want'"
+        fi
+    done
+}
+
+# 4. A theme name is just a string until something resolves it on disk. niri's
+#    layout.kdl happily names a cursor nobody installed.
+verify_theme_assets() {
+    [[ -n $ICON_THEME ]] && ! icon_theme_dir "$ICON_THEME" >/dev/null \
+        && note "icon theme '$ICON_THEME' is not installed"
+    [[ -n $CURSOR_THEME ]] && ! icon_theme_dir "$CURSOR_THEME" >/dev/null \
+        && note "cursor theme '$CURSOR_THEME' is not installed"
+    [[ -n $GTK_THEME ]] && ! theme_exists "$GTK_THEME" \
+        && note "GTK theme '$GTK_THEME' is not installed"
+    # Picking the kvantum style writes style=kvantum into qt{5,6}ct.conf whether
+    # or not Kvantum exists. Qt then silently falls back to Fusion.
+    #
+    # Test for the style plugin Qt actually loads. /usr/share/Kvantum proves
+    # nothing: GTK themes such as celestial-gtk-theme ship Kvantum *themes*
+    # there without Kvantum itself being installed.
+    if [[ $QT_STYLE == kvantum ]] \
+        && ! find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+        note "Qt style is 'kvantum' but the Kvantum style plugin is missing; Qt falls back to Fusion"
+    fi
+    return 0
+}
+
+# 5. Other appearance tools do not coordinate with anyone. Their mere presence
+#    means the next thing the user clicks can undo this run. Report, never touch.
+detect_foreign_writers() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}" f
+    [[ -e $cfg/nwg-look ]] && note "nwg-look config present ($cfg/nwg-look) — it rewrites gsettings and gtk4 symlinks behind us"
+    [[ -e $cfg/lxappearance ]] && note "lxappearance config present — it rewrites gtk settings.ini behind us"
+    # Only live scripts count: a commented-out line does nothing, and a *.bak
+    # copy is never executed. Flagging either turns this check into noise.
+    while IFS= read -r f; do
+        [[ $f == *.bak* || $f == *~ ]] && continue
+        grep -qE '^[[:space:]]*gsettings set org\.gnome\.desktop\.interface' "$f" \
+            && note "$f sets the GTK theme behind us"
+    done < <(find "$cfg/variety/scripts" -maxdepth 1 -type f 2>/dev/null)
+    return 0
+}
+
+if ! $DRY_RUN; then
+    # Filesystem-only checks: safe without a session, so they run in tests too.
+    prune_broken_links
+    verify_theme_assets
+    detect_foreign_writers
+    if [[ $NO_RUNTIME != true ]]; then
+        command -v gsettings >/dev/null 2>&1 && verify_gsettings
+        command -v fc-match  >/dev/null 2>&1 && verify_fontconfig
+    fi
+    (( RECONCILE_ISSUES == 0 )) && log "reconcile: clean" \
+        || log "reconcile: $RECONCILE_ISSUES issue(s) above"
 fi
 
 log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS"

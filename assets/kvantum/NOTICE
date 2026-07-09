@@ -1,0 +1,13 @@
+The two .in templates in this directory are taken verbatim from
+
+    https://github.com/InioX/matugen-themes  (MIT)
+    templates/kvantum-colors.kvconfig
+    templates/kvantum-colors.svg
+
+Only the file names changed. They are vendored rather than fetched so an apply
+never depends on the network, and rendered by scripts/apply-theme.sh, which
+substitutes {{colors.<role>.default.hex}} with the corresponding DMS Theme
+role. Kvantum needs both files: the .kvconfig carries text and base colours,
+the .svg draws every widget, and neither contains a single hard-coded hex.
+
+MIT License, Copyright (c) InioX. See the upstream repository for full terms.

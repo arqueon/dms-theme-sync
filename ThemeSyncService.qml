@@ -36,9 +36,65 @@ PluginComponent {
     readonly property bool syncKde: pluginData.syncKde !== undefined ? pluginData.syncKde : true
     readonly property bool syncXsettingsd: pluginData.syncXsettingsd !== undefined ? pluginData.syncXsettingsd : true
     readonly property bool syncTerminalFonts: pluginData.syncTerminalFonts !== undefined ? pluginData.syncTerminalFonts : false
+    // Folder recolouring only exists for Papirus, whose ~80 colour variants the
+    // helper maps onto the Matugen accent. Any other icon theme: leave it alone.
+    readonly property string overlaySuffix: "-DankFolders"
+    // Once the overlay is applied it *is* SettingsData.iconTheme, so the base to
+    // derive from has to be remembered rather than inferred.
+    readonly property string folderBaseTheme: iconTheme.endsWith(overlaySuffix) ? (pluginData.folderColorBaseTheme || iconTheme.slice(0, -overlaySuffix.length)) : iconTheme
+    readonly property bool iconThemeSupportsFolderColor: folderBaseTheme.indexOf("Papirus") === 0
+    readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
+    readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
+    readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
+    readonly property bool syncKvantum: (pluginData.syncKvantum !== undefined ? pluginData.syncKvantum : false) && qtStyle === "kvantum"
+
+    // The Kvantum templates want 12 Material roles. Theme exposes most of them
+    // as properties; the rest live on currentThemeData, and the fallbacks below
+    // mirror what DMS itself does in Theme.buildMatugenColorsFromTheme().
+    function hex6(c) {
+        const s = String(c);                 // QML colors serialise as #aarrggbb
+        return s.length === 9 ? "#" + s.slice(3) : s;
+    }
+    readonly property string kvantumColors: {
+        const td = Theme.currentThemeData || {};
+        const pick = (...cs) => hex6(cs.find(c => c) || Theme.surface);
+        const roles = {
+            primary: Theme.primary,
+            on_surface: Theme.onSurface,
+            surface: Theme.surface,
+            surface_variant: Theme.surfaceVariant,
+            surface_container_low: Theme.surfaceContainerLow,
+            surface_container_highest: Theme.surfaceContainerHighest,
+            surface_bright: pick(td.surfaceBright, Theme.surfaceContainerHighest),
+            surface_dim: pick(td.surfaceDim, Theme.background),
+            inverse_on_surface: pick(td.inverseOnSurface, Theme.background),
+            inverse_primary: pick(td.inversePrimary, Theme.primary),
+            primary_fixed_dim: pick(td.primaryFixedDim, Theme.primary),
+            tertiary_fixed_dim: pick(td.tertiaryFixedDim, Theme.tertiary, Theme.secondary)
+        };
+        return Object.keys(roles).map(k => k + "=" + hex6(roles[k])).join(";");
+    }
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncFlatpak, syncKvantum, kvantumColors])
+
+    // The helper only builds the overlay; it never decides the icon theme. DMS
+    // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
+    // Writing the overlay straight into gsettings would look like an outside
+    // change to DMS's own checkIconThemeDrift() and get the theme unmanaged.
+    function reconcileIconTheme(output) {
+        if (syncFolderColor) {
+            if (output.indexOf("folder-color: accent") === -1)
+                return;
+            if (SettingsData.iconTheme === folderOverlayTheme)
+                return;
+            if (pluginService)
+                pluginService.savePluginData(pluginId, "folderColorBaseTheme", folderBaseTheme);
+            SettingsData.setIconTheme(folderOverlayTheme);
+        } else if (SettingsData.iconTheme.endsWith(overlaySuffix)) {
+            SettingsData.setIconTheme(folderBaseTheme);
+        }
+    }
 
     function helperPath() {
         return Paths.strip(Qt.resolvedUrl("scripts/apply-theme.sh").toString());
@@ -49,7 +105,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -148,8 +204,10 @@ PluginComponent {
             const output = ((stdoutCollector.text || "") + (stderrCollector.text || "")).trim();
             root.lastOutput = output || (exitCode === 0 ? "Theme synchronized" : "Theme synchronization failed");
             root.applying = false;
-            if (exitCode === 0 && root.currentAction === "apply")
+            if (exitCode === 0 && root.currentAction === "apply") {
                 root.appliedSignature = root.runningSignature;
+                root.reconcileIconTheme(output);
+            }
 
             if (root.manualRequest) {
                 if (exitCode === 0) {
