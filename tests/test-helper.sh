@@ -220,6 +220,15 @@ if [[ -n $PAPIRUS ]]; then
         || { printf 'Accent did not map to the red folder set\n' >&2; exit 1; }
     grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY/index.theme" \
         || { printf 'Overlay does not inherit from the base theme\n' >&2; exit 1; }
+    # Papirus reaches its folder icons through ~220 relative aliases per size.
+    # GTK apps ask for `folder`; KDE apps ask for `inode-directory`. Carry only
+    # the former and Thunar and Dolphin show two different folder colours.
+    for alias_icon in inode-directory gtk-directory folder_open desktop; do
+        [[ -L $OVERLAY/64x64/places/$alias_icon.svg ]] \
+            || { printf 'Overlay is missing the %s alias\n' "$alias_icon" >&2; exit 1; }
+        [[ $(readlink -f "$OVERLAY/64x64/places/$alias_icon.svg") == *"-red"* ]] \
+            || { printf '%s does not resolve to the accent colour\n' "$alias_icon" >&2; exit 1; }
+    done
     # HiDPI directories must carry Scale, or @2x lookups silently miss
     grep -Fqx "Scale=2" "$OVERLAY/index.theme" \
         || { printf 'Overlay index.theme lacks Scale for @2x dirs\n' >&2; exit 1; }

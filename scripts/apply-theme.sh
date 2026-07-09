@@ -276,6 +276,25 @@ build_folder_overlay() {
                 made=true
             done
         done
+        # Papirus reaches the folder icons through ~220 aliases per size:
+        # inode-directory.svg -> folder.svg, gtk-directory.svg -> folder.svg,
+        # desktop.svg -> user-desktop.svg, and so on. They are *relative*
+        # symlinks, so an alias we do not carry over resolves inside the base
+        # theme and paints the base colour. That is how GTK apps (which ask for
+        # `folder`) and KDE apps (which ask for `inode-directory`) end up with
+        # two different folder colours on the same desktop.
+        if $made; then
+            local alias_src alias_name alias_target
+            # No -L here: it would dereference the very symlinks we are looking for.
+            while IFS= read -r alias_src; do
+                alias_name=$(basename "$alias_src")
+                alias_target=$(readlink "$alias_src")
+                [[ $alias_target == */* ]] && continue          # not a sibling alias
+                [[ -e $out/$size/places/$alias_target ]] || continue
+                ln -sfn "$alias_target" "$out/$size/places/$alias_name"
+            done < <(find "$places/" -maxdepth 1 -type l \
+                        \( -lname 'folder*' -o -lname 'user*' \) 2>/dev/null)
+        fi
         $made && dirs+=("$size/places")
     done < <(find -L "$base" -mindepth 2 -maxdepth 2 -type d -name places | sort)
     (( ${#dirs[@]} )) || { rm -rf "$out"; return 1; }
