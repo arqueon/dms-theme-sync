@@ -23,6 +23,8 @@ SYNC_TERMINAL_FONTS=false
 SYNC_FOLDER_COLOR=false
 FOLDER_BASE_THEME=""
 SYNC_FLATPAK=false
+SYNC_KVANTUM=false
+KV_COLORS=""
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 BACKUP_ENABLED=true
@@ -52,6 +54,8 @@ while (( $# )); do
         --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
         --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
         --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
+        --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
+        --kvantum-colors) KV_COLORS=${2-}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
         --backup-enabled) BACKUP_ENABLED=${2:?}; shift 2 ;;
@@ -631,6 +635,63 @@ sync_flatpak_overrides() {
 
 if [[ $SYNC_FLATPAK == true ]] && { $DRY_RUN || [[ $NO_RUNTIME != true ]]; }; then
     sync_flatpak_overrides
+fi
+
+# --- Kvantum ------------------------------------------------------------------
+#
+# Kvantum draws Qt widgets from an SVG and takes its colours from its own theme
+# (<name>.kvconfig + <name>.svg), not from the qt5ct/qt6ct palette. So selecting
+# the kvantum style without giving it a theme does not add Material You to Qt —
+# it removes it, swapping the DMS palette for whatever Kvantum was last set to.
+#
+# Render both files from the templates in assets/kvantum/ (vendored from
+# InioX/matugen-themes, MIT) with the 12 Material roles DMS hands us, then point
+# kvantum.kvconfig at the result. The SVG has to be recoloured too: it is where
+# every widget shape lives, and it contains no hard-coded hex at all.
+kvantum_style_plugin_installed() {
+    find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
+}
+
+sync_kvantum_theme() {
+    local tpl_dir out_dir name=DankMatugen role hex
+    tpl_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../assets/kvantum" 2>/dev/null && pwd)" || return 1
+    [[ -f $tpl_dir/$name.kvconfig.in && -f $tpl_dir/$name.svg.in ]] || {
+        log "kvantum: templates missing at assets/kvantum"; return 1; }
+    [[ -n $KV_COLORS ]] || { log "kvantum: no colours supplied; skipping"; return 1; }
+
+    out_dir="$XDG_CONFIG_HOME/Kvantum/$name"
+    if $DRY_RUN; then log "DRY-RUN: render $out_dir/$name.{kvconfig,svg} and select it"; return 0; fi
+    mkdir -p "$out_dir"
+
+    local -a sed_args=()
+    # KV_COLORS is "role=#hex;role=#hex;..." — no trailing separator, so the last
+    # pair has no newline and plain `read` would silently drop it.
+    while IFS='=' read -r role hex || [[ -n $role ]]; do
+        [[ -n $role && $hex =~ ^#[0-9a-fA-F]{6}$ ]] || continue
+        sed_args+=(-e "s|{{colors\.${role}\.default\.hex}}|${hex}|g")
+    done < <(printf '%s' "$KV_COLORS" | tr ';' '\n')
+    (( ${#sed_args[@]} )) || { log "kvantum: no usable colours; skipping"; return 1; }
+
+    local f
+    for f in kvconfig svg; do
+        sed "${sed_args[@]}" "$tpl_dir/$name.$f.in" > "$out_dir/$name.$f.tmp.$$" || return 1
+        mv "$out_dir/$name.$f.tmp.$$" "$out_dir/$name.$f"
+    done
+
+    # Any leftover placeholder means a role DMS did not give us: Kvantum would
+    # render a literal "{{...}}" as an invalid colour and fall back to grey.
+    local leftover
+    leftover=$(grep -ohE '\{\{colors\.[a-z_]+' "$out_dir/$name.kvconfig" "$out_dir/$name.svg" | sort -u | head -3)
+    [[ -n $leftover ]] && log "kvantum: unresolved roles: $(tr '\n' ' ' <<<"$leftover")"
+
+    update_ini "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" General theme "$name"
+    log "kvantum: theme '$name' rendered and selected"
+}
+
+if [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
+    if $DRY_RUN || kvantum_style_plugin_installed; then
+        sync_kvantum_theme || true
+    fi
 fi
 
 # Terminal emulators read their own config, not GTK/Qt/gsettings/fontconfig, so

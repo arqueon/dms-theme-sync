@@ -942,6 +942,13 @@ PluginSettings {
     }
 
     ToggleSetting {
+        settingKey: "syncKvantum"
+        label: "Generate a Kvantum theme from the DMS palette"
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'."
+        defaultValue: false
+    }
+
+    ToggleSetting {
         settingKey: "syncFlatpak"
         label: "Synchronize Flatpak applications"
         description: "Sandboxed apps never see the files written above. Dark/light already reaches them through the portal, but the theme names and the host's gtk.css do not. When on, the plugin sets GTK_THEME, ICON_THEME and XCURSOR_THEME as user-wide flatpak overrides and grants read-only access to the theme directories. This is also the only sane way to reach Electron apps: exporting GTK_THEME globally would override settings.ini for every GTK app on the machine, while inside the sandbox the variable is scoped to the sandbox."

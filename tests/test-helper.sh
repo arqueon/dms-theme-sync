@@ -297,4 +297,47 @@ else
     printf 'flatpak overrides: skipped (flatpak not installed)\n'
 fi
 
+# --- Kvantum: rendered from the DMS palette, both files, no leftovers ---------
+KV_COLORS="primary=#a1c9ff;on_surface=#f0f5ff;surface=#0e141c;surface_variant=#1f252d"
+KV_COLORS="$KV_COLORS;surface_container_low=#1f252d;surface_container_highest=#2a323c"
+KV_COLORS="$KV_COLORS;surface_bright=#2a323c;surface_dim=#0e141c;inverse_on_surface=#0e141c"
+KV_COLORS="$KV_COLORS;inverse_primary=#00458a;primary_fixed_dim=#a1c9ff;tertiary_fixed_dim=#d6bee4"
+
+run_kvantum() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode dark --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --apply-matugen-colors true \
+        --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --backup-retention 10 --no-runtime "$@" 2>&1
+}
+
+KV_DIR="$XDG_CONFIG_HOME/Kvantum/DankMatugen"
+
+# off by default, and never rendered for a style other than kvantum
+run_kvantum --qt-style Fusion --sync-kvantum true --kvantum-colors "$KV_COLORS" >/dev/null
+[[ ! -d $KV_DIR ]] || { printf 'Kvantum theme rendered for a non-kvantum style\n' >&2; exit 1; }
+
+if find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+    out=$(run_kvantum --qt-style kvantum --sync-kvantum true --kvantum-colors "$KV_COLORS")
+    [[ -f $KV_DIR/DankMatugen.kvconfig && -f $KV_DIR/DankMatugen.svg ]] \
+        || { printf 'Kvantum theme files not rendered\n' >&2; exit 1; }
+    # The .svg is where every widget is drawn; recolouring only the .kvconfig
+    # leaves Kvantum drawing the template's colours.
+    ! grep -q '{{colors' "$KV_DIR/DankMatugen.kvconfig" "$KV_DIR/DankMatugen.svg" \
+        || { printf 'Unresolved colour placeholders left in the Kvantum theme\n' >&2; exit 1; }
+    grep -q 'unresolved roles' <<<"$out" \
+        && { printf 'Helper reported unresolved roles\n' >&2; exit 1; }
+    assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=DankMatugen"
+    python3 - "$KV_DIR/DankMatugen.svg" <<'PY' || { printf 'Rendered Kvantum SVG is not valid XML\n' >&2; exit 1; }
+import sys, xml.dom.minidom
+xml.dom.minidom.parse(sys.argv[1])
+PY
+    rm -rf "$XDG_CONFIG_HOME/Kvantum"
+else
+    printf 'kvantum: skipped (style plugin not installed)\n'
+fi
+
 printf 'helper tests: ok\n'
