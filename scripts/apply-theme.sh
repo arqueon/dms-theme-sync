@@ -22,6 +22,7 @@ SYNC_XSETTINGSD=true
 SYNC_TERMINAL_FONTS=false
 SYNC_FOLDER_COLOR=false
 FOLDER_BASE_THEME=""
+SYNC_FLATPAK=false
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 BACKUP_ENABLED=true
@@ -50,6 +51,7 @@ while (( $# )); do
         --sync-terminal-fonts) SYNC_TERMINAL_FONTS=${2:?}; shift 2 ;;
         --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
         --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
+        --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
         --backup-enabled) BACKUP_ENABLED=${2:?}; shift 2 ;;
@@ -591,6 +593,46 @@ else
     fi
 fi
 
+# --- Flatpak ------------------------------------------------------------------
+#
+# Sandboxed apps see none of the files written above. Dark/light already reaches
+# them through the portal (org.freedesktop.appearance), but the theme names and
+# the host's gtk.css do not: they need an explicit env override plus read-only
+# access to the theme directories.
+#
+# This is also the only place where Electron apps can be reached in a sensible
+# way. Native Electron mostly ignores the system theme, and the usual workaround
+# — exporting GTK_THEME globally — would override settings.ini for *every* GTK
+# app on the machine. Not worth it. Inside the Flatpak sandbox the same variable
+# is scoped to the sandbox, so it is safe there and nowhere else.
+#
+# `flatpak override` is declarative, so re-running it is idempotent.
+sync_flatpak_overrides() {
+    command -v flatpak >/dev/null 2>&1 || return 0
+    local -a args=(override --user)
+    [[ -n $GTK_THEME ]]    && args+=("--env=GTK_THEME=$GTK_THEME")
+    [[ -n $ICON_THEME ]]   && args+=("--env=ICON_THEME=$ICON_THEME")
+    [[ -n $CURSOR_THEME ]] && args+=("--env=XCURSOR_THEME=$CURSOR_THEME" "--env=XCURSOR_SIZE=$CURSOR_SIZE")
+    (( ${#args[@]} > 2 )) || return 0
+    args+=(
+        "--filesystem=xdg-config/gtk-3.0:ro"
+        "--filesystem=xdg-config/gtk-4.0:ro"
+        "--filesystem=xdg-data/themes:ro"
+        "--filesystem=xdg-data/icons:ro"
+        "--filesystem=~/.themes:ro"
+        "--filesystem=~/.icons:ro"
+    )
+    if $DRY_RUN; then
+        run flatpak "${args[@]}"      # `run` prints the command; do not swallow it
+    else
+        flatpak "${args[@]}" >/dev/null 2>&1 || log "flatpak: could not write user overrides"
+    fi
+}
+
+if [[ $SYNC_FLATPAK == true ]] && { $DRY_RUN || [[ $NO_RUNTIME != true ]]; }; then
+    sync_flatpak_overrides
+fi
+
 # Terminal emulators read their own config, not GTK/Qt/gsettings/fontconfig, so
 # the monospace font never reaches them through the toolkit sync above. When the
 # user opts in, we generate one font include per terminal — each in that
@@ -994,6 +1036,16 @@ verify_theme_assets() {
         && note "cursor theme '$CURSOR_THEME' is not installed"
     [[ -n $GTK_THEME ]] && ! theme_exists "$GTK_THEME" \
         && note "GTK theme '$GTK_THEME' is not installed"
+    # Picking the kvantum style writes style=kvantum into qt{5,6}ct.conf whether
+    # or not Kvantum exists. Qt then silently falls back to Fusion.
+    #
+    # Test for the style plugin Qt actually loads. /usr/share/Kvantum proves
+    # nothing: GTK themes such as celestial-gtk-theme ship Kvantum *themes*
+    # there without Kvantum itself being installed.
+    if [[ $QT_STYLE == kvantum ]] \
+        && ! find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+        note "Qt style is 'kvantum' but the Kvantum style plugin is missing; Qt falls back to Fusion"
+    fi
     return 0
 }
 

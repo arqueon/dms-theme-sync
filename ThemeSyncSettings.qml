@@ -942,6 +942,13 @@ PluginSettings {
     }
 
     ToggleSetting {
+        settingKey: "syncFlatpak"
+        label: "Synchronize Flatpak applications"
+        description: "Sandboxed apps never see the files written above. Dark/light already reaches them through the portal, but the theme names and the host's gtk.css do not. When on, the plugin sets GTK_THEME, ICON_THEME and XCURSOR_THEME as user-wide flatpak overrides and grants read-only access to the theme directories. This is also the only sane way to reach Electron apps: exporting GTK_THEME globally would override settings.ini for every GTK app on the machine, while inside the sandbox the variable is scoped to the sandbox."
+        defaultValue: false
+    }
+
+    ToggleSetting {
         settingKey: "syncFolderColor"
         label: "Sync icon folder color (requires Papirus)"
         description: "Recolors the folder icons to follow the Material You accent. Only Papirus ships the ~80 folder color variants this needs, so the toggle does nothing with any other icon theme — yours is kept exactly as you set it. When on, the plugin generates a small overlay theme in ~/.local/share/icons that inherits Papirus and only overrides the folders (about 4 MB of symlinks, no root needed, and Papirus updates are inherited). The accent is matched by hue, not by nearest RGB, because Material You hands out pastel tints in dark mode."

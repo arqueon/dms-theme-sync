@@ -274,4 +274,27 @@ grep -q 'sets the GTK theme behind us' <<<"$(run_reconcile)" \
     || { printf 'Live foreign writer not detected\n' >&2; exit 1; }
 rm -rf "$XDG_CONFIG_HOME/variety"
 
+# --- Flatpak overrides: opt-in, and never invoked when flatpak is absent ------
+if command -v flatpak >/dev/null 2>&1; then
+    flatpak_dry() {
+        "$ROOT/scripts/apply-theme.sh" \
+            --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+            --font-size 11 --mono-size 12 --document-size 13 \
+            --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+            --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+            --qt-platform-theme qtct --qt-style Fusion --apply-matugen-colors true \
+            --sync-kde false --sync-xsettingsd false \
+            --backup-enabled false --backup-retention 10 --dry-run "$@" 2>&1
+    }
+    grep -q 'DRY-RUN: flatpak override' <<<"$(flatpak_dry --sync-flatpak true)" \
+        || { printf 'Flatpak overrides not attempted with the toggle on\n' >&2; exit 1; }
+    grep -q 'DRY-RUN: flatpak override' <<<"$(flatpak_dry --sync-flatpak false)" \
+        && { printf 'Flatpak overrides attempted with the toggle off\n' >&2; exit 1; }
+    # the icon theme name must reach the sandbox, or Flatpak apps keep the old one
+    grep -q 'ICON_THEME=Papirus-Dark' <<<"$(flatpak_dry --sync-flatpak true)" \
+        || { printf 'Icon theme missing from the flatpak override\n' >&2; exit 1; }
+else
+    printf 'flatpak overrides: skipped (flatpak not installed)\n'
+fi
+
 printf 'helper tests: ok\n'
