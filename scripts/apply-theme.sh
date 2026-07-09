@@ -558,13 +558,22 @@ else
     mono_xml=$(xml_escape "$MONO_FONT")
     document_xml=$(xml_escape "$DOCUMENT_FONT")
     tmp="$FONTCONFIG_FILE.tmp.$$"
+    # /etc/fonts/conf.d/50-user.conf pulls in the whole of
+    # $XDG_CONFIG_HOME/fontconfig, so this file is parsed at position ~50 —
+    # BEFORE 60-latin.conf (which prefers Noto Sans Mono for monospace) and
+    # 66-noto-sans.conf (Noto Sans for sans-serif). An <alias><prefer> from here
+    # therefore never wins, whatever the 99- prefix suggests. A strong-bound
+    # prepend does: later <prefer> families are inserted behind it.
     printf '%s\n' \
         '<?xml version="1.0"?>' \
         '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
         '<fontconfig>' \
-        '  <alias><family>sans-serif</family><prefer><family>'"$font_xml"'</family></prefer></alias>' \
-        '  <alias><family>monospace</family><prefer><family>'"$mono_xml"'</family></prefer></alias>' \
-        '  <alias><family>serif</family><prefer><family>'"$document_xml"'</family></prefer></alias>' \
+        '  <match target="pattern"><test name="family"><string>sans-serif</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$font_xml"'</string></edit></match>' \
+        '  <match target="pattern"><test name="family"><string>monospace</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$mono_xml"'</string></edit></match>' \
+        '  <match target="pattern"><test name="family"><string>serif</string></test>' \
+        '    <edit name="family" mode="prepend" binding="strong"><string>'"$document_xml"'</string></edit></match>' \
         '</fontconfig>' > "$tmp"
     mv "$tmp" "$FONTCONFIG_FILE"
     if [[ $NO_RUNTIME != true ]] && command -v fc-cache >/dev/null 2>&1; then

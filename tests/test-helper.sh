@@ -51,7 +51,13 @@ assert_line "$XDG_CONFIG_HOME/kdeglobals" 'Theme=Papirus-Dark'
 assert_line "$XDG_CONFIG_HOME/kcminputrc" 'cursorSize=32'
 assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME=qt5ct'
 assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME_QT6=qt6ct'
-grep -Fq '<family>Cascadia Mono</family>' "$XDG_CONFIG_HOME/fontconfig/conf.d/99-dms-theme-sync.conf"
+# The generic-family rules must be strong-bound prepends, not <alias><prefer>:
+# 50-user.conf loads this file at position ~50, before 60-latin.conf, so a
+# <prefer> here is silently overridden by Noto Sans Mono / Noto Sans.
+fc_conf="$XDG_CONFIG_HOME/fontconfig/conf.d/99-dms-theme-sync.conf"
+grep -Fq '<string>Cascadia Mono</string>' "$fc_conf"
+grep -Fq 'mode="prepend" binding="strong"' "$fc_conf"
+! grep -Fq '<prefer>' "$fc_conf"
 
 before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 "$ROOT/scripts/apply-theme.sh" \
