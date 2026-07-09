@@ -181,7 +181,6 @@ hue_chroma() {
         r = strtonum("0x" substr($0,1,2)) / 255
         g = strtonum("0x" substr($0,3,2)) / 255
         b = strtonum("0x" substr($0,5,2)) / 255
-        for (i = 0; i < 3; i++) {}
         r = (r <= 0.04045) ? r/12.92 : ((r+0.055)/1.055)^2.4
         g = (g <= 0.04045) ? g/12.92 : ((g+0.055)/1.055)^2.4
         b = (b <= 0.04045) ? b/12.92 : ((b+0.055)/1.055)^2.4
@@ -907,6 +906,113 @@ if ! $DRY_RUN && [[ $NO_RUNTIME != true ]] && command -v systemctl >/dev/null 2>
         env_args+=("QT_QPA_PLATFORMTHEME=qt5ct" "QT_QPA_PLATFORMTHEME_QT6=qt6ct")
     fi
     systemctl --user set-environment "${env_args[@]}" >/dev/null 2>&1 || true
+fi
+
+# --- Reconcile ----------------------------------------------------------------
+#
+# Writing a file is not the same as the setting taking effect. Every surface
+# here has at least one way to be silently overruled: gsettings can be rewritten
+# by nwg-look or lxappearance, fontconfig's user directory is parsed *before*
+# /etc/fonts/conf.d/60-latin.conf, GTK4 apps choke on symlinks left behind by
+# uninstalled themes, and a theme name can point at a directory nobody
+# installed. So after writing, read the system back and reconcile.
+#
+# Anything unambiguously broken is repaired. Anything that needs a human
+# decision is reported with the exact file to look at, never silently changed.
+
+RECONCILE_ISSUES=0
+note() { RECONCILE_ISSUES=$((RECONCILE_ISSUES + 1)); log "reconcile: $*"; }
+
+# 1. Dangling symlinks under the GTK config dirs. nwg-look points gtk.css and
+#    gtk-dark.css at whatever theme was selected; uninstall the theme and the
+#    link dangles. libadwaita then fails to load its assets.
+prune_broken_links() {
+    local d f
+    for d in "${XDG_CONFIG_HOME:-$HOME/.config}"/gtk-{3,4}.0; do
+        [[ -d $d ]] || continue
+        while IFS= read -r -d '' f; do
+            note "removed dangling symlink ${f#$HOME/} -> $(readlink "$f")"
+            rm -f "$f"
+        done < <(find "$d" -maxdepth 1 -xtype l -print0 2>/dev/null)
+    done
+}
+
+# 2. gsettings is the source GTK3 actually consults on Wayland. If it disagrees
+#    with what we just wrote, something else is writing it too: re-assert, then
+#    check again and name the likely culprit if it still drifts.
+verify_gsettings() {
+    local key want got
+    for pair in "gtk-theme:$GTK_THEME" "icon-theme:$ICON_THEME" "cursor-theme:$CURSOR_THEME"; do
+        key=${pair%%:*}; want=${pair#*:}
+        [[ -n $want ]] || continue
+        got=$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null | tr -d "'")
+        [[ $got == "$want" ]] && continue
+        set_gsetting_string org.gnome.desktop.interface "$key" "$want"
+        got=$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null | tr -d "'")
+        [[ $got == "$want" ]] || note "gsettings $key stays '$got', expected '$want'"
+    done
+}
+
+# 3. Our fontconfig file lives in $XDG_CONFIG_HOME/fontconfig/conf.d, which
+#    50-user.conf pulls in at position ~50 — before 60-latin.conf. Strong-bound
+#    prepends survive that, a plain <prefer> in the user's own fonts.conf does
+#    not: it is parsed later still and wins. Check the outcome, not the file.
+verify_fontconfig() {
+    local generic want got user_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/fonts.conf"
+    for pair in "monospace:$MONO_FONT" "sans-serif:$FONT" "serif:$DOCUMENT_FONT"; do
+        generic=${pair%%:*}; want=${pair#*:}
+        [[ -n $want ]] || continue
+        got=$(fc-match "$generic" 2>/dev/null | cut -d'"' -f2)
+        [[ $got == "$want" ]] && continue
+        if [[ -f $user_conf ]] && grep -q "<family>$generic</family>" "$user_conf"; then
+            note "fc-match $generic gives '$got', not '$want' — $user_conf overrides us; remove its <alias> for $generic"
+        elif ! fc-list -q :family="$want"; then
+            note "font '$want' is not installed; $generic falls back to '$got'"
+        else
+            note "fc-match $generic gives '$got', not '$want'"
+        fi
+    done
+}
+
+# 4. A theme name is just a string until something resolves it on disk. niri's
+#    layout.kdl happily names a cursor nobody installed.
+verify_theme_assets() {
+    [[ -n $ICON_THEME ]] && ! icon_theme_dir "$ICON_THEME" >/dev/null \
+        && note "icon theme '$ICON_THEME' is not installed"
+    [[ -n $CURSOR_THEME ]] && ! icon_theme_dir "$CURSOR_THEME" >/dev/null \
+        && note "cursor theme '$CURSOR_THEME' is not installed"
+    [[ -n $GTK_THEME ]] && ! theme_exists "$GTK_THEME" \
+        && note "GTK theme '$GTK_THEME' is not installed"
+    return 0
+}
+
+# 5. Other appearance tools do not coordinate with anyone. Their mere presence
+#    means the next thing the user clicks can undo this run. Report, never touch.
+detect_foreign_writers() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}" f
+    [[ -e $cfg/nwg-look ]] && note "nwg-look config present ($cfg/nwg-look) — it rewrites gsettings and gtk4 symlinks behind us"
+    [[ -e $cfg/lxappearance ]] && note "lxappearance config present — it rewrites gtk settings.ini behind us"
+    # Only live scripts count: a commented-out line does nothing, and a *.bak
+    # copy is never executed. Flagging either turns this check into noise.
+    while IFS= read -r f; do
+        [[ $f == *.bak* || $f == *~ ]] && continue
+        grep -qE '^[[:space:]]*gsettings set org\.gnome\.desktop\.interface' "$f" \
+            && note "$f sets the GTK theme behind us"
+    done < <(find "$cfg/variety/scripts" -maxdepth 1 -type f 2>/dev/null)
+    return 0
+}
+
+if ! $DRY_RUN; then
+    # Filesystem-only checks: safe without a session, so they run in tests too.
+    prune_broken_links
+    verify_theme_assets
+    detect_foreign_writers
+    if [[ $NO_RUNTIME != true ]]; then
+        command -v gsettings >/dev/null 2>&1 && verify_gsettings
+        command -v fc-match  >/dev/null 2>&1 && verify_fontconfig
+    fi
+    (( RECONCILE_ISSUES == 0 )) && log "reconcile: clean" \
+        || log "reconcile: $RECONCILE_ISSUES issue(s) above"
 fi
 
 log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS"

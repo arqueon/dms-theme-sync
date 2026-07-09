@@ -15,6 +15,16 @@ PluginSettings {
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
     // Only Papirus ships the folder colour variants the accent sync needs.
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").indexOf("Papirus") === 0
+
+    // Visible section divider. The file used to mark its sections with `// ---`
+    // comments, which organise the source and nothing else: in the UI the ~30
+    // controls ran together as one flat list.
+    component SectionHeader: StyledText {
+        width: parent ? parent.width : 0
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Bold
+        color: Theme.primary
+    }
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     property var snapshots: []
 
@@ -255,7 +265,9 @@ PluginSettings {
         wrapMode: Text.WordWrap
     }
 
-    // --- DMS appearance (acts directly on DMS, identical to DMS Settings) ---
+    SectionHeader {
+        text: "DMS appearance"
+    }
 
     Column {
         width: parent.width
@@ -392,7 +404,9 @@ PluginSettings {
 
     }
 
-    // --- Fonts, icons and cursor (write the canonical DMS settings) ---
+    SectionHeader {
+        text: "Fonts, icons and cursor"
+    }
 
     Column {
         width: parent.width
@@ -612,7 +626,9 @@ PluginSettings {
 
     }
 
-    // --- GTK theme (plugin-owned, propagated to applications) ---
+    SectionHeader {
+        text: "GTK theme"
+    }
 
     Column {
         width: parent.width
@@ -682,6 +698,19 @@ PluginSettings {
 
     }
 
+    // Not a Qt setting: it drives the GTK CSS import *and* the Qt palette, and
+    // used to sit wedged between the two Qt dropdowns.
+    ToggleSetting {
+        settingKey: "applyMatugenColors"
+        label: "Apply DMS Matugen colors"
+        description: "Import DMS dynamic colors over the selected GTK theme and use DankMatugen.colors for Qt"
+        defaultValue: true
+    }
+
+    SectionHeader {
+        text: "Qt applications"
+    }
+
     SelectionSetting {
         settingKey: "qtPlatformTheme"
         label: "Qt5/Qt6 platform theme"
@@ -699,13 +728,6 @@ PluginSettings {
         defaultValue: "preserve"
     }
 
-    ToggleSetting {
-        settingKey: "applyMatugenColors"
-        label: "Apply DMS Matugen colors"
-        description: "Import DMS dynamic colors over the selected GTK theme and use DankMatugen.colors for Qt"
-        defaultValue: true
-    }
-
     SelectionSetting {
         settingKey: "qtStyle"
         label: "Qt widget style"
@@ -717,7 +739,9 @@ PluginSettings {
         defaultValue: "Fusion"
     }
 
-    // --- Font sizes (plugin-owned, with reset-to-default) ---
+    SectionHeader {
+        text: "Font sizes"
+    }
 
     Column {
         width: parent.width
@@ -890,6 +914,10 @@ PluginSettings {
 
     }
 
+    SectionHeader {
+        text: "Propagation targets"
+    }
+
     ToggleSetting {
         settingKey: "syncKde"
         label: "Synchronize KDE configuration"
@@ -919,7 +947,9 @@ PluginSettings {
         enabled: root.iconThemeSupportsFolderColor
     }
 
-    // --- Synchronization and backups ---
+    SectionHeader {
+        text: "Synchronization and backups"
+    }
 
     ToggleSetting {
         settingKey: "autoSync"

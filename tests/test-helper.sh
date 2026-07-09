@@ -237,4 +237,40 @@ else
     printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
 fi
 
+# --- Reconcile: dangling GTK symlinks are pruned, live foreign writers named --
+# nwg-look points gtk.css / gtk-dark.css at the selected theme; uninstall it and
+# libadwaita trips over the dead link on every launch.
+ln -sfn "$TMP/does-not-exist/gtk-dark.css" "$XDG_CONFIG_HOME/gtk-4.0/gtk-dark.css"
+mkdir -p "$XDG_CONFIG_HOME/variety/scripts"
+printf '#!/bin/sh\n# gsettings set org.gnome.desktop.interface gtk-theme "X"\n' \
+    > "$XDG_CONFIG_HOME/variety/scripts/set_wallpaper"
+printf '#!/bin/sh\ngsettings set org.gnome.desktop.interface gtk-theme "X"\n' \
+    > "$XDG_CONFIG_HOME/variety/scripts/set_wallpaper.bak-1"
+
+run_reconcile() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --qt-style Fusion --apply-matugen-colors true \
+        --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --backup-retention 10 --no-runtime 2>&1
+}
+
+reconcile_out=$(run_reconcile)
+[[ ! -e $XDG_CONFIG_HOME/gtk-4.0/gtk-dark.css ]] \
+    || { printf 'Dangling gtk-dark.css symlink was not pruned\n' >&2; exit 1; }
+grep -q 'removed dangling symlink' <<<"$reconcile_out" \
+    || { printf 'Prune was not reported\n' >&2; exit 1; }
+# a commented-out line and a *.bak copy are not live writers
+grep -q 'sets the GTK theme behind us' <<<"$reconcile_out" \
+    && { printf 'Commented-out / backup script reported as a live writer\n' >&2; exit 1; }
+
+printf '#!/bin/sh\ngsettings set org.gnome.desktop.interface gtk-theme "X"\n' \
+    > "$XDG_CONFIG_HOME/variety/scripts/set_wallpaper"
+grep -q 'sets the GTK theme behind us' <<<"$(run_reconcile)" \
+    || { printf 'Live foreign writer not detected\n' >&2; exit 1; }
+rm -rf "$XDG_CONFIG_HOME/variety"
+
 printf 'helper tests: ok\n'
