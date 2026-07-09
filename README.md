@@ -31,8 +31,10 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 ## Highlights
 
 - **One place for everything.** The plugin UI mirrors every DMS appearance control — color theme, light/dark mode, Matugen palette & contrast, fonts, icons, cursor and cursor size — next to its own options, so you never jump between DMS Settings and the plugin.
-- **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, KDE, Fontconfig, XSettings and XCursor.
-- **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass.
+- **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, Kvantum, KDE, Flatpak, Fontconfig, XSettings and XCursor.
+- **It checks its own work.** After every apply it reads the system back: prunes dangling GTK symlinks, re-asserts gsettings, confirms `fc-match` really returns the font it asked for, and names the themes and tools that will fight it.
+- **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass. Optionally renders a Kvantum theme and recolours Papirus folders from the same palette.
+- **DMS decides, the plugin propagates.** It changes DMS settings only through DMS's own API, never behind its back.
 - **Safe by default.** Every apply takes a restorable snapshot first.
 - **Detected dropdowns only.** No free-form theme/font fields; numeric sizes use sliders with reset buttons.
 
@@ -43,6 +45,7 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 | **GTK** | `~/.gtkrc-2.0`, GTK3/GTK4 `settings.ini`, safe Matugen color import |
 | **GNOME** | GSettings (theme, icons, cursor + size, fonts) and the portal color-scheme hint |
 | **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette |
+| **Kvantum** | opt-in: renders `DankMatugen.{kvconfig,svg}` from the DMS palette and selects it (see [Kvantum](#kvantum)) |
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
@@ -108,13 +111,13 @@ The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `Da
 
 Choosing the `kvantum` style writes `style=kvantum` into `qt5ct.conf` and `qt6ct.conf` regardless of whether Kvantum is installed. Qt then falls back to Fusion **without saying anything**, which is precisely the class of silent failure this plugin exists to remove. Reconcile therefore checks for the style plugin Qt actually loads (`libkvantum*.so`) and reports when it is missing. `/usr/share/Kvantum` is not evidence: GTK themes such as `celestial-gtk-theme` ship Kvantum *themes* there without Kvantum itself.
 
-Beyond that warning, Kvantum is **not yet driven** by the plugin. It is worth being precise about why, and about what "driving it" would mean.
+When the **Generate a Kvantum theme from the DMS palette** toggle is on and the Qt style is `kvantum`, the plugin renders the theme itself. What follows is why that is a real feature and not a two-line write.
 
 `qt5ct`/`qt6ct` gives Qt applications the DMS palette, which is where almost all of the visible consistency comes from. Kvantum adds SVG-drawn widget *shapes* on top, and it takes its colours from its own theme — a `<name>.kvconfig` plus a `<name>.svg` — not from the qtXct palette. So selecting `kvantum` today swaps one source of colour for another and drops out of the Matugen palette entirely.
 
-Making it follow DMS means generating a Kvantum theme from the Matugen colours on every wallpaper change: emit `~/.config/Kvantum/DankMatugen/DankMatugen.{kvconfig,svg}` — matugen has upstream templates for both — and point `~/.config/Kvantum/kvantum.kvconfig` at it. The SVG has to be recoloured, not just the config, which is why this is a real feature and not a two-line write.
+So the plugin renders the theme on every apply: `~/.config/Kvantum/DankMatugen/DankMatugen.kvconfig` and `DankMatugen.svg`, then points `~/.config/Kvantum/kvantum.kvconfig` at it. **Both** files are recoloured — the `.svg` is where every widget is drawn, and the upstream template contains no hard-coded hex at all, so recolouring only the config would leave Kvantum painting the template's colours.
 
-It is unimplemented for an honest reason: it cannot be verified without Kvantum installed, and shipping a code path nobody has watched run is how the `99-` fontconfig file stayed broken. Contributions welcome; the insertion point is right after the Qt block in `scripts/apply-theme.sh`.
+The templates live in `assets/kvantum/`, vendored verbatim from [InioX/matugen-themes](https://github.com/InioX/matugen-themes) (MIT, see the `NOTICE` there) so an apply never depends on the network. They ask for twelve Material roles; DMS's `Theme` singleton exposes most of them and the rest are derived exactly the way DMS derives them in `buildMatugenColorsFromTheme()`. A role the plugin cannot resolve is **reported**, never written as a literal `{{colors.…}}` — Kvantum would read that as an invalid colour and quietly paint grey.
 
 ### Compositors
 
