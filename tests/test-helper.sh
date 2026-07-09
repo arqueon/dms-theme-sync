@@ -180,4 +180,55 @@ rm -rf "$TERMINAL_DIR"
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$term_snapshot" --no-runtime >/dev/null
 assert_line "$TERMINAL_DIR/kitty.conf" "font_family Cascadia Mono"
 
+# --- Folder accent overlay: off by default, built only when opted in ---------
+# Needs a real Papirus install to read folder colours from; skip where absent.
+PAPIRUS=""
+for d in /usr/share/icons /usr/local/share/icons; do
+    [[ -d $d/Papirus-Dark/64x64/places ]] && { PAPIRUS="$d/Papirus-Dark"; break; }
+done
+
+if [[ -n $PAPIRUS ]]; then
+    OVERLAY="$XDG_DATA_HOME/icons/Papirus-Dark-DankFolders"
+    printf '@define-color accent_bg_color #e25252;\n' \
+        > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+
+    run_folder() {
+        "$ROOT/scripts/apply-theme.sh" \
+            --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+            --font-size 11 --mono-size 12 --document-size 13 \
+            --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+            --mode dark --gtk-theme-light auto --gtk-theme-dark auto \
+            --qt-platform-theme qtct --qt-style Fusion \
+            --apply-matugen-colors true --sync-kde false --sync-xsettingsd false \
+            --backup-enabled false --backup-retention 10 --no-runtime "$@" >/dev/null
+    }
+
+    run_folder --sync-folder-color false
+    [[ ! -d $OVERLAY ]] || { printf 'Overlay built while the toggle was off\n' >&2; exit 1; }
+    assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
+
+    run_folder --sync-folder-color true
+    [[ -d $OVERLAY ]] || { printf 'Overlay not built with the toggle on\n' >&2; exit 1; }
+    # a red accent must resolve to the `red` folders, not to a themed near-hue
+    [[ $(readlink "$OVERLAY/64x64/places/folder.svg") == *"/folder-red.svg" ]] \
+        || { printf 'Accent did not map to the red folder set\n' >&2; exit 1; }
+    grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY/index.theme" \
+        || { printf 'Overlay does not inherit from the base theme\n' >&2; exit 1; }
+    # HiDPI directories must carry Scale, or @2x lookups silently miss
+    grep -Fqx "Scale=2" "$OVERLAY/index.theme" \
+        || { printf 'Overlay index.theme lacks Scale for @2x dirs\n' >&2; exit 1; }
+    [[ -z $(find "$OVERLAY" -xtype l -print -quit) ]] \
+        || { printf 'Overlay contains broken symlinks\n' >&2; exit 1; }
+    # the overlay, not the base theme, becomes the applied icon theme
+    assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
+        "gtk-icon-theme-name=Papirus-Dark-DankFolders"
+
+    # turning it back off removes the generated theme and restores the base name
+    run_folder --sync-folder-color false
+    [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
+    assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
+else
+    printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
+fi
+
 printf 'helper tests: ok\n'

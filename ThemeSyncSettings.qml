@@ -13,6 +13,8 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    // Only Papirus ships the folder colour variants the accent sync needs.
+    readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").indexOf("Papirus") === 0
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     property var snapshots: []
 
@@ -907,6 +909,14 @@ PluginSettings {
         label: "Synchronize terminal fonts"
         description: "Terminals read their own config, not GTK/Qt, so the monospace font never reaches them otherwise. When on, the plugin writes a font include per terminal in ~/.config/dms-theme-sync/ (kitty.conf, alacritty.toml, ghostty.conf) using the DMS monospace font and size. Opt-in: reference each file from your terminal config once — kitty: include ~/.config/dms-theme-sync/kitty.conf · ghostty: config-file = ~/.config/dms-theme-sync/ghostty.conf · alacritty: add it to [general] import. Each generated file also prints its exact reference line in its header."
         defaultValue: false
+    }
+
+    ToggleSetting {
+        settingKey: "syncFolderColor"
+        label: "Sync icon folder color (requires Papirus)"
+        description: "Recolors the folder icons to follow the Material You accent. Only Papirus ships the ~80 folder color variants this needs, so the toggle does nothing with any other icon theme — yours is kept exactly as you set it. When on, the plugin generates a small overlay theme in ~/.local/share/icons that inherits Papirus and only overrides the folders (about 4 MB of symlinks, no root needed, and Papirus updates are inherited). The accent is matched by hue, not by nearest RGB, because Material You hands out pastel tints in dark mode."
+        defaultValue: false
+        enabled: root.iconThemeSupportsFolderColor
     }
 
     // --- Synchronization and backups ---

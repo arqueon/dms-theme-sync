@@ -20,6 +20,7 @@ APPLY_MATUGEN_COLORS=true
 SYNC_KDE=true
 SYNC_XSETTINGSD=true
 SYNC_TERMINAL_FONTS=false
+SYNC_FOLDER_COLOR=false
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 BACKUP_ENABLED=true
@@ -46,6 +47,7 @@ while (( $# )); do
         --sync-kde) SYNC_KDE=${2:?}; shift 2 ;;
         --sync-xsettingsd) SYNC_XSETTINGSD=${2:?}; shift 2 ;;
         --sync-terminal-fonts) SYNC_TERMINAL_FONTS=${2:?}; shift 2 ;;
+        --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
         --backup-enabled) BACKUP_ENABLED=${2:?}; shift 2 ;;
@@ -141,6 +143,187 @@ if [[ $ICON_THEME == "System Default" ]]; then
 fi
 if [[ $CURSOR_THEME == "System Default" ]]; then
     CURSOR_THEME=""
+fi
+
+# --- Folder accent overlay ---------------------------------------------------
+#
+# Papirus ships ~80 folder colours, and papirus-folders(1) switches between them
+# by re-pointing folder*.svg symlinks. It cannot help us here: the Arch package
+# installs the theme under /usr/share/icons, so the tool re-execs itself through
+# sudo, and a shell plugin has no way to prompt for a password.
+#
+# Instead we generate a small overlay theme under $XDG_DATA_HOME that inherits
+# the base theme and carries *only* the Places folder icons, each a symlink to
+# the base theme's coloured variant. ~4 MB instead of a ~320 MB copy, no root,
+# and pacman updates to the base theme are inherited for free because the
+# symlinks point into it. Everything else (app icons, mimetypes) resolves
+# through Inherits=.
+#
+# The colour itself is derived from the Matugen accent by HUE, not by nearest
+# RGB: in dark mode Material You hands out a pastel tint (e.g. #a1c9ff), and a
+# plain euclidean match against Papirus's saturated folders always lands on the
+# washed-out entries.
+
+OVERLAY_SUFFIX="-DankFolders"
+
+icon_theme_dir() {
+    local name=$1 d
+    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/icons" "$HOME/.icons" \
+             /usr/local/share/icons /usr/share/icons; do
+        [[ -d $d/$name ]] && { printf '%s' "$d/$name"; return 0; }
+    done
+    return 1
+}
+
+# hex -> "hue chroma" in CIE LCh. Pure awk so we keep the zero-dependency rule.
+hue_chroma() {
+    printf '%s' "${1#\#}" | awk '{
+        r = strtonum("0x" substr($0,1,2)) / 255
+        g = strtonum("0x" substr($0,3,2)) / 255
+        b = strtonum("0x" substr($0,5,2)) / 255
+        for (i = 0; i < 3; i++) {}
+        r = (r <= 0.04045) ? r/12.92 : ((r+0.055)/1.055)^2.4
+        g = (g <= 0.04045) ? g/12.92 : ((g+0.055)/1.055)^2.4
+        b = (b <= 0.04045) ? b/12.92 : ((b+0.055)/1.055)^2.4
+        x = (0.4124*r + 0.3576*g + 0.1805*b) / 0.95047
+        y = (0.2126*r + 0.7152*g + 0.0722*b)
+        z = (0.0193*r + 0.1192*g + 0.9505*b) / 1.08883
+        x = (x > 0.008856) ? x^(1/3) : 7.787*x + 16/116
+        y = (y > 0.008856) ? y^(1/3) : 7.787*y + 16/116
+        z = (z > 0.008856) ? z^(1/3) : 7.787*z + 16/116
+        A = 500*(x-y); B = 200*(y-z)
+        h = atan2(B, A) * 57.2957795; if (h < 0) h += 360
+        printf "%.3f %.3f", h, sqrt(A*A + B*B)
+    }'
+}
+
+# The perceived folder colour is the most chromatic fill in the SVG. Its
+# position is not stable: in folder-red.svg it is the 3rd fill, in folder-yaru
+# .svg the 2nd, and picking by index silently grabs a grey.
+dominant_fill() {
+    local svg=$1 best="" best_c=-1 hex c
+    while read -r hex; do
+        c=$(hue_chroma "$hex" | cut -d' ' -f2)
+        awk -v a="$c" -v b="$best_c" 'BEGIN{exit !(a>b)}' && { best=$hex; best_c=$c; }
+    done < <(grep -oE 'fill:#[0-9a-fA-F]{6}' "$svg" | sed 's/fill://' | sort -u)
+    printf '%s' "$best"
+}
+
+# A colour is any X for which both folder-X.svg and folder-X-<variant>.svg
+# exist. Splitting folder-*.svg on dashes would shred `cat-mocha-blue`.
+#
+# Papirus carries themed palettes (cat-*, nordic, yaru, breeze, adwaita) whose
+# hues collide with the plain ones, so a pure hue match resolves ties at random
+# — #a1c9ff lands on `nordic` as readily as on `blue`. Search the plain palette
+# first and only fall back to the themed entries when nothing plain is close.
+_folder_palette_match() {
+    local places=$1 ah=$2 plain_only=$3 name hex h c d best="" bestd=999 bestc=-1
+    for f in "$places"/folder-*.svg; do
+        name=$(basename "$f" .svg); name=${name#folder-}
+        [[ -e $places/folder-$name-documents.svg ]] || continue
+        if [[ $plain_only == true ]]; then
+            [[ $name == *-* ]] && continue
+            case $name in nordic|yaru|breeze|adwaita|black|white) continue ;; esac
+        fi
+        hex=$(dominant_fill "$f"); [[ -n $hex ]] || continue
+        read -r h c <<<"$(hue_chroma "$hex")"
+        awk -v c="$c" 'BEGIN{exit !(c < 12)}' && continue
+        d=$(awk -v a="$ah" -v b="$h" 'BEGIN{d=(b-a+180)%360-180; if(d<0)d=-d; print d}')
+        # Hue decides; within 5 degrees prefer the more saturated folder, else an
+        # amber accent lands on `paleorange` rather than `yellow`.
+        if awk -v d="$d" -v bd="$bestd" -v c="$c" -v bc="$bestc" \
+            'BEGIN{exit !(d < bd-5 || (d <= bd+5 && c > bc))}'; then
+            best=$name; bestd=$d; bestc=$c
+        fi
+    done
+    [[ -n $best ]] && printf '%s %s' "$best" "$bestd"
+}
+
+nearest_folder_color() {
+    local places=$1 accent=$2 ah ac best d
+    read -r ah ac <<<"$(hue_chroma "$accent")"
+    awk -v c="$ac" 'BEGIN{exit !(c < 12)}' && { printf 'grey'; return 0; }
+    read -r best d <<<"$(_folder_palette_match "$places" "$ah" true)"
+    if [[ -n $best ]] && awk -v d="$d" 'BEGIN{exit !(d <= 30)}'; then
+        printf '%s' "$best"; return 0
+    fi
+    read -r best d <<<"$(_folder_palette_match "$places" "$ah" false)"
+    [[ -n $best ]] && printf '%s' "$best"
+}
+
+build_folder_overlay() {
+    local base=$1 color=$2 out=$3 places size target name src
+    rm -rf "$out"; mkdir -p "$out"
+    local -a dirs=()
+    while IFS= read -r places; do
+        size=$(basename "$(dirname "$places")")
+        local made=false
+        for prefix in folder user; do
+            for src in "$places/$prefix-$color"{-*,}.svg; do
+                [[ -e $src ]] || continue
+                name=$(basename "$src" .svg)
+                if [[ $name == "$prefix-$color" ]]; then target=$prefix
+                else target=${name/$prefix-$color-/$prefix-}; fi
+                mkdir -p "$out/$size/places"
+                ln -sfn "$src" "$out/$size/places/$target.svg"
+                made=true
+            done
+        done
+        $made && dirs+=("$size/places")
+    done < <(find -L "$base" -mindepth 2 -maxdepth 2 -type d -name places | sort)
+    (( ${#dirs[@]} )) || { rm -rf "$out"; return 1; }
+
+    {
+        printf '[Icon Theme]\nName=%s\n' "${out##*/}"
+        printf 'Comment=Folder accent overlay generated by dms-theme-sync\n'
+        printf 'Inherits=%s,hicolor\n' "$(basename "$base")"
+        printf 'Directories=%s\n\n' "$(IFS=,; printf '%s' "${dirs[*]}")"
+        local d sz scale
+        for d in "${dirs[@]}"; do
+            sz=${d%%/*}; scale=1
+            case "$sz" in *@*x) scale=${sz##*@}; scale=${scale%x}; sz=${sz%@*};; esac
+            printf '[%s]\nSize=%s\nScale=%s\nContext=Places\nType=Fixed\n\n' "$d" "${sz%%x*}" "$scale"
+        done
+    } > "$out/index.theme"
+}
+
+icons_home="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+overlay_dir="$icons_home/${ICON_THEME}${OVERLAY_SUFFIX}"
+
+# Sweep overlays left behind by a previous base theme. Without this, switching
+# Papirus-Dark -> Tela strands `Papirus-Dark-DankFolders` in the theme picker.
+if ! $DRY_RUN; then
+    for stale in "$icons_home"/*"$OVERLAY_SUFFIX"; do
+        [[ -d $stale && $stale != "$overlay_dir" ]] && rm -rf "$stale"
+    done
+fi
+
+if [[ $SYNC_FOLDER_COLOR == true && -n $ICON_THEME && $ICON_THEME != *"$OVERLAY_SUFFIX" ]]; then
+    base_dir=$(icon_theme_dir "$ICON_THEME" || true)
+    places_dir="$base_dir/64x64/places"
+    accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
+        | grep -oE '#[0-9a-fA-F]{6}' || true)
+
+    if [[ -z $base_dir || ! -d $places_dir ]]; then
+        log "folder-color: '$ICON_THEME' has no Places icons; skipping"
+    elif [[ -z $accent ]]; then
+        log "folder-color: no Matugen accent found; skipping"
+    else
+        color=$(nearest_folder_color "$places_dir" "$accent" || true)
+        if [[ -z $color ]]; then
+            log "folder-color: no folder colour matches accent $accent; skipping"
+        elif $DRY_RUN; then
+            log "DRY-RUN: build overlay $overlay_dir (accent $accent -> $color)"
+        elif build_folder_overlay "$base_dir" "$color" "$overlay_dir"; then
+            log "folder-color: accent $accent -> $color (overlay ${overlay_dir##*/})"
+            ICON_THEME="${overlay_dir##*/}"
+        else
+            log "folder-color: overlay build failed; keeping $ICON_THEME"
+        fi
+    fi
+elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
+    rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
 fi
 
 if [[ $BACKUP_ENABLED == true ]]; then
