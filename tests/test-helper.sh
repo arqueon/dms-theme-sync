@@ -349,4 +349,50 @@ else
     printf 'kvantum: skipped (style plugin not installed)\n'
 fi
 
+# --- Qt platform theme: any plugin name Qt can load, and the style-is-inert note -
+#
+# qt5ct/qt6ct.conf is read by the qtXct platform theme and nobody else. Under
+# gtk3 or kde the style we write is inert, and saying so is the whole point of
+# the reconcile pass. Verified against qtdiag: PLATFORMTHEME=gtk3 reports
+# "Styles requested: Fusion,windows".
+# The compositor is forced generic: under Niri the KDL include replaces
+# environment.d and deletes it, which is a different code path. Unsetting
+# NIRI_SOCKET is not enough — detect_compositor also sniffs XDG_CURRENT_DESKTOP.
+qt_note() { # $1=platform theme  $2=style  -> reconcile lines only
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --font Archivo --mono-font "Cascadia Mono" \
+        --icon-theme Papirus-Dark --cursor-theme Breeze \
+        --mode dark --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --no-runtime \
+        --qt-platform-theme "$1" --qt-style "$2" 2>&1 | grep '^reconcile:' || true
+}
+
+grep -q "style 'kvantum' in qt5ct/qt6ct.conf is ignored" <<<"$(qt_note gtk3 kvantum)" \
+    || { printf 'No note that gtk3 ignores the Qt style\n' >&2; exit 1; }
+grep -q "does not read qt5ct/qt6ct.conf" <<<"$(qt_note kde Breeze)" \
+    || { printf 'No note that kde ignores the Qt style\n' >&2; exit 1; }
+grep -q "no Qt platform theme is set" <<<"$(qt_note preserve kvantum)" \
+    || { printf 'No note when nothing reads qt5ct/qt6ct.conf\n' >&2; exit 1; }
+# qtct is the one combination where the style does arrive: stay quiet.
+grep -q 'qt5ct/qt6ct.conf' <<<"$(qt_note qtct kvantum)" \
+    && { printf 'Spurious note under the qtct platform theme\n' >&2; exit 1; }
+# A style of "preserve" means we wrote none, so there is nothing to warn about.
+grep -q 'is ignored' <<<"$(qt_note gtk3 preserve)" \
+    && { printf 'Note about an ignored style when no style was written\n' >&2; exit 1; }
+
+# Platform themes beyond gtk3/qtct used to fall through a closed case and be
+# dropped without a word. They must reach environment.d verbatim.
+rm -f "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+qt_note xdgdesktopportal Fusion >/dev/null
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME=xdgdesktopportal'
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME_QT6=xdgdesktopportal'
+
+# ...but the value lands in environment.d and in niri/Hyprland config, so a name
+# that could break out of those files is rejected outright.
+if "$ROOT/scripts/apply-theme.sh" --qt-platform-theme 'a b"c' --no-runtime >/dev/null 2>&1; then
+    printf 'Accepted a Qt platform theme name with shell/KDL metacharacters\n' >&2
+    exit 1
+fi
+
 printf 'helper tests: ok\n'

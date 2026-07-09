@@ -107,6 +107,18 @@ The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `Da
 > [!NOTE]
 > Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
 
+### The Qt platform theme decides whether any of this is read
+
+`qt5ct.conf` and `qt6ct.conf` are read by the **qtXct platform theme** and by nothing else. Under `gtk3`, `kde` or no platform theme at all, Qt never opens those files, so the widget style you picked is inert. `qtdiag` shows it plainly — with `QT_QPA_PLATFORMTHEME=gtk3` it reports `Styles requested: Fusion,windows`, not the configured style. Reconcile now says so instead of letting you hunt for a theme that was never loaded:
+
+```text
+reconcile: Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style 'kvantum' in qt5ct/qt6ct.conf is ignored
+```
+
+Under `gtk3` the *colours* still arrive — Qt applications follow the GTK theme, which carries the Matugen palette — so only the style is reported lost. With no platform theme set, neither reaches Qt.
+
+Both dropdowns are populated from what this machine can actually load, as reported by `qtdiag`: the platform themes Qt found (`gtk3`, `kde`, `xdgdesktopportal`, …) and the styles in `QStyleFactory` (`Breeze`, `kvantum`, `Fusion`, …). `qt5ct`/`qt6ct` are offered as the single **DMS palette** entry, because the plugin has to write a different name per Qt version. If `qtdiag` is missing, the lists fall back to the names Qt always builds in.
+
 ### Kvantum
 
 Choosing the `kvantum` style writes `style=kvantum` into `qt5ct.conf` and `qt6ct.conf` regardless of whether Kvantum is installed. Qt then falls back to Fusion **without saying anything**, which is precisely the class of silent failure this plugin exists to remove. Reconcile therefore checks for the style plugin Qt actually loads (`libkvantum*.so`) and reports when it is missing. `/usr/share/Kvantum` is not evidence: GTK themes such as `celestial-gtk-theme` ship Kvantum *themes* there without Kvantum itself.

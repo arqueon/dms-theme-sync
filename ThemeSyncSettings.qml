@@ -13,23 +13,18 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    // Qt platform themes and widget styles, as reported by Qt itself. These used
+    // to be hardcoded lists, which offered names this machine may not have and
+    // hid the ones it does. The defaults below are the two synthetic entries plus
+    // what Qt always builds in, so the dropdowns are usable if qtdiag is absent.
+    property var availableQtPlatformThemes: ["preserve", "qtct"]
+    property var availableQtStyles: ["preserve", "Fusion", "Windows"]
     // Only Papirus ships the folder colour variants the accent sync needs. Once
     // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
     // base theme rather than the applied one.
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
-
-    // Visible section divider. The file used to mark its sections with `// ---`
-    // comments, which organise the source and nothing else: in the UI the ~30
-    // controls ran together as one flat list.
-    component SectionHeader: StyledText {
-        width: parent ? parent.width : 0
-        font.pixelSize: Theme.fontSizeMedium
-        font.weight: Font.Bold
-        color: Theme.primary
-    }
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     property var snapshots: []
-
     // Plugin-owned values. Loaded from / saved to plugin data directly so the
     // controls reflect the stored choice even before option lists finish loading.
     property string gtkThemeLightValue: "auto"
@@ -40,7 +35,6 @@ PluginSettings {
     property int monoFontSizeValue: 12
     property int documentFontSizeValue: 11
     property int backupRetentionValue: 10
-
     // DMS color themes, mirrored from the live DMS API. These act on DMS directly,
     // exactly like the DMS Settings "Theme" tab.
     readonly property var dmsThemeOptions: {
@@ -73,6 +67,7 @@ PluginSettings {
         for (let i = 0; i < options.length; i++) {
             if (options[i].value === value)
                 return options[i].label;
+
         }
         return value;
     }
@@ -81,6 +76,7 @@ PluginSettings {
         for (let i = 0; i < options.length; i++) {
             if (options[i].label === label)
                 return options[i].value;
+
         }
         return label;
     }
@@ -89,6 +85,7 @@ PluginSettings {
         const m = (id || "").match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
         if (!m)
             return id;
+
         return m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6];
     }
 
@@ -96,6 +93,7 @@ PluginSettings {
         for (let i = 0; i < snapshots.length; i++) {
             if (root.formatSnapshot(snapshots[i]) === label)
                 return snapshots[i];
+
         }
         return "";
     }
@@ -146,6 +144,48 @@ PluginSettings {
         installedGtkThemes = options;
     }
 
+    // qt5ct and qt6ct are dropped: the pair is offered as the single "qtct"
+    // entry, because the plugin has to write a different name per Qt version and
+    // choosing one alone would leave the other toolkit unthemed.
+    function parseQtPlatformThemes(text) {
+        const options = ["preserve", "qtct"];
+        const seen = ({
+            "preserve": true,
+            "qtct": true,
+            "qt5ct": true,
+            "qt6ct": true
+        });
+        const names = (text || "").split("\n");
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i].trim();
+            if (name && !seen[name]) {
+                options.push(name);
+                seen[name] = true;
+            }
+        }
+        return options;
+    }
+
+    // qt5ct-style/qt6ct-style are proxy styles: they read the very config file
+    // we are writing, so offering them as the style would be circular.
+    function parseQtStyles(text) {
+        const options = ["preserve"];
+        const seen = ({
+            "preserve": true,
+            "qt5ct-style": true,
+            "qt6ct-style": true
+        });
+        const names = (text || "").split("\n");
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i].trim();
+            if (name && !seen[name]) {
+                options.push(name);
+                seen[name] = true;
+            }
+        }
+        return options.length > 1 ? options : ["preserve", "Fusion", "Windows"];
+    }
+
     function parseSnapshots(text) {
         const list = [];
         const lines = (text || "").split("\n");
@@ -153,10 +193,12 @@ PluginSettings {
             const id = lines[i].trim();
             if (id)
                 list.push(id);
+
         }
         snapshots = list;
         if (list.length > 0 && list.indexOf(selectedSnapshot) === -1)
             selectedSnapshot = list[0];
+
     }
 
     function refreshSnapshots() {
@@ -170,13 +212,14 @@ PluginSettings {
     Component.onCompleted: reloadPluginValues()
 
     Connections {
-        target: root.pluginService
-        ignoreUnknownSignals: true
-
         function onPluginDataChanged(changedPluginId) {
             if (changedPluginId === root.pluginId)
                 root.reloadPluginValues();
+
         }
+
+        target: root.pluginService
+        ignoreUnknownSignals: true
     }
 
     Process {
@@ -235,6 +278,35 @@ PluginSettings {
 
         stdout: StdioCollector {
             onStreamFinished: root.installedCursorThemes = root.parseSimpleList(text, SettingsData.cursorSettings && SettingsData.cursorSettings.theme)
+        }
+
+    }
+
+    // Ask Qt what it can load rather than guessing. `qtdiag` prints two
+    // "available" lines — platform themes under "Platforms requested", styles
+    // under "Styles requested" — so both greps are anchored to their section.
+    // Offscreen keeps it from needing a display. If qtdiag is absent (qt6-tools
+    // not installed) the collector gets nothing and the defaults stand.
+    Process {
+        id: qtPlatformThemesProcess
+
+        running: true
+        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Platforms requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.availableQtPlatformThemes = root.parseQtPlatformThemes(text)
+        }
+
+    }
+
+    Process {
+        id: qtStylesProcess
+
+        running: true
+        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Styles requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.availableQtStyles = root.parseQtStyles(text)
         }
 
     }
@@ -716,28 +788,41 @@ PluginSettings {
     SelectionSetting {
         settingKey: "qtPlatformTheme"
         label: "Qt5/Qt6 platform theme"
-        description: "qt5ct/qt6ct config files are always written. This only controls QT_QPA_PLATFORMTHEME. Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d; otherwise let the plugin write it (needs logout/login)."
-        options: [{
-            "label": "Leave to my environment (recommended)",
-            "value": "preserve"
-        }, {
-            "label": "Plugin sets Follow GTK (gtk3)",
-            "value": "gtk3"
-        }, {
-            "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
-            "value": "qtct"
-        }]
+        description: "Only the platform themes installed on this machine are listed. This controls QT_QPA_PLATFORMTHEME (needs logout/login). Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d. Note that only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 or kde the widget style below is ignored."
+        options: root.availableQtPlatformThemes.map(function(name) {
+            if (name === "preserve")
+                return {
+                "label": "Leave to my environment (recommended)",
+                "value": "preserve"
+            };
+
+            if (name === "qtct")
+                return {
+                "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
+                "value": "qtct"
+            };
+
+            if (name === "gtk3")
+                return {
+                "label": "Plugin sets Follow GTK (gtk3)",
+                "value": "gtk3"
+            };
+
+            return name;
+        })
         defaultValue: "preserve"
     }
 
     SelectionSetting {
         settingKey: "qtStyle"
         label: "Qt widget style"
-        description: "Fallback style written to qt5ct and qt6ct"
-        options: ["Fusion", "Breeze", "kvantum", "Windows", {
-            "label": "Preserve current style",
-            "value": "preserve"
-        }]
+        description: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads."
+        options: root.availableQtStyles.map(function(name) {
+            return name === "preserve" ? ({
+                "label": "Preserve current style",
+                "value": "preserve"
+            }) : name;
+        })
         defaultValue: "Fusion"
     }
 
@@ -1125,6 +1210,16 @@ PluginSettings {
 
         }
 
+    }
+
+    // Visible section divider. The file used to mark its sections with `// ---`
+    // comments, which organise the source and nothing else: in the UI the ~30
+    // controls ran together as one flat list.
+    component SectionHeader: StyledText {
+        width: parent ? parent.width : 0
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Bold
+        color: Theme.primary
     }
 
 }

@@ -69,7 +69,14 @@ XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
 case "$MODE" in light|dark) ;; *) printf 'Invalid mode: %s\n' "$MODE" >&2; exit 2 ;; esac
-case "$QT_PLATFORM_THEME" in gtk3|qtct|preserve) ;; *) printf 'Invalid Qt platform theme policy: %s\n' "$QT_PLATFORM_THEME" >&2; exit 2 ;; esac
+# Any platform-theme plugin name Qt can load is allowed (gtk3, kde, qt6ct,
+# xdgdesktopportal, …); "qtct" and "preserve" are ours. The value is written into
+# environment.d and into niri/Hyprland config, so restrict it to a charset that
+# cannot break out of those files rather than to a closed list of names.
+case "$QT_PLATFORM_THEME" in
+    preserve|qtct) ;;
+    ""|*[!a-zA-Z0-9_.-]*) printf 'Invalid Qt platform theme: %s\n' "$QT_PLATFORM_THEME" >&2; exit 2 ;;
+esac
 [[ $FONT_SIZE =~ ^[0-9]+$ && $MONO_SIZE =~ ^[0-9]+$ && $DOCUMENT_SIZE =~ ^[0-9]+$ && $CURSOR_SIZE =~ ^[0-9]+$ ]] || {
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
@@ -800,12 +807,26 @@ LABWC_BEGIN='# >>> dmsThemeSync >>>'
 LABWC_END='# <<< dmsThemeSync <<<'
 
 # Resolve the Qt platform-theme values once; both are empty under "preserve".
+#
+# "qtct" is the one name that differs per Qt version (qt5ct vs qt6ct), so it
+# keeps its own case. Everything else is a plugin name Qt loads verbatim —
+# gtk3, kde, xdgdesktopportal, flatpak, snap — and the settings UI offers only
+# the ones this machine actually has (QStyleFactory/QPlatformTheme keys). An
+# unknown name here used to fall through the case and be dropped in silence.
 QT_PLATFORM_QT5=""
 QT_PLATFORM_QT6=""
 case "$QT_PLATFORM_THEME" in
-    gtk3) QT_PLATFORM_QT5=gtk3; QT_PLATFORM_QT6=gtk3 ;;
+    preserve|"") ;;
     qtct) QT_PLATFORM_QT5=qt5ct; QT_PLATFORM_QT6=qt6ct ;;
+    *) QT_PLATFORM_QT5=$QT_PLATFORM_THEME; QT_PLATFORM_QT6=$QT_PLATFORM_THEME ;;
 esac
+
+# What Qt will actually load: our value if we write one, otherwise whatever the
+# session already exports (which is precisely what "preserve" defers to).
+effective_platform_theme() {
+    if [[ -n $QT_PLATFORM_QT6 ]]; then printf '%s' "$QT_PLATFORM_QT6"
+    else printf '%s' "${QT_QPA_PLATFORMTHEME_QT6:-${QT_QPA_PLATFORMTHEME:-}}"; fi
+}
 
 # DMS passes --compositor (CompositorService.compositor). Fall back to sniffing
 # the session env so the helper also works when invoked standalone or in tests.
@@ -1125,6 +1146,23 @@ verify_theme_assets() {
     if [[ $QT_STYLE == kvantum ]] \
         && ! find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
         note "Qt style is 'kvantum' but the Kvantum style plugin is missing; Qt falls back to Fusion"
+    fi
+    # qt5ct/qt6ct.conf is read by the qtXct *platform theme* and nothing else, so
+    # under any other one the style we just wrote is inert. Verified with qtdiag:
+    # PLATFORMTHEME=gtk3 reports "Styles requested: Fusion,windows".
+    #
+    # Only the style is reported. The palette is not lost under gtk3 — Qt apps
+    # follow the GTK theme, which does carry the Matugen colours — so claiming it
+    # never arrives would be false. With no platform theme at all, nothing does.
+    local effective
+    effective=$(effective_platform_theme)
+    if [[ $QT_STYLE != preserve ]]; then
+        case "$effective" in
+            qt5ct|qt6ct) ;;
+            gtk3) note "Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style '$QT_STYLE' in qt5ct/qt6ct.conf is ignored" ;;
+            "") note "no Qt platform theme is set: Qt ignores qt5ct/qt6ct.conf, so style '$QT_STYLE' and the DMS palette do not reach Qt apps" ;;
+            *)  note "Qt platform theme is '$effective', which does not read qt5ct/qt6ct.conf: style '$QT_STYLE' is ignored" ;;
+        esac
     fi
     return 0
 }
