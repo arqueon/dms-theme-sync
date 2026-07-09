@@ -1,8 +1,30 @@
 # DMS Theme Sync
 
-**Cross-toolkit theme synchronization for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell).** DMS Theme Sync treats DMS as the single source of truth for appearance and propagates it to GTK, Qt, KDE and X11/XWayland applications — no wallpaper manager required.
+**Cross-toolkit theme synchronization for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell).** DMS Theme Sync treats DMS as the single source of truth for appearance and propagates it to GTK, Qt, KDE, Flatpak and X11/XWayland applications — no wallpaper manager required.
 
 It runs as a background **daemon**, adds an optional **bar widget**, and ships a standalone **configuration dialog**.
+
+## Scope
+
+Theming on Linux is not a solved problem, and it is not one problem either. It is a dozen configuration systems that were never introduced to each other, each with its own file, its own precedence rules, and its own way of failing silently. Nobody owns the result, so the result is whatever the last tool you clicked happened to write.
+
+**The ambition of this plugin is to make one decision — DMS's — reach every toolkit on the machine, and to keep it reaching them.** Not by fighting the other tools, but by writing every surface correctly, reading the system back afterwards, and saying plainly what it could not fix.
+
+Some of what that means in practice, all of it found on real systems:
+
+- **A file being written is not a setting taking effect.** `$XDG_CONFIG_HOME/fontconfig/conf.d` is pulled in by `50-user.conf` at position ~50, *before* `60-latin.conf`. A `<alias><prefer>` written there never wins, whatever the `99-` prefix suggests. This plugin's own fontconfig file was inert for months until it was verified rather than assumed.
+- **Every generic family has a second owner.** `66-noto-sans.conf` claims `sans-serif`, `60-latin.conf` claims `monospace`. Only a strong-bound prepend survives them.
+- **GTK3 reads gsettings, and gsettings has other writers.** `nwg-look` and `lxappearance` rewrite it behind your back; a wallpaper script can too. The theme name in `settings.ini` and the one in `gsettings` disagree far more often than anyone notices.
+- **GTK4/libadwaita ignores your theme entirely.** It honours only `~/.config/gtk-4.0/gtk.css` colour overrides and the portal's colour-scheme. Every "GTK4 theme" is decoration. Gradience was archived in 2024 for exactly this reason.
+- **Dead symlinks accumulate.** `nwg-look` points `gtk.css` and `gtk-dark.css` at the theme you selected; uninstall it and libadwaita trips over the dangling link on every launch, quietly.
+- **Sandboxes see none of it.** Flatpak apps get dark/light from the portal and nothing else — not the theme name, not your `gtk.css` — unless someone sets an override.
+- **A theme name is a string until something resolves it.** A compositor config can happily name a cursor theme nobody installed, and a Qt style (`kvantum`) that has no plugin behind it, and both fail by falling back rather than complaining.
+
+So the plugin writes, then **reconciles**: it prunes dangling links, re-asserts gsettings, checks that `fc-match` really returns the font it asked for, verifies that every named theme exists on disk, and names the tools that are going to fight it. Anything unambiguous it repairs; anything that needs a human it reports with the file to look at, and touches nothing.
+
+What it will not do is take ownership away from DMS or from you. If DMS decides the icon theme, the plugin asks DMS to change it — through DMS's own API, so DMS's drift detection recognises its own value. If your compositor config sets the cursor, that is your file. The goal is not a plugin that wins every write; it is a desktop where there is only one writer worth listening to.
+
+Linux theming will not be fixed by this plugin. It can, within reach, stop being a surprise.
 
 <img width="809" height="930" alt="1782710026434229332" src="https://github.com/user-attachments/assets/14829950-5538-4334-8222-ec9ca35233c2" />
 
@@ -24,6 +46,8 @@ It runs as a background **daemon**, adds an optional **bar widget**, and ships a
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
+| **Flatpak** | opt-in `flatpak override --user`: `GTK_THEME`, `ICON_THEME`, `XCURSOR_THEME` + read-only theme dirs |
+| **Icons** | opt-in folder accent: a generated overlay theme whose folders follow the Matugen accent (Papirus only) |
 | **Terminals** | opt-in font includes for kitty, Alacritty and Ghostty (see [Terminal fonts](#terminal-fonts)) |
 | **Session env** | `environment.d` + live systemd user env — or a Niri KDL include (see [Compositors](#compositors)) |
 
@@ -79,6 +103,18 @@ The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `Da
 
 > [!NOTE]
 > Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
+
+### Kvantum
+
+Choosing the `kvantum` style writes `style=kvantum` into `qt5ct.conf` and `qt6ct.conf` regardless of whether Kvantum is installed. Qt then falls back to Fusion **without saying anything**, which is precisely the class of silent failure this plugin exists to remove. Reconcile therefore checks for the style plugin Qt actually loads (`libkvantum*.so`) and reports when it is missing. `/usr/share/Kvantum` is not evidence: GTK themes such as `celestial-gtk-theme` ship Kvantum *themes* there without Kvantum itself.
+
+Beyond that warning, Kvantum is **not yet driven** by the plugin. It is worth being precise about why, and about what "driving it" would mean.
+
+`qt5ct`/`qt6ct` gives Qt applications the DMS palette, which is where almost all of the visible consistency comes from. Kvantum adds SVG-drawn widget *shapes* on top, and it takes its colours from its own theme — a `<name>.kvconfig` plus a `<name>.svg` — not from the qtXct palette. So selecting `kvantum` today swaps one source of colour for another and drops out of the Matugen palette entirely.
+
+Making it follow DMS means generating a Kvantum theme from the Matugen colours on every wallpaper change: emit `~/.config/Kvantum/DankMatugen/DankMatugen.{kvconfig,svg}` — matugen has upstream templates for both — and point `~/.config/Kvantum/kvantum.kvconfig` at it. The SVG has to be recoloured, not just the config, which is why this is a real feature and not a two-line write.
+
+It is unimplemented for an honest reason: it cannot be verified without Kvantum installed, and shipping a code path nobody has watched run is how the `99-` fontconfig file stayed broken. Contributions welcome; the insertion point is right after the Qt block in `scripts/apply-theme.sh`.
 
 ### Compositors
 
@@ -168,6 +204,7 @@ scripts/theme-snapshot.sh restore --snapshot latest
 The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt/KDE files. Files it creates:
 
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
+- `~/.local/share/icons/<base>-DankFolders/` — only while the folder-accent toggle is on; deleted when it is turned off, and stale overlays from a previous base theme are swept on every run
 - `~/.config/environment.d/90-dms-theme-sync.conf` — every compositor except Niri
 - `~/.config/niri/dms-theme-sync.kdl` — Niri only (plus one top-level `include` line in `config.kdl`)
 - `~/.config/hypr/dms-theme-sync.conf` / `dms-theme-sync.lua` — Hyprland only (plus one `source`/`require` line in your main config)
