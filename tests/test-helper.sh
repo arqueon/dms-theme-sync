@@ -225,11 +225,12 @@ if [[ -n $PAPIRUS ]]; then
         || { printf 'Overlay index.theme lacks Scale for @2x dirs\n' >&2; exit 1; }
     [[ -z $(find "$OVERLAY" -xtype l -print -quit) ]] \
         || { printf 'Overlay contains broken symlinks\n' >&2; exit 1; }
-    # the overlay, not the base theme, becomes the applied icon theme
-    assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
-        "gtk-icon-theme-name=Papirus-Dark-DankFolders"
+    # The helper builds the overlay but never applies it: DMS owns the icon
+    # theme, and writing the overlay name straight into gsettings would trip
+    # DMS's own drift check and unmanage the theme.
+    assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
-    # turning it back off removes the generated theme and restores the base name
+    # turning it back off removes the generated theme
     run_folder --sync-folder-color false
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"

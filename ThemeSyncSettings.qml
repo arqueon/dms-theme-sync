@@ -13,8 +13,10 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
-    // Only Papirus ships the folder colour variants the accent sync needs.
-    readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").indexOf("Papirus") === 0
+    // Only Papirus ships the folder colour variants the accent sync needs. Once
+    // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
+    // base theme rather than the applied one.
+    readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
 
     // Visible section divider. The file used to mark its sections with `// ---`
     // comments, which organise the source and nothing else: in the UI the ~30
