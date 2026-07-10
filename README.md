@@ -254,7 +254,11 @@ Everything degrades gracefully when a toolkit is missing. Install what you use:
 
 - `gsettings`/`dconf` — GNOME settings and portal hints
 - `qt5ct` and `qt6ct` (or `qt6ct-kde`) — Qt configuration
+- `qt6-tools` — provides `qtdiag`, which is how the Qt platform-theme and style dropdowns are populated; without it they fall back to the names Qt always builds in
 - `xsettingsd` — legacy X11/XWayland clients
+- `kvantum` — only if you want SVG-drawn Qt widgets; `qt6ct` with the DMS palette already gives colour consistency
+- `papirus-icon-theme` — the folder accent overlay; it is the only theme shipping ~80 folder colours in one package
+- `papirus-folders-catppuccin` — extra: lets a Catppuccin GTK theme use the matching Catppuccin folders instead of the nearest plain colour. Without it, plain Papirus is used and nothing breaks
 - the selected GTK theme and its engine (e.g. the **Murrine** engine for GTK2 themes)
 
 > [!NOTE]

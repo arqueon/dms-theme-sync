@@ -281,6 +281,25 @@ if [[ -n $PAPIRUS ]]; then
         [[ $(cat_folder '#e25252' dark Adwaita) == folder-red.svg ]] \
             || { printf 'Non-Catppuccin theme did not use the plain folder palette\n' >&2; exit 1; }
 
+        # papirus-folders-catppuccin is an optional dependency: a Catppuccin GTK
+        # theme on a machine that only has plain Papirus must fall back to the
+        # nearest plain colour, not fail and not skip the overlay.
+        NOCAT="$XDG_DATA_HOME/icons/Papirus-NoCat"
+        mkdir -p "$NOCAT/64x64/places"
+        cp -a "$PAPIRUS/64x64/places/." "$NOCAT/64x64/places/"
+        rm -f "$NOCAT/64x64/places/"folder-cat-*
+        cp "$PAPIRUS/index.theme" "$NOCAT/index.theme"
+        printf '@define-color accent_bg_color #b6c4ff;\n' \
+            > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+        "$ROOT/scripts/apply-theme.sh" --compositor generic --mode dark \
+            --gtk-theme-dark Catppuccin-Yellow-Dark --icon-theme Papirus-Dark \
+            --sync-folder-color true --folder-base-theme Papirus-NoCat \
+            --sync-kde false --sync-xsettingsd false --backup-enabled false \
+            --no-runtime >/dev/null 2>&1
+        [[ $(basename "$(readlink "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders/64x64/places/folder.svg")") == folder-indigo.svg ]] \
+            || { printf 'Catppuccin theme without the cat-* folders did not fall back to a plain colour\n' >&2; exit 1; }
+        rm -rf "$NOCAT" "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders"
+
         rm -rf "$OVERLAY"
         printf '@define-color accent_bg_color #e25252;\n' \
             > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
