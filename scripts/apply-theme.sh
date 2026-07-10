@@ -1138,13 +1138,19 @@ else
 fi
 
 # Update the running systemd user environment in all cases (current session).
+#
+# The same resolved values every persistent writer uses — this block used to
+# re-derive them from a closed gtk3|qtct case, so any other platform theme
+# reached the niri include and environment.d but not the live session, and the
+# two disagreed until the next login. Under "preserve" nothing is set and
+# nothing is unset: a value the plugin exported earlier lingers until re-login,
+# which is the price of "hands off" — unsetting could destroy a value the user
+# put there themselves.
 if ! $DRY_RUN && [[ $NO_RUNTIME != true ]] && command -v systemctl >/dev/null 2>&1; then
     env_args=("XCURSOR_SIZE=$CURSOR_SIZE" "HYPRCURSOR_SIZE=$CURSOR_SIZE")
     [[ -n $CURSOR_THEME ]] && env_args+=("XCURSOR_THEME=$CURSOR_THEME" "HYPRCURSOR_THEME=$CURSOR_THEME")
-    if [[ $QT_PLATFORM_THEME == gtk3 ]]; then
-        env_args+=("QT_QPA_PLATFORMTHEME=gtk3" "QT_QPA_PLATFORMTHEME_QT6=gtk3")
-    elif [[ $QT_PLATFORM_THEME == qtct ]]; then
-        env_args+=("QT_QPA_PLATFORMTHEME=qt5ct" "QT_QPA_PLATFORMTHEME_QT6=qt6ct")
+    if [[ -n $QT_PLATFORM_QT5 ]]; then
+        env_args+=("QT_QPA_PLATFORMTHEME=$QT_PLATFORM_QT5" "QT_QPA_PLATFORMTHEME_QT6=$QT_PLATFORM_QT6")
     fi
     systemctl --user set-environment "${env_args[@]}" >/dev/null 2>&1 || true
 fi

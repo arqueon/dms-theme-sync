@@ -798,7 +798,21 @@ PluginSettings {
     SelectionSetting {
         settingKey: "qtPlatformTheme"
         label: "Qt5/Qt6 platform theme"
-        description: "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME (needs logout/login). Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored."
+        description: {
+            // Where QT_QPA_PLATFORMTHEME actually lands depends on the compositor:
+            // on Niri the plugin writes a KDL include and environment.d is NOT
+            // used, so naming only environment.d here was wrong on the very
+            // machines this runs on.
+            const c = (typeof CompositorService !== "undefined" && CompositorService.compositor) || "";
+            let where;
+            if (c === "niri")
+                where = "On niri it is written to ~/.config/niri/dms-theme-sync.kdl (included from config.kdl); environment.d is not used";
+            else if (c === "hyprland")
+                where = "On Hyprland it is written to environment.d plus a Hyprland include";
+            else
+                where = "It is written to environment.d (systemd user session)";
+            return "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
+        }
         options: root.availableQtPlatformThemes.map(function(name) {
             if (name === "auto")
                 return {

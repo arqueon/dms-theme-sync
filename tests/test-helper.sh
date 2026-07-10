@@ -516,4 +516,36 @@ env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
 grep -Fq 'QT_QPA_PLATFORMTHEME "xdgdesktopportal"' "$NIRI_DIR/dms-theme-sync.kdl" \
     || { printf 'Niri include dropped a platform theme outside gtk3/qtct\n' >&2; exit 1; }
 
+# --- Live session env: the same resolved values as the persistent writers ------
+#
+# The systemctl block used to re-derive the platform theme from a closed
+# gtk3|qtct case, so any other name reached the niri include and environment.d
+# but not the live session. Runtime commands are stubbed (pkill included — a
+# real one would kill the user's xsettingsd) and systemctl captures its args.
+STUBS="$TMP/stubs"
+mkdir -p "$STUBS"
+for cmd in gsettings fc-cache fc-match xsettingsd niri pkill pgrep dconf; do
+    printf '#!/bin/sh\nexit 0\n' > "$STUBS/$cmd"; chmod +x "$STUBS/$cmd"
+done
+printf '#!/bin/sh\necho "$@" >> "%s/systemctl.log"\nexit 0\n' "$TMP" > "$STUBS/systemctl"
+chmod +x "$STUBS/systemctl"
+
+live_env() { # $1=platform theme -> captured systemctl args
+    rm -f "$TMP/systemctl.log"
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 PATH="$STUBS:$PATH" \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --qt-platform-theme "$1" --qt-style preserve \
+        --sync-kde false --sync-xsettingsd false --backup-enabled false >/dev/null 2>&1
+    cat "$TMP/systemctl.log" 2>/dev/null
+}
+
+grep -q 'QT_QPA_PLATFORMTHEME=xdgdesktopportal' <<<"$(live_env xdgdesktopportal)" \
+    || { printf 'Live session env did not receive a platform theme outside gtk3/qtct\n' >&2; exit 1; }
+grep -q 'QT_QPA_PLATFORMTHEME=qt5ct' <<<"$(live_env qtct)" \
+    || { printf 'Live session env did not receive qt5ct under qtct\n' >&2; exit 1; }
+# preserve means hands off: no QT variable set (and none unset — a value the
+# user exported themselves must survive).
+grep -q 'QT_QPA_PLATFORMTHEME' <<<"$(live_env preserve)" \
+    && { printf 'Live session env was touched under preserve\n' >&2; exit 1; }
+
 printf 'helper tests: ok\n'
