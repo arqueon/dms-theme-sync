@@ -31,6 +31,8 @@ PluginSettings {
     property string probeGtk: ""
     property string probePair: ""
     property string qtSyncModeValue: "manual"
+    property string qtPlatformThemeValue: "preserve"
+    property string qtStyleValue: "Fusion"
     property var snapshots: []
     property var snapshotNames: ({
     })
@@ -63,6 +65,79 @@ PluginSettings {
     }
     readonly property var dmsThemeLabels: dmsThemeOptions.map(function(o) {
         return o.label;
+    })
+    readonly property var qtSyncModeOptions: [{
+        "label": "Manual — use the Qt applications options below",
+        "value": "manual"
+    }, {
+        "label": "Automatic — best available route",
+        "value": "auto"
+    }, {
+        "label": "Kvantum theme paired with the GTK theme",
+        "value": "pair"
+    }, {
+        "label": "Kvantum rendered from the DMS palette",
+        "value": "kvantum"
+    }, {
+        "label": "DMS palette via qt6ct-kde (KColorScheme)",
+        "value": "kcolorscheme"
+    }, {
+        "label": "Follow the GTK theme (gtk3)",
+        "value": "gtk3"
+    }]
+    readonly property var qtPlatformThemeOptions: availableQtPlatformThemes.map(function(name) {
+        if (name === "auto")
+            return {
+            "label": "Auto (Kvantum if installed, else follow GTK)",
+            "value": "auto"
+        };
+
+        if (name === "preserve")
+            return {
+            "label": "Leave to my environment (recommended)",
+            "value": "preserve"
+        };
+
+        if (name === "qtct")
+            return {
+            "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
+            "value": "qtct"
+        };
+
+        if (name === "gtk3")
+            return {
+            "label": "Plugin sets Follow GTK (gtk3)",
+            "value": "gtk3"
+        };
+
+        if (name === "xdgdesktopportal")
+            return {
+            "label": "Portal only: dark/light + accent, no style (xdgdesktopportal)",
+            "value": "xdgdesktopportal"
+        };
+
+        return {
+            "label": name,
+            "value": name
+        };
+    })
+    readonly property var qtStyleOptions: availableQtStyles.map(function(name) {
+        if (name === "auto")
+            return {
+            "label": "Auto (Kvantum if installed and readable)",
+            "value": "auto"
+        };
+
+        if (name === "preserve")
+            return {
+            "label": "Preserve current style",
+            "value": "preserve"
+        };
+
+        return {
+            "label": name,
+            "value": name
+        };
     })
     readonly property var matugenSchemeOptions: (typeof Theme !== "undefined" && Theme.availableMatugenSchemes) ? Theme.availableMatugenSchemes : []
     readonly property var matugenSchemeLabels: matugenSchemeOptions.map(function(o) {
@@ -140,6 +215,8 @@ PluginSettings {
         gtkThemeLightValue = String(root.loadValue("gtkThemeLight", "auto") || "auto");
         gtkThemeDarkValue = String(root.loadValue("gtkThemeDark", "auto") || "auto");
         qtSyncModeValue = String(root.loadValue("qtSyncMode", "manual") || "manual");
+        qtPlatformThemeValue = String(root.loadValue("qtPlatformTheme", "preserve") || "preserve");
+        qtStyleValue = String(root.loadValue("qtStyle", "Fusion") || "Fusion");
         documentFontValue = String(root.loadValue("documentFontFamily", "") || "");
         regularFontSizeValue = Number(root.loadValue("regularFontSize", 11)) || 11;
         monoFontSizeValue = Number(root.loadValue("monoFontSize", 12)) || 12;
@@ -885,30 +962,45 @@ PluginSettings {
         wrapMode: Text.WordWrap
     }
 
-    SelectionSetting {
-        settingKey: "qtSyncMode"
-        label: "Synchronization route"
-        description: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: a Kvantum theme paired with the GTK theme (same author, both halves one design) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
-        options: [{
-            "label": "Manual — use the Qt applications options below",
-            "value": "manual"
-        }, {
-            "label": "Automatic — best available route",
-            "value": "auto"
-        }, {
-            "label": "Kvantum theme paired with the GTK theme",
-            "value": "pair"
-        }, {
-            "label": "Kvantum rendered from the DMS palette",
-            "value": "kvantum"
-        }, {
-            "label": "DMS palette via qt6ct-kde (KColorScheme)",
-            "value": "kcolorscheme"
-        }, {
-            "label": "Follow the GTK theme (gtk3)",
-            "value": "gtk3"
-        }]
-        defaultValue: "manual"
+    // Not a SelectionSetting: that component puts the trigger in a fixed
+    // 200 px column next to the label, and these option labels are sentences.
+    // The full-width pattern below (own title + description, compact dropdown
+    // stretched to the row) is the same one the GTK theme selectors use, and
+    // the popup inherits the trigger's width, so the options finally fit.
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Synchronization route"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: a Kvantum theme paired with the GTK theme (same author, both halves one design) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtSyncModeOptions, root.qtSyncModeValue)
+            options: root.qtSyncModeOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtSyncModeOptions, label);
+                if (value && value !== root.qtSyncModeValue) {
+                    root.qtSyncModeValue = value;
+                    root.saveValue("qtSyncMode", value);
+                }
+            }
+        }
+
     }
 
     SectionHeader {
@@ -924,80 +1016,90 @@ PluginSettings {
         wrapMode: Text.WordWrap
     }
 
-    SelectionSetting {
-        settingKey: "qtPlatformTheme"
-        label: "Qt5/Qt6 platform theme"
-        description: {
-            // Where QT_QPA_PLATFORMTHEME actually lands depends on the compositor:
-            // on Niri the plugin writes a KDL include and environment.d is NOT
-            // used, so naming only environment.d here was wrong on the very
-            // machines this runs on.
-            const c = (typeof CompositorService !== "undefined" && CompositorService.compositor) || "";
-            let where;
-            if (c === "niri")
-                where = "On niri it is written to ~/.config/niri/dms-theme-sync.kdl (included from config.kdl); environment.d is not used";
-            else if (c === "hyprland")
-                where = "On Hyprland it is written to environment.d plus a Hyprland include";
-            else
-                where = "It is written to environment.d (systemd user session)";
-            return "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Qt5/Qt6 platform theme"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
         }
-        options: root.availableQtPlatformThemes.map(function(name) {
-            if (name === "auto")
-                return {
-                "label": "Auto (Kvantum if installed, else follow GTK)",
-                "value": "auto"
-            };
 
-            if (name === "preserve")
-                return {
-                "label": "Leave to my environment (recommended)",
-                "value": "preserve"
-            };
+        StyledText {
+            width: parent.width
+            text: {
+                // Where QT_QPA_PLATFORMTHEME actually lands depends on the compositor:
+                // on Niri the plugin writes a KDL include and environment.d is NOT
+                // used, so naming only environment.d here was wrong on the very
+                // machines this runs on.
+                const c = (typeof CompositorService !== "undefined" && CompositorService.compositor) || "";
+                let where;
+                if (c === "niri")
+                    where = "On niri it is written to ~/.config/niri/dms-theme-sync.kdl (included from config.kdl); environment.d is not used";
+                else if (c === "hyprland")
+                    where = "On Hyprland it is written to environment.d plus a Hyprland include";
+                else
+                    where = "It is written to environment.d (systemd user session)";
+                return "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
+            }
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
 
-            if (name === "qtct")
-                return {
-                "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
-                "value": "qtct"
-            };
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtPlatformThemeOptions, root.qtPlatformThemeValue)
+            options: root.qtPlatformThemeOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtPlatformThemeOptions, label);
+                if (value && value !== root.qtPlatformThemeValue) {
+                    root.qtPlatformThemeValue = value;
+                    root.saveValue("qtPlatformTheme", value);
+                }
+            }
+        }
 
-            if (name === "gtk3")
-                return {
-                "label": "Plugin sets Follow GTK (gtk3)",
-                "value": "gtk3"
-            };
-
-            if (name === "xdgdesktopportal")
-                return {
-                "label": "Portal only: dark/light + accent, no style (xdgdesktopportal)",
-                "value": "xdgdesktopportal"
-            };
-
-            return name;
-        })
-        defaultValue: "preserve"
     }
 
-    SelectionSetting {
-        settingKey: "qtStyle"
-        label: "Qt widget style"
-        description: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all."
-        options: root.availableQtStyles.map(function(name) {
-            if (name === "auto")
-                return {
-                "label": "Auto (Kvantum if installed and readable)",
-                "value": "auto"
-            };
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
 
-            if (name === "preserve")
-                return {
-                "label": "Preserve current style",
-                "value": "preserve"
-            };
+        StyledText {
+            text: "Qt widget style"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
 
-            return name;
-        })
-        defaultValue: "Fusion"
+        StyledText {
+            width: parent.width
+            text: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtStyleOptions, root.qtStyleValue)
+            options: root.qtStyleOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtStyleOptions, label);
+                if (value && value !== root.qtStyleValue) {
+                    root.qtStyleValue = value;
+                    root.saveValue("qtStyle", value);
+                }
+            }
+        }
+
     }
 
     SectionHeader {
