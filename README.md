@@ -117,7 +117,7 @@ reconcile: Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style 
 
 Under `gtk3` the *colours* still arrive — Qt applications follow the GTK theme, which carries the Matugen palette — so only the style is reported lost. With no platform theme set, neither reaches Qt.
 
-Both dropdowns are populated from what this machine can actually load, as reported by `qtdiag`: the platform themes Qt found (`gtk3`, `kde`, `xdgdesktopportal`, …) and the styles in `QStyleFactory` (`Breeze`, `kvantum`, `Fusion`, …). `qt5ct`/`qt6ct` are offered as the single **DMS palette** entry, because the plugin has to write a different name per Qt version. If `qtdiag` is missing, the lists fall back to the names Qt always builds in.
+Both dropdowns are populated from what this machine can actually load, as reported by `qtdiag`, and then pruned of entries that read as choices but are not. `qt5ct`/`qt6ct` collapse into the single **DMS palette** entry, because the plugin writes a different name per Qt version. `snap` and `flatpak` are dropped: `libqxdgdesktopportal.so` registers all three keys, so they are the portal plugin under names meant for apps inside those sandboxes — not looks. `kde` (plasma-integration) is dropped because it expects a running Plasma session, which a DMS desktop is not; export it by hand and reconcile will still tell you the style is inert. What remains — `gtk3`, the portal, the DMS palette — is each a genuinely different behaviour. If `qtdiag` is missing, the lists fall back to the names Qt always builds in.
 
 Set both to **Auto** to let the machine decide. Kvantum only means anything where `qt5ct.conf`/`qt6ct.conf` is read, so the two resolve together:
 

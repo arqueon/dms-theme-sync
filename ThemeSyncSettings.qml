@@ -144,9 +144,14 @@ PluginSettings {
         installedGtkThemes = options;
     }
 
-    // qt5ct and qt6ct are dropped: the pair is offered as the single "qtct"
-    // entry, because the plugin has to write a different name per Qt version and
-    // choosing one alone would leave the other toolkit unthemed.
+    // Not every key Qt reports is a choice worth offering. qt5ct/qt6ct collapse
+    // into the single "qtct" entry (the plugin writes a different name per Qt
+    // version; picking one alone leaves the other toolkit unthemed). snap and
+    // flatpak are libqxdgdesktopportal registering the same plugin under names
+    // meant for apps inside those sandboxes — three entries, one plugin. And kde
+    // (plasma-integration) expects a running Plasma session, which a DMS desktop
+    // by definition is not; anyone exporting it by hand still gets the reconcile
+    // note, but the dropdown does not offer a switch that is never right here.
     function parseQtPlatformThemes(text) {
         const options = ["auto", "preserve", "qtct"];
         const seen = ({
@@ -154,7 +159,10 @@ PluginSettings {
             "preserve": true,
             "qtct": true,
             "qt5ct": true,
-            "qt6ct": true
+            "qt6ct": true,
+            "snap": true,
+            "flatpak": true,
+            "kde": true
         });
         const names = (text || "").split("\n");
         for (let i = 0; i < names.length; i++) {
@@ -790,7 +798,7 @@ PluginSettings {
     SelectionSetting {
         settingKey: "qtPlatformTheme"
         label: "Qt5/Qt6 platform theme"
-        description: "Only the platform themes installed on this machine are listed. This controls QT_QPA_PLATFORMTHEME (needs logout/login). Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d. Note that only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 or kde the widget style below is ignored."
+        description: "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME (needs logout/login). Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored."
         options: root.availableQtPlatformThemes.map(function(name) {
             if (name === "auto")
                 return {
@@ -814,6 +822,12 @@ PluginSettings {
                 return {
                 "label": "Plugin sets Follow GTK (gtk3)",
                 "value": "gtk3"
+            };
+
+            if (name === "xdgdesktopportal")
+                return {
+                "label": "Portal only: dark/light + accent, no style (xdgdesktopportal)",
+                "value": "xdgdesktopportal"
             };
 
             return name;
