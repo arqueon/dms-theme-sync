@@ -25,6 +25,8 @@ PluginSettings {
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     property var snapshots: []
+    property var snapshotNames: ({
+    })
     // Plugin-owned values. Loaded from / saved to plugin data directly so the
     // controls reflect the stored choice even before option lists finish loading.
     property string gtkThemeLightValue: "auto"
@@ -83,10 +85,9 @@ PluginSettings {
 
     function formatSnapshot(id) {
         const m = (id || "").match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
-        if (!m)
-            return id;
-
-        return m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6];
+        const date = m ? m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6] : id;
+        const name = snapshotNames[id];
+        return name ? "📌 " + name + " — " + date : date;
     }
 
     function snapshotForLabel(label) {
@@ -196,16 +197,26 @@ PluginSettings {
         return options.length > 2 ? options : ["auto", "preserve", "Fusion", "Windows"];
     }
 
+    // list prints "id<TAB>name"; the name column is empty for unnamed snapshots.
+    // A named snapshot is pinned — retention neither counts nor deletes it.
     function parseSnapshots(text) {
         const list = [];
+        const names = ({
+        });
         const lines = (text || "").split("\n");
         for (let i = 0; i < lines.length; i++) {
-            const id = lines[i].trim();
-            if (id)
-                list.push(id);
+            const parts = lines[i].split("\t");
+            const id = (parts[0] || "").trim();
+            if (!id)
+                continue;
+
+            list.push(id);
+            if (parts.length > 1 && parts[1].trim())
+                names[id] = parts[1].trim();
 
         }
         snapshots = list;
+        snapshotNames = names;
         if (list.length > 0 && list.indexOf(selectedSnapshot) === -1)
             selectedSnapshot = list[0];
 
@@ -1197,7 +1208,7 @@ PluginSettings {
 
             StyledText {
                 width: parent.width
-                text: root.snapshots.length > 0 ? "Pick a snapshot by date and restore it. Restoring disables auto-apply first so the recovered state is not immediately overwritten." : "No backups yet. Create one below or apply with backups enabled."
+                text: root.snapshots.length > 0 ? "Pick a snapshot and restore it. Restoring disables auto-apply first so the recovered state is not immediately overwritten. Unnamed snapshots rotate away when the retention limit is reached — give a name (📌) to any configuration you cannot afford to lose." : "No backups yet. Create one below or apply with backups enabled."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceVariantText
                 wrapMode: Text.WordWrap
@@ -1238,15 +1249,58 @@ PluginSettings {
 
             }
 
-            DankButton {
-                text: "Back up now"
-                iconName: "backup"
-                onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backup"])
+            // One field, two verbs: with a snapshot selected, "Pin" names it in
+            // place (empty text unpins); "Back up now" creates a new snapshot,
+            // pinned when the field has a name.
+            Row {
+                width: parent.width
+                spacing: Theme.spacingM
+
+                DankTextField {
+                    id: snapshotNameField
+
+                    width: parent.width - pinButton.width - backupNowButton.width - Theme.spacingM * 2
+                    placeholderText: "Name to pin (empty = unpin / rotating backup)"
+                }
+
+                DankButton {
+                    id: pinButton
+
+                    text: "Pin"
+                    iconName: "push_pin"
+                    enabled: root.selectedSnapshot !== ""
+                    onClicked: {
+                        Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "nameSnapshot", root.selectedSnapshot, snapshotNameField.text]);
+                        snapshotRefreshTimer.restart();
+                    }
+                }
+
+                DankButton {
+                    id: backupNowButton
+
+                    text: "Back up now"
+                    iconName: "backup"
+                    onClicked: {
+                        if (snapshotNameField.text)
+                            Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backupNamed", snapshotNameField.text]);
+                        else
+                            Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backup"]);
+                        snapshotRefreshTimer.restart();
+                    }
+                }
+
+            }
+
+            Timer {
+                id: snapshotRefreshTimer
+
+                interval: 1500
+                onTriggered: root.refreshSnapshots()
             }
 
             StyledText {
                 width: parent.width
-                text: "Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nIPC: dms ipc call dmsThemeSync apply|backup|restoreLatest|status"
+                text: "Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nIPC: dms ipc call dmsThemeSync apply|backup|backupNamed <name>|nameSnapshot <id> <name>|restoreLatest|status"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceVariantText

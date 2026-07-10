@@ -90,6 +90,8 @@ Controls that mirror DMS (color theme, light/dark, Matugen, fonts, icons, cursor
 ```bash
 dms ipc call dmsThemeSync apply
 dms ipc call dmsThemeSync backup
+dms ipc call dmsThemeSync backupNamed "before-experiments"
+dms ipc call dmsThemeSync nameSnapshot 20260709-120000 "known good"
 dms ipc call dmsThemeSync restoreLatest
 dms ipc call dmsThemeSync restore 20260628-182500
 dms ipc call dmsThemeSync configure
@@ -225,9 +227,14 @@ Enabled by default. Before each apply, the plugin snapshots every file it may ch
 
 Restore from the dialog's **backup-by-date** selector or via IPC. Restoring **disables auto-apply first** so the recovered state is not immediately overwritten; files that were absent when the snapshot was taken are removed.
 
+**Named snapshots are pinned.** Retention only rotates *unnamed* snapshots — it neither counts nor deletes the ones you named. That is the contract the dialog states: name (📌) any configuration you cannot afford to lose, let the rest flow through the rotation. Name one when you take it (**Back up now** with the name field filled) or pin an existing one later (**Pin**); pinning with an empty name unpins it, returning it to the rotation.
+
 ```bash
-scripts/theme-snapshot.sh list
+scripts/theme-snapshot.sh list                                  # id<TAB>name per line
 scripts/theme-snapshot.sh backup --retention 10 --label manual
+scripts/theme-snapshot.sh backup --name "before-experiments"    # pinned from birth
+scripts/theme-snapshot.sh name --snapshot 20260709-120000 --name "known good"
+scripts/theme-snapshot.sh name --snapshot 20260709-120000 --name ""   # unpin
 scripts/theme-snapshot.sh restore --snapshot latest
 ```
 

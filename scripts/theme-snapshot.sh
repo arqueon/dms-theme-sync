@@ -2,7 +2,7 @@
 set -u
 
 ACTION=${1:-}
-[[ -n $ACTION ]] || { printf 'Usage: %s backup|restore|list [options]\n' "$0" >&2; exit 2; }
+[[ -n $ACTION ]] || { printf 'Usage: %s backup|restore|list|name [options]\n' "$0" >&2; exit 2; }
 shift
 
 XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -13,18 +13,28 @@ NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 RETENTION=10
 SNAPSHOT=latest
 LABEL=manual
+NAME=""
+NAME_SET=false
 
 while (( $# )); do
     case "$1" in
         --retention) RETENTION=${2:?}; shift 2 ;;
         --snapshot) SNAPSHOT=${2:?}; shift 2 ;;
         --label) LABEL=${2:?}; shift 2 ;;
+        --name) NAME=${2-}; NAME_SET=true; shift 2 ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
 
 [[ $RETENTION =~ ^[0-9]+$ ]] || { printf 'Retention must be an integer\n' >&2; exit 2; }
+# The name lives on one metadata line and one list line; strip what would break
+# either. Everything else the user typed is theirs.
+NAME=$(printf '%s' "$NAME" | tr -d '\n\t')
+
+# A named snapshot is pinned: retention neither counts nor deletes it. That is
+# the whole contract — name what you cannot afford to lose, let the rest rotate.
+snapshot_name() { sed -n 's/^name=//p' "$BACKUP_ROOT/$1/metadata" 2>/dev/null | head -n 1; }
 
 TARGETS=(
     "$HOME/.gtkrc-2.0"
@@ -90,6 +100,7 @@ backup_snapshot() {
     mkdir -p "$tmp/files" || return 1
 
     printf 'created=%s\nlabel=%s\n' "$(date --iso-8601=seconds)" "$LABEL" > "$tmp/metadata"
+    [[ -n $NAME ]] && printf 'name=%s\n' "$NAME" >> "$tmp/metadata"
     : > "$tmp/manifest.tsv"
     for i in "${!TARGETS[@]}"; do
         path=${TARGETS[$i]}
@@ -128,7 +139,15 @@ backup_snapshot() {
     mv "$tmp" "$final" || return 1
 
     if (( RETENTION > 0 )); then
-        mapfile -t old_snapshots < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\n' | LC_ALL=C sort -r | tail -n +$((RETENTION + 1)))
+        # Only unnamed snapshots enter the rotation: pinned ones are neither
+        # counted against the retention nor deleted by it. Anything not shaped
+        # like a snapshot id is ignored outright — a stray directory in the
+        # backup root must not eat retention slots.
+        mapfile -t old_snapshots < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\n' \
+            | grep -E '^[0-9]{8}-[0-9]{6}(-[0-9]+)?$' \
+            | LC_ALL=C sort -r \
+            | while IFS= read -r cand; do [[ -z $(snapshot_name "$cand") ]] && printf '%s\n' "$cand"; done \
+            | tail -n +$((RETENTION + 1)))
         for id in "${old_snapshots[@]}"; do
             [[ $id =~ ^[0-9]{8}-[0-9]{6}(-[0-9]+)?$ ]] && rm -rf -- "${BACKUP_ROOT:?}/$id"
         done
@@ -189,11 +208,30 @@ restore_snapshot() {
     printf 'BACKUP_RESTORED:%s\n' "$id"
 }
 
+# Pin (or rename) an existing snapshot; an explicit empty --name unpins it,
+# returning the snapshot to the rotation.
+name_snapshot() {
+    local id meta
+    id=$(resolve_snapshot "$SNAPSHOT") || { printf 'Invalid snapshot id\n' >&2; return 2; }
+    [[ -n $id && -d $BACKUP_ROOT/$id ]] || { printf 'Snapshot not found: %s\n' "$SNAPSHOT" >&2; return 1; }
+    $NAME_SET || { printf 'name requires --name\n' >&2; return 2; }
+    meta="$BACKUP_ROOT/$id/metadata"
+    grep -v '^name=' "$meta" 2>/dev/null > "$meta.tmp.$$" || true
+    [[ -n $NAME ]] && printf 'name=%s\n' "$NAME" >> "$meta.tmp.$$"
+    mv "$meta.tmp.$$" "$meta"
+    printf 'SNAPSHOT_NAMED:%s:%s\n' "$id" "$NAME"
+}
+
 case "$ACTION" in
     backup) backup_snapshot ;;
     restore) restore_snapshot ;;
+    name) name_snapshot ;;
     list)
-        find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\n' 2>/dev/null | LC_ALL=C sort -r
+        # id<TAB>name — the name column is empty for unnamed snapshots.
+        find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\n' 2>/dev/null \
+            | grep -E '^[0-9]{8}-[0-9]{6}(-[0-9]+)?$' \
+            | LC_ALL=C sort -r \
+            | while IFS= read -r id; do printf '%s\t%s\n' "$id" "$(snapshot_name "$id")"; done
         ;;
     *) printf 'Unknown action: %s\n' "$ACTION" >&2; exit 2 ;;
 esac

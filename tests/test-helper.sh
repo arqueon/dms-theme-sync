@@ -85,7 +85,38 @@ grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
     printf 'Restore did not remove a file that was absent in the snapshot\n' >&2
     exit 1
 }
-"$ROOT/scripts/theme-snapshot.sh" list | grep -Fqx "$snapshot"
+# list prints "id<TAB>name"; the name column is empty when unnamed.
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$snapshot"
+
+# --- Named snapshots are pinned: retention neither counts nor deletes them ----
+snap_named=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 2 --no-runtime --name "keep me" )
+snap_named=${snap_named#BACKUP_CREATED:}
+for _ in 1 2 3; do
+    sleep 1.1
+    "$ROOT/scripts/theme-snapshot.sh" backup --retention 2 --no-runtime >/dev/null
+done
+"$ROOT/scripts/theme-snapshot.sh" list | grep -Fq "$snap_named	keep me" \
+    || { printf 'Named snapshot was rotated away by retention\n' >&2; exit 1; }
+[[ $("$ROOT/scripts/theme-snapshot.sh" list | awk -F'\t' '$2==""' | wc -l) -eq 2 ]] \
+    || { printf 'Unnamed snapshots did not rotate to the retention limit\n' >&2; exit 1; }
+
+# Pinning an existing snapshot exempts it; unpinning returns it to the rotation.
+oldest_unnamed=$("$ROOT/scripts/theme-snapshot.sh" list | awk -F'\t' '$2==""' | tail -1 | cut -f1)
+"$ROOT/scripts/theme-snapshot.sh" name --snapshot "$oldest_unnamed" --name "pinned later" >/dev/null
+sleep 1.1
+"$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-runtime >/dev/null
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$oldest_unnamed" \
+    || { printf 'Snapshot pinned after creation was still rotated away\n' >&2; exit 1; }
+"$ROOT/scripts/theme-snapshot.sh" name --snapshot "$oldest_unnamed" --name "" >/dev/null
+sleep 1.1
+"$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-runtime >/dev/null
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$oldest_unnamed" \
+    && { printf 'Unpinned snapshot survived the rotation\n' >&2; exit 1; }
+
+# A stray directory in the backup root must neither be listed nor eat slots.
+mkdir -p "$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/stray-dir"
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -q '^stray-dir$' \
+    && { printf 'Non-snapshot directory listed as a snapshot\n' >&2; exit 1; }
 
 # --- Niri: top-level include in config.kdl, migration from environment.kdl ---
 NIRI_DIR="$XDG_CONFIG_HOME/niri"

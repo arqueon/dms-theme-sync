@@ -145,7 +145,10 @@ PluginComponent {
         applyProcess.running = true;
     }
 
-    function runSnapshotAction(action, snapshot) {
+    // extra: for "backup", an optional name — a named snapshot is pinned and
+    // retention never rotates it away. For "name", the new name for `snapshot`
+    // (empty unpins, returning it to the rotation).
+    function runSnapshotAction(action, snapshot, extra) {
         if (applying)
             return false;
 
@@ -154,8 +157,12 @@ PluginComponent {
                 pluginService.savePluginData(pluginId, "autoSync", false);
 
             applyProcess.command = [snapshotHelperPath(), "restore", "--snapshot", snapshot || "latest"];
+        } else if (action === "name") {
+            applyProcess.command = [snapshotHelperPath(), "name", "--snapshot", snapshot, "--name", extra || ""];
         } else {
             applyProcess.command = [snapshotHelperPath(), "backup", "--retention", String(backupRetention), "--label", "manual"];
+            if (extra)
+                applyProcess.command = applyProcess.command.concat(["--name", extra]);
         }
         currentAction = action;
         manualRequest = true;
@@ -282,7 +289,17 @@ PluginComponent {
         }
 
         function backup() : string {
-            return root.runSnapshotAction("backup", "") ? "scheduled" : "busy";
+            return root.runSnapshotAction("backup", "", "") ? "scheduled" : "busy";
+        }
+
+        // A named backup is pinned: retention neither counts nor deletes it.
+        function backupNamed(name: string) : string {
+            return root.runSnapshotAction("backup", "", name) ? "scheduled" : "busy";
+        }
+
+        // Pin (or rename) an existing snapshot; an empty name unpins it.
+        function nameSnapshot(snapshot: string, name: string) : string {
+            return root.runSnapshotAction("name", snapshot, name) ? "scheduled" : "busy";
         }
 
         function restoreLatest() : string {
