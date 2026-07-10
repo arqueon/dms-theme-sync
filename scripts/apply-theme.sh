@@ -260,16 +260,50 @@ hue_chroma() {
     }'
 }
 
+svg_fills() { grep -oE 'fill:#[0-9a-fA-F]{6}' "$1" | sed 's/fill://' | sort -u; }
+
 # The perceived folder colour is the most chromatic fill in the SVG. Its
 # position is not stable: in folder-red.svg it is the 3rd fill, in folder-yaru
 # .svg the 2nd, and picking by index silently grabs a grey.
+#
+# $2 is an optional space-separated list of fills to ignore. Catppuccin needs it:
+# its folders draw a sheet of paper in the flavour's `text` colour, a lavender at
+# chroma ~16, while the pastel accents sit below that — rosewater is chroma 8.
+# Without excluding the paper, folder-cat-mocha-rosewater reads as lavender.
 dominant_fill() {
-    local svg=$1 best="" best_c=-1 hex c
+    local svg=$1 exclude=${2-} best="" best_c=-1 hex c
     while read -r hex; do
+        [[ " $exclude " == *" $hex "* ]] && continue
         c=$(hue_chroma "$hex" | cut -d' ' -f2)
         awk -v a="$c" -v b="$best_c" 'BEGIN{exit !(a>b)}' && { best=$hex; best_c=$c; }
-    done < <(grep -oE 'fill:#[0-9a-fA-F]{6}' "$svg" | sed 's/fill://' | sort -u)
+    done < <(svg_fills "$svg")
     printf '%s' "$best"
+}
+
+# Every variant of a flavour shares the paper colour and nothing else, so find it
+# by intersecting their fills instead of hardcoding a hex per flavour.
+catppuccin_variants() {
+    local places=$1 flavor=$2 f name
+    for f in "$places"/folder-cat-"$flavor"-*.svg; do
+        [[ -e $f ]] || continue
+        name=$(basename "$f" .svg); name=${name#folder-}
+        [[ -e $places/folder-$name-documents.svg ]] || continue
+        printf '%s\n' "$name"
+    done
+}
+
+catppuccin_paper() {
+    local places=$1 flavor=$2 acc tmp name first=true
+    acc=$(mktemp); tmp=$(mktemp)
+    while read -r name; do
+        if $first; then
+            svg_fills "$places/folder-$name.svg" > "$acc"; first=false
+        else
+            comm -12 "$acc" <(svg_fills "$places/folder-$name.svg") > "$tmp"; mv "$tmp" "$acc"
+        fi
+    done < <(catppuccin_variants "$places" "$flavor")
+    $first || tr '\n' ' ' < "$acc"
+    rm -f "$acc" "$tmp"
 }
 
 # A colour is any X for which both folder-X.svg and folder-X-<variant>.svg
@@ -302,10 +336,37 @@ _folder_palette_match() {
     [[ -n $best ]] && printf '%s %s' "$best" "$bestd"
 }
 
+# Within one flavour every accent appears once, so hue alone decides and there is
+# no chroma tie-break to make: the four flavours differ in lightness, not hue.
+_catppuccin_match() {
+    local places=$1 ah=$2 flavor=$3 paper name hex h c d best="" bestd=999
+    paper=$(catppuccin_paper "$places" "$flavor")
+    [[ -n $paper ]] || return 1
+    while read -r name; do
+        hex=$(dominant_fill "$places/folder-$name.svg" "$paper"); [[ -n $hex ]] || continue
+        read -r h c <<<"$(hue_chroma "$hex")"
+        d=$(awk -v a="$ah" -v b="$h" 'BEGIN{d=(b-a+180)%360-180; if(d<0)d=-d; print d}')
+        awk -v d="$d" -v bd="$bestd" 'BEGIN{exit !(d < bd)}' && { best=$name; bestd=$d; }
+    done < <(catppuccin_variants "$places" "$flavor")
+    [[ -n $best ]] && printf '%s' "$best"
+}
+
+# Catppuccin ships one folder set per flavour, so when the GTK theme is a
+# Catppuccin the folders can match the theme exactly instead of approximately.
+# The flavour follows the colour mode, the way Catppuccin itself pairs them;
+# frappe and macchiato are reachable only by naming the base theme directly.
+catppuccin_flavor_for_mode() {
+    [[ $MODE == light ]] && printf latte || printf mocha
+}
+
 nearest_folder_color() {
     local places=$1 accent=$2 ah ac best d
     read -r ah ac <<<"$(hue_chroma "$accent")"
     awk -v c="$ac" 'BEGIN{exit !(c < 12)}' && { printf 'grey'; return 0; }
+    if [[ ${GTK_THEME,,} == catppuccin* ]]; then
+        best=$(_catppuccin_match "$places" "$ah" "$(catppuccin_flavor_for_mode)" || true)
+        [[ -n $best ]] && { printf '%s' "$best"; return 0; }
+    fi
     read -r best d <<<"$(_folder_palette_match "$places" "$ah" true)"
     if [[ -n $best ]] && awk -v d="$d" 'BEGIN{exit !(d <= 30)}'; then
         printf '%s' "$best"; return 0

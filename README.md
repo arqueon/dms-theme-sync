@@ -50,7 +50,7 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
 | **Flatpak** | opt-in `flatpak override --user`: `GTK_THEME`, `ICON_THEME`, `XCURSOR_THEME` + read-only theme dirs |
-| **Icons** | opt-in folder accent: a generated overlay theme whose folders follow the Matugen accent (Papirus only) |
+| **Icons** | opt-in folder accent: a generated overlay theme whose folders follow the Matugen accent (Papirus; the full Catppuccin set when the GTK theme is one) |
 | **Terminals** | opt-in font includes for kitty, Alacritty and Ghostty (see [Terminal fonts](#terminal-fonts)) |
 | **Session env** | `environment.d` + live systemd user env — or a Niri KDL include (see [Compositors](#compositors)) |
 
@@ -139,6 +139,14 @@ When the **Generate a Kvantum theme from the DMS palette** toggle is on and the 
 So the plugin renders the theme on every apply: `~/.config/Kvantum/DankMatugen/DankMatugen.kvconfig` and `DankMatugen.svg`, then points `~/.config/Kvantum/kvantum.kvconfig` at it. **Both** files are recoloured — the `.svg` is where every widget is drawn, and the upstream template contains no hard-coded hex at all, so recolouring only the config would leave Kvantum painting the template's colours.
 
 The templates live in `assets/kvantum/`, vendored verbatim from [InioX/matugen-themes](https://github.com/InioX/matugen-themes) (MIT, see the `NOTICE` there) so an apply never depends on the network. They ask for twelve Material roles; DMS's `Theme` singleton exposes most of them and the rest are derived exactly the way DMS derives them in `buildMatugenColorsFromTheme()`. A role the plugin cannot resolve is **reported**, never written as a literal `{{colors.…}}` — Kvantum would read that as an invalid colour and quietly paint grey.
+
+### Folder accent
+
+The folder overlay picks the Papirus folder set whose hue is nearest the Matugen accent. Papirus also carries themed palettes (`nordic`, `yaru`, `cat-*`) whose hues collide with the plain ones, so the plain palette is searched first and the themed entries are a fallback — otherwise `#a1c9ff` lands on `nordic` as readily as on `blue`.
+
+When the GTK theme is a **Catppuccin** and [`papirus-folders-catppuccin`](https://github.com/catppuccin/papirus-folders) is installed, the folders come from the same palette as the theme rather than from a near-hue approximation. That set is 4 flavours × 14 accents; the flavour follows the colour mode — `mocha` in dark, `latte` in light, the way Catppuccin pairs them — and only the accent is matched by hue. `frappe` and `macchiato` are reachable by naming the base theme directly.
+
+Matching those needed a fix worth naming. Catppuccin draws the sheet of paper inside the folder in the flavour's `text` colour, a lavender at chroma ~16, and the pastel accents sit *below* that — `rosewater` is chroma 8, `flamingo` 13.9. "Most saturated fill wins" therefore reads `folder-cat-mocha-rosewater` as a lavender, and a lavender accent would land on the pink folders. The paper is the one fill every variant of a flavour shares, so it is found by intersecting them and excluded, rather than by hardcoding a hex per flavour.
 
 ### Compositors
 

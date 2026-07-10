@@ -243,6 +243,50 @@ if [[ -n $PAPIRUS ]]; then
     run_folder --sync-folder-color false
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
+
+    # --- Catppuccin: match the theme exactly, not approximately ---------------
+    #
+    # papirus-folders-catppuccin ships 4 flavours x 14 accents. When the GTK
+    # theme is a Catppuccin the folders can come from the same palette, so the
+    # flavour follows the colour mode and only the accent is matched by hue.
+    if [[ -e $PAPIRUS/64x64/places/folder-cat-mocha-blue.svg ]]; then
+        mkdir -p "$XDG_DATA_HOME/themes/Catppuccin-Yellow-Dark" \
+                 "$XDG_DATA_HOME/themes/Catppuccin-Yellow-Light"
+
+        cat_folder() { # $1=accent $2=mode $3=gtk theme -> folder-*.svg target
+            printf '@define-color accent_bg_color %s;\n' "$1" \
+                > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+            rm -rf "$OVERLAY"
+            "$ROOT/scripts/apply-theme.sh" --compositor generic --mode "$2" \
+                --gtk-theme-dark "$3" --gtk-theme-light "$3" \
+                --icon-theme Papirus-Dark --sync-folder-color true \
+                --folder-base-theme Papirus-Dark --sync-kde false \
+                --sync-xsettingsd false --backup-enabled false --no-runtime >/dev/null 2>&1
+            basename "$(readlink "$OVERLAY/64x64/places/folder.svg")"
+        }
+
+        [[ $(cat_folder '#b6c4ff' dark Catppuccin-Yellow-Dark) == folder-cat-mocha-lavender.svg ]] \
+            || { printf 'Catppuccin GTK theme did not map the accent to a mocha folder\n' >&2; exit 1; }
+        [[ $(cat_folder '#b6c4ff' light Catppuccin-Yellow-Light) == folder-cat-latte-lavender.svg ]] \
+            || { printf 'Light mode did not map the accent to a latte folder\n' >&2; exit 1; }
+
+        # Catppuccin draws the paper inside the folder in the flavour's `text`
+        # colour — a lavender at chroma ~16 — while rosewater sits at chroma 8.
+        # Pick "most saturated fill" and folder-cat-mocha-rosewater reads as a
+        # lavender, so a lavender accent would land on the pink folders.
+        [[ $(cat_folder '#f2cdcd' dark Catppuccin-Yellow-Dark) == folder-cat-mocha-flamingo.svg ]] \
+            || { printf 'Pastel accent did not map to its own folder (paper colour won)\n' >&2; exit 1; }
+
+        # A non-Catppuccin GTK theme keeps the plain Papirus palette.
+        [[ $(cat_folder '#e25252' dark Adwaita) == folder-red.svg ]] \
+            || { printf 'Non-Catppuccin theme did not use the plain folder palette\n' >&2; exit 1; }
+
+        rm -rf "$OVERLAY"
+        printf '@define-color accent_bg_color #e25252;\n' \
+            > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+    else
+        printf 'catppuccin folders: skipped (papirus-folders-catppuccin not installed)\n'
+    fi
 else
     printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
 fi
