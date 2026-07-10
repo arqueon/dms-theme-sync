@@ -32,6 +32,9 @@ PluginComponent {
     readonly property string gtkThemeDark: pluginData.gtkThemeDark || "auto"
     readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "preserve"
     readonly property string qtStyle: pluginData.qtStyle || "Fusion"
+    // "manual" keeps the two knobs above authoritative; every other mode hands
+    // the helper a coherent route (pair, kvantum, kcolorscheme, gtk3, auto).
+    readonly property string qtSyncMode: pluginData.qtSyncMode || "manual"
     readonly property bool applyMatugenColors: pluginData.applyMatugenColors !== undefined ? pluginData.applyMatugenColors : true
     readonly property bool syncKde: pluginData.syncKde !== undefined ? pluginData.syncKde : true
     readonly property bool syncXsettingsd: pluginData.syncXsettingsd !== undefined ? pluginData.syncXsettingsd : true
@@ -46,7 +49,12 @@ PluginComponent {
     readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
-    readonly property bool syncKvantum: (pluginData.syncKvantum !== undefined ? pluginData.syncKvantum : false) && qtStyle === "kvantum"
+    // Only the user's toggle. Whether Kvantum actually applies is the helper's
+    // call: it resolves an "auto" style first, and gating here on
+    // qtStyle === "kvantum" made auto skip the render — the style landed in
+    // qt6ct.conf but the theme was never rendered or selected, so Qt painted
+    // whatever kvantum.kvconfig last pointed at (Celestial, with bold text).
+    readonly property bool syncKvantum: pluginData.syncKvantum !== undefined ? pluginData.syncKvantum : false
 
     // The Kvantum templates want 12 Material roles. Theme exposes most of them
     // as properties; the rest live on currentThemeData, and the fallbacks below
@@ -60,7 +68,11 @@ PluginComponent {
         const pick = (...cs) => hex6(cs.find(c => c) || Theme.surface);
         const roles = {
             primary: Theme.primary,
-            on_surface: Theme.onSurface,
+            // surfaceText, not the onSurface alias: in the running shell that
+            // alias can sit frozen at opaque black while surfaceText is correct
+            // (seen live: onSurface=#000000, surfaceText=#f9dcd5). surfaceText
+            // is what DMS paints its own bar text with, so it cannot drift.
+            on_surface: pick(td.surfaceText, Theme.surfaceText),
             surface: Theme.surface,
             surface_variant: Theme.surfaceVariant,
             surface_container_low: Theme.surfaceContainerLow,
@@ -76,7 +88,7 @@ PluginComponent {
     }
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncFlatpak, syncKvantum, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncFlatpak, syncKvantum, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. DMS
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -105,17 +117,37 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
         return args;
     }
 
+    // DMS regenerates its Matugen templates (dank-colors.css, DankMatugen.colors)
+    // for the dynamic theme and for stock themes — but not for custom/downloaded
+    // ones: pick a registry theme and the bar goes red while GTK keeps painting
+    // the previous palette, because the export never ran. Ask DMS to export
+    // through its own machinery, exactly the call its stock-theme path makes.
+    // No matugen loop: for custom themes Theme.* reads theme.json, not the
+    // generated files, so the regeneration cannot re-trigger this.
+    function maybeExportDmsColors() {
+        if (Theme.currentTheme !== "custom")
+            return ;
+
+        if (!Theme.currentThemeData || typeof Theme.setDesiredTheme !== "function" || typeof Theme.buildMatugenColorsFromTheme !== "function")
+            return ;
+
+        const td = Theme.currentThemeData;
+        const stockColors = Theme.buildMatugenColorsFromTheme(td, td);
+        Theme.setDesiredTheme("hex", hex6(Theme.primary), Theme.isLightMode, SettingsData.iconTheme || "System Default", td.matugen_type || "scheme-tonal-spot", stockColors);
+    }
+
     function requestApply(showResult) {
         if (!showResult && configSignature === appliedSignature)
             return ;
 
+        maybeExportDmsColors();
         manualRequest = showResult;
         if (applying) {
             pendingApply = true;
@@ -136,7 +168,10 @@ PluginComponent {
         applyProcess.running = true;
     }
 
-    function runSnapshotAction(action, snapshot) {
+    // extra: for "backup", an optional name — a named snapshot is pinned and
+    // retention never rotates it away. For "name", the new name for `snapshot`
+    // (empty unpins, returning it to the rotation).
+    function runSnapshotAction(action, snapshot, extra) {
         if (applying)
             return false;
 
@@ -145,8 +180,12 @@ PluginComponent {
                 pluginService.savePluginData(pluginId, "autoSync", false);
 
             applyProcess.command = [snapshotHelperPath(), "restore", "--snapshot", snapshot || "latest"];
+        } else if (action === "name") {
+            applyProcess.command = [snapshotHelperPath(), "name", "--snapshot", snapshot, "--name", extra || ""];
         } else {
             applyProcess.command = [snapshotHelperPath(), "backup", "--retention", String(backupRetention), "--label", "manual"];
+            if (extra)
+                applyProcess.command = applyProcess.command.concat(["--name", extra]);
         }
         currentAction = action;
         manualRequest = true;
@@ -267,13 +306,24 @@ PluginComponent {
                 "cursorSize": root.cursorSize,
                 "gtkTheme": root.colorMode === "light" ? root.gtkThemeLight : root.gtkThemeDark,
                 "qtPlatformTheme": root.qtPlatformTheme,
+                "qtSyncMode": root.qtSyncMode,
                 "applyMatugenColors": root.applyMatugenColors,
                 "lastOutput": root.lastOutput
             }, null, 2);
         }
 
         function backup() : string {
-            return root.runSnapshotAction("backup", "") ? "scheduled" : "busy";
+            return root.runSnapshotAction("backup", "", "") ? "scheduled" : "busy";
+        }
+
+        // A named backup is pinned: retention neither counts nor deletes it.
+        function backupNamed(name: string) : string {
+            return root.runSnapshotAction("backup", "", name) ? "scheduled" : "busy";
+        }
+
+        // Pin (or rename) an existing snapshot; an empty name unpins it.
+        function nameSnapshot(snapshot: string, name: string) : string {
+            return root.runSnapshotAction("name", snapshot, name) ? "scheduled" : "busy";
         }
 
         function restoreLatest() : string {

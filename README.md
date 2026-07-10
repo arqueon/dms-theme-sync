@@ -2,6 +2,13 @@
 
 **Cross-toolkit theme synchronization for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell).** DMS Theme Sync treats DMS as the single source of truth for appearance and propagates it to GTK, Qt, KDE, Flatpak and X11/XWayland applications — no wallpaper manager required.
 
+Since 0.7 it also **decides how Qt gets there**: a single GTK ↔ Qt
+synchronization route replaces the platform-theme/style knob pair, probes what
+the machine can actually do, and can pair the GTK theme with its same-author
+Kvantum half — WhiteSur with WhiteSurDark, Catppuccin-Flamingo-Dark with
+catppuccin-mocha-flamingo, adw-gtk3 with KvLibadwaita — so Qt and GTK stop
+being approximations of each other (see [Qt policy](#qt-policy)).
+
 It runs as a background **daemon**, adds an optional **bar widget**, and ships a standalone **configuration dialog**.
 
 ## Scope
@@ -19,6 +26,9 @@ Some of what that means in practice, all of it found on real systems:
 - **Dead symlinks accumulate.** `nwg-look` points `gtk.css` and `gtk-dark.css` at the theme you selected; uninstall it and libadwaita trips over the dangling link on every launch, quietly.
 - **Sandboxes see none of it.** Flatpak apps get dark/light from the portal and nothing else — not the theme name, not your `gtk.css` — unless someone sets an override.
 - **A theme name is a string until something resolves it.** A compositor config can happily name a cursor theme nobody installed, and a Qt style (`kvantum`) that has no plugin behind it, and both fail by falling back rather than complaining.
+- **The 10-field font string is a Qt5 format, weights included.** Its weight field uses Qt5's 0–99 scale (50 = normal). Write the OpenType 400 there and Qt6 clamps it to 900: every Qt and KDE application renders its whole interface in Black weight. This plugin did exactly that, and nobody saw it for as long as nothing read the file.
+- **Running GTK apps watch `gtk.css`, not what it `@import`s.** Rewriting only `dank-colors.css` repaints nothing that is already open. Touching `gtk.css` forces the re-parse, and the re-parse re-reads the import.
+- **A palette can be delivered to one toolkit and not another.** DMS regenerates its GTK export for the dynamic and stock themes but not for custom/downloaded ones — pick a registry theme and the bar changes while Thunar keeps the old colours, with nothing anywhere saying why.
 
 So the plugin writes, then **reconciles**: it prunes dangling links, re-asserts gsettings, checks that `fc-match` really returns the font it asked for, verifies that every named theme exists on disk, and names the tools that are going to fight it. Anything unambiguous it repairs; anything that needs a human it reports with the file to look at, and touches nothing.
 
@@ -31,6 +41,8 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 ## Highlights
 
 - **One place for everything.** The plugin UI mirrors every DMS appearance control — color theme, light/dark mode, Matugen palette & contrast, fonts, icons, cursor and cursor size — next to its own options, so you never jump between DMS Settings and the plugin.
+- **One GTK ↔ Qt decision.** A synchronization route instead of two knobs: Automatic resolves pair → DMS-palette Kvantum → qt6ct-kde palette → follow GTK, re-evaluated on every apply against what is actually installed. The settings page probes the machine with the helper's own detection functions, so what the UI offers and what an apply does cannot drift apart.
+- **Same-author theme pairing.** When the GTK theme's Kvantum half is installed (WhiteSur, Orchis, Catppuccin with the right flavour *and* accent, adw-gtk3 → KvLibadwaita), Qt draws from the same design instead of an approximation — and the pair wins over the palette render, deliberately.
 - **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, Kvantum, KDE, Flatpak, Fontconfig, XSettings and XCursor.
 - **It checks its own work.** After every apply it reads the system back: prunes dangling GTK symlinks, re-asserts gsettings, confirms `fc-match` really returns the font it asked for, and names the themes and tools that will fight it.
 - **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass. Optionally renders a Kvantum theme and recolours Papirus folders from the same palette.
@@ -44,13 +56,13 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 | --- | --- |
 | **GTK** | `~/.gtkrc-2.0`, GTK3/GTK4 `settings.ini`, safe Matugen color import |
 | **GNOME** | GSettings (theme, icons, cursor + size, fonts) and the portal color-scheme hint |
-| **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette |
-| **Kvantum** | opt-in: renders `DankMatugen.{kvconfig,svg}` from the DMS palette and selects it (see [Kvantum](#kvantum)) |
+| **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette — with the GTK ↔ Qt route deciding what actually reads them (see [Qt policy](#qt-policy)) |
+| **Kvantum** | the GTK theme's same-author Kvantum pair when installed; otherwise opt-in: renders `DankMatugen.{kvconfig,svg}` from the DMS palette and selects it (see [Kvantum](#kvantum)) |
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
 | **Flatpak** | opt-in `flatpak override --user`: `GTK_THEME`, `ICON_THEME`, `XCURSOR_THEME` + read-only theme dirs |
-| **Icons** | opt-in folder accent: a generated overlay theme whose folders follow the Matugen accent (Papirus only) |
+| **Icons** | opt-in folder accent: a generated overlay theme whose folders follow the Matugen accent (Papirus; the full Catppuccin set when the GTK theme is one) |
 | **Terminals** | opt-in font includes for kitty, Alacritty and Ghostty (see [Terminal fonts](#terminal-fonts)) |
 | **Session env** | `environment.d` + live systemd user env — or a Niri KDL include (see [Compositors](#compositors)) |
 
@@ -90,22 +102,82 @@ Controls that mirror DMS (color theme, light/dark, Matugen, fonts, icons, cursor
 ```bash
 dms ipc call dmsThemeSync apply
 dms ipc call dmsThemeSync backup
+dms ipc call dmsThemeSync backupNamed "before-experiments"
+dms ipc call dmsThemeSync nameSnapshot 20260709-120000 "known good"
 dms ipc call dmsThemeSync restoreLatest
 dms ipc call dmsThemeSync restore 20260628-182500
 dms ipc call dmsThemeSync configure
 dms ipc call dmsThemeSync status      # pretty-printed JSON
 ```
 
+## Following DMS — no external trigger needed
+
+The daemon watches a configuration signature that covers fonts, sizes, icons, cursor, colour mode **and every colour of the live theme**. Change anything in DMS — the wallpaper, a stock colour, a downloaded registry theme — and the signature changes, and an apply runs on its own about a second later. No wallpaper-manager hook, no script, no keybind is required; a Variety/pywal-style trigger calling `apply` is harmless but redundant.
+
+Two things make a theme switch actually *land* everywhere:
+
+- **Custom and downloaded themes reach GTK.** DMS regenerates its Matugen export only for the dynamic and stock themes. When the live theme is a custom one, the daemon asks DMS to export through its own machinery (the same `setDesiredTheme` call the stock path makes) before applying — so `dank-colors.css` always describes the theme you actually chose. If the exported accent and the live theme ever still disagree, reconcile reports it by name.
+- **Running GTK apps recolour.** GTK only watches the user `gtk.css`, not the files it imports, so each apply touches `gtk.css`; the re-parse re-reads `dank-colors.css` and open windows repaint without a restart. Qt apps under the qtXct platform theme repaint on their next start.
+
 ## Qt policy
+
+### The synchronization route
+
+**GTK ↔ Qt synchronization** is one decision instead of two knobs. Every route
+except **Manual** overrides the platform-theme and widget-style options below
+with a combination that is known to work — because the combinations are the
+whole point: `kvantum` without `qtct` is inert, a `.colors` palette without
+`qt6ct-kde` is silently ignored, and a style written under `gtk3` is never
+read.
+
+| Route | What Qt apps get |
+|---|---|
+| **Manual** *(default)* | The two options below, exactly as before this setting existed |
+| **Automatic** | The best route this machine supports, re-evaluated on every apply: pair → DMS-palette Kvantum → qt6ct-kde palette → follow GTK |
+| **Kvantum paired with the GTK theme** | The Kvantum half of a same-author pair — WhiteSur ↔ WhiteSurDark, Orchis, Catppuccin (flavour by colour mode, accent by name), adw-gtk3 ↔ KvLibadwaita. Both halves come from one design, so Qt and GTK stop being approximations of each other. No pair installed → falls back to the DMS-palette render and says so |
+| **Kvantum from the DMS palette** | The rendered `DankMatugen` Kvantum theme (see below) |
+| **DMS palette via qt6ct-kde** | The `DankMatugen.colors` palette on Fusion widgets — the route that needs `qt6ct-kde` to actually work (see the warning below) |
+| **Follow the GTK theme** | The `gtk3` platform theme; colours arrive through GTK |
+
+The settings page probes the machine first — with the helper's own detection
+functions, so what the UI promises and what an apply does cannot drift — and
+reports which qt6ct flavour is installed, whether Kvantum is present, and the
+Kvantum pair (if any) for the current GTK theme.
+
+### The platform theme (Manual route)
 
 The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `DankMatugen.colors`). The Qt policy only controls the **`QT_QPA_PLATFORMTHEME`** variable, which decides whether Qt apps actually obey those files.
 
 - **Leave to my environment** *(default)* — the plugin does not touch the variable. Use this if you set it yourself (e.g. `/etc/environment`, `environment.d`, or your compositor config). This matches DMS, which never writes it either.
 - **Plugin sets Follow GTK (`gtk3`)** — Qt apps follow the chosen GTK theme.
-- **Plugin sets DMS palette (`qt5ct`/`qt6ct`)** — Qt apps use the `DankMatugen.colors` palette.
+- **Plugin sets DMS palette (`qt5ct`/`qt6ct`)** — Qt apps use the `DankMatugen.colors` palette — **with `qt6ct-kde`**. Stock `qt6ct` cannot parse that file; see the warning below.
+
+> [!WARNING]
+> **Stock `qt6ct` cannot read the DMS palette.** DMS exports `DankMatugen.colors` in KDE's KColorScheme format (`[Colors:Window]`, `[Colors:View]`, …). Stock qt6ct's `loadColorScheme()` expects its own `[ColorScheme]` arrays, finds none, and keeps the default palette **without a word** (verified against qt6ct 0.11). [`qt6ct-kde`](https://aur.archlinux.org/packages/qt6ct-kde) is the same qt6ct built against `KF6::ColorScheme` — it parses `.colors` natively, searches `~/.local/share/color-schemes`, and renders KDE apps correctly on top. It `provides`/`conflicts` `qt6ct`, so it is a drop-in swap. Under the `kvantum` style the palette comes from the Kvantum theme instead, which is why this only bites the non-Kvantum routes; reconcile names it when it happens.
 
 > [!NOTE]
 > Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
+
+### The Qt platform theme decides whether any of this is read
+
+`qt5ct.conf` and `qt6ct.conf` are read by the **qtXct platform theme** and by nothing else. Under `gtk3`, `kde` or no platform theme at all, Qt never opens those files, so the widget style you picked is inert. `qtdiag` shows it plainly — with `QT_QPA_PLATFORMTHEME=gtk3` it reports `Styles requested: Fusion,windows`, not the configured style. Reconcile now says so instead of letting you hunt for a theme that was never loaded:
+
+```text
+reconcile: Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style 'kvantum' in qt5ct/qt6ct.conf is ignored
+```
+
+Under `gtk3` the *colours* still arrive — Qt applications follow the GTK theme, which carries the Matugen palette — so only the style is reported lost. With no platform theme set, neither reaches Qt.
+
+Both dropdowns are populated from what this machine can actually load, as reported by `qtdiag`, and then pruned of entries that read as choices but are not. `qt5ct`/`qt6ct` collapse into the single **DMS palette** entry, because the plugin writes a different name per Qt version. `snap` and `flatpak` are dropped: `libqxdgdesktopportal.so` registers all three keys, so they are the portal plugin under names meant for apps inside those sandboxes — not looks. `kde` (plasma-integration) is dropped because it expects a running Plasma session, which a DMS desktop is not; export it by hand and reconcile will still tell you the style is inert. What remains — `gtk3`, the portal, the DMS palette — is each a genuinely different behaviour. If `qtdiag` is missing, the lists fall back to the names Qt always builds in.
+
+Set both to **Auto** to let the machine decide. Kvantum only means anything where `qt5ct.conf`/`qt6ct.conf` is read, so the two resolve together:
+
+| | Platform theme | Style |
+|---|---|---|
+| Kvantum installed | `qtct` | `kvantum`, with the theme rendered from the DMS palette |
+| Kvantum absent | `gtk3` | none written — Qt apps follow the GTK theme |
+
+Pinning the platform theme by hand still wins: with `gtk3` selected, an **Auto** style writes nothing rather than something inert.
 
 ### Kvantum
 
@@ -118,6 +190,14 @@ When the **Generate a Kvantum theme from the DMS palette** toggle is on and the 
 So the plugin renders the theme on every apply: `~/.config/Kvantum/DankMatugen/DankMatugen.kvconfig` and `DankMatugen.svg`, then points `~/.config/Kvantum/kvantum.kvconfig` at it. **Both** files are recoloured — the `.svg` is where every widget is drawn, and the upstream template contains no hard-coded hex at all, so recolouring only the config would leave Kvantum painting the template's colours.
 
 The templates live in `assets/kvantum/`, vendored verbatim from [InioX/matugen-themes](https://github.com/InioX/matugen-themes) (MIT, see the `NOTICE` there) so an apply never depends on the network. They ask for twelve Material roles; DMS's `Theme` singleton exposes most of them and the rest are derived exactly the way DMS derives them in `buildMatugenColorsFromTheme()`. A role the plugin cannot resolve is **reported**, never written as a literal `{{colors.…}}` — Kvantum would read that as an invalid colour and quietly paint grey.
+
+### Folder accent
+
+The folder overlay picks the Papirus folder set whose hue is nearest the Matugen accent. Papirus also carries themed palettes (`nordic`, `yaru`, `cat-*`) whose hues collide with the plain ones, so the plain palette is searched first and the themed entries are a fallback — otherwise `#a1c9ff` lands on `nordic` as readily as on `blue`.
+
+When the GTK theme is a **Catppuccin** and [`papirus-folders-catppuccin`](https://github.com/catppuccin/papirus-folders) is installed, the folders come from the same palette as the theme rather than from a near-hue approximation. That set is 4 flavours × 14 accents; the flavour follows the colour mode — `mocha` in dark, `latte` in light, the way Catppuccin pairs them — and only the accent is matched by hue. `frappe` and `macchiato` are reachable by naming the base theme directly.
+
+Matching those needed a fix worth naming. Catppuccin draws the sheet of paper inside the folder in the flavour's `text` colour, a lavender at chroma ~16, and the pastel accents sit *below* that — `rosewater` is chroma 8, `flamingo` 13.9. "Most saturated fill wins" therefore reads `folder-cat-mocha-rosewater` as a lavender, and a lavender accent would land on the pink folders. The paper is the one fill every variant of a flavour shares, so it is found by intersecting them and excluded, rather than by hardcoding a hex per flavour.
 
 ### Compositors
 
@@ -196,9 +276,14 @@ Enabled by default. Before each apply, the plugin snapshots every file it may ch
 
 Restore from the dialog's **backup-by-date** selector or via IPC. Restoring **disables auto-apply first** so the recovered state is not immediately overwritten; files that were absent when the snapshot was taken are removed.
 
+**Named snapshots are pinned.** Retention only rotates *unnamed* snapshots — it neither counts nor deletes the ones you named. That is the contract the dialog states: name (📌) any configuration you cannot afford to lose, let the rest flow through the rotation. Name one when you take it (**Back up now** with the name field filled) or pin an existing one later (**Pin**); pinning with an empty name unpins it, returning it to the rotation.
+
 ```bash
-scripts/theme-snapshot.sh list
+scripts/theme-snapshot.sh list                                  # id<TAB>name per line
 scripts/theme-snapshot.sh backup --retention 10 --label manual
+scripts/theme-snapshot.sh backup --name "before-experiments"    # pinned from birth
+scripts/theme-snapshot.sh name --snapshot 20260709-120000 --name "known good"
+scripts/theme-snapshot.sh name --snapshot 20260709-120000 --name ""   # unpin
 scripts/theme-snapshot.sh restore --snapshot latest
 ```
 
@@ -224,9 +309,21 @@ The fontconfig, `environment.d`, Hyprland include, labwc env and terminal font f
 Everything degrades gracefully when a toolkit is missing. Install what you use:
 
 - `gsettings`/`dconf` — GNOME settings and portal hints
-- `qt5ct` and `qt6ct` (or `qt6ct-kde`) — Qt configuration
+- `qt5ct` and `qt6ct` — Qt configuration
+- `qt6ct-kde` — **recommended over stock `qt6ct`**: DMS exports its Qt palette as a KColorScheme (`.colors`) file, and stock qt6ct cannot parse that format — it silently keeps the default palette, so without Kvantum the Material You colours never reach Qt apps. `qt6ct-kde` is the same qt6ct built against `KF6::ColorScheme` (packaged by Arch's KDE maintainers, `provides`/`conflicts` `qt6ct` so it swaps in cleanly) and reads the file natively; it also makes KDE/KF6 apps render correctly and brings `qqc2-desktop-style` for Kirigami ones. The trade-off: it lives in the AUR and is rebuilt against each Qt update
+- `qt6-tools` — provides `qtdiag`, which is how the Qt platform-theme and style dropdowns are populated; without it they fall back to the names Qt always builds in
 - `xsettingsd` — legacy X11/XWayland clients
+- `kvantum` — only if you want SVG-drawn Qt widgets; `qt6ct` with the DMS palette already gives colour consistency
+- `papirus-icon-theme` — the folder accent overlay; it is the only theme shipping ~80 folder colours in one package
+- `papirus-folders-catppuccin` — extra: lets a Catppuccin GTK theme use the matching Catppuccin folders instead of the nearest plain colour. Without it, plain Papirus is used and nothing breaks
 - the selected GTK theme and its engine (e.g. the **Murrine** engine for GTK2 themes)
+- Kvantum halves of same-author pairs, for the pairing route: `kvantum-theme-catppuccin-git`, `kvantum-theme-whitesur-git`, `kvantum-theme-orchis-git`, `kvantum-theme-libadwaita-git` (KvLibadwaita, the adw-gtk3 partner)
+
+On Arch, [arqueon/desktop-assets](https://github.com/arqueon/desktop-assets)
+packages all of the above as a curated, reproducible meta-package catalogue —
+icons, GTK themes, Kvantum pairs, cursors and fonts, every name verified
+against the official repos and the AUR — and documents this plugin's Automatic
+route as its reference desktop.
 
 > [!NOTE]
 > GTK4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's generated GTK4 CSS stays the color source; the plugin still syncs fonts, icons, cursor and dark/light preference.

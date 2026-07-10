@@ -15,6 +15,8 @@ GTK_THEME_LIGHT="auto"
 GTK_THEME_DARK="auto"
 QT_PLATFORM_THEME="preserve"
 QT_STYLE="Fusion"
+QT_SYNC_MODE="manual"
+PROBE_QT=false
 COMPOSITOR=""
 APPLY_MATUGEN_COLORS=true
 SYNC_KDE=true
@@ -46,6 +48,8 @@ while (( $# )); do
         --gtk-theme-dark) GTK_THEME_DARK=${2:?}; shift 2 ;;
         --qt-platform-theme) QT_PLATFORM_THEME=${2:?}; shift 2 ;;
         --qt-style) QT_STYLE=${2:?}; shift 2 ;;
+        --qt-sync-mode) QT_SYNC_MODE=${2:?}; shift 2 ;;
+        --probe-qt) PROBE_QT=true; shift ;;
         --compositor) COMPOSITOR=${2-}; shift 2 ;;
         --apply-matugen-colors) APPLY_MATUGEN_COLORS=${2:?}; shift 2 ;;
         --sync-kde) SYNC_KDE=${2:?}; shift 2 ;;
@@ -69,11 +73,150 @@ XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
 case "$MODE" in light|dark) ;; *) printf 'Invalid mode: %s\n' "$MODE" >&2; exit 2 ;; esac
-case "$QT_PLATFORM_THEME" in gtk3|qtct|preserve) ;; *) printf 'Invalid Qt platform theme policy: %s\n' "$QT_PLATFORM_THEME" >&2; exit 2 ;; esac
+# Any platform-theme plugin name Qt can load is allowed (gtk3, kde, qt6ct,
+# xdgdesktopportal, …); "qtct" and "preserve" are ours. The value is written into
+# environment.d and into niri/Hyprland config, so restrict it to a charset that
+# cannot break out of those files rather than to a closed list of names.
+case "$QT_PLATFORM_THEME" in
+    auto|preserve|qtct) ;;
+    ""|*[!a-zA-Z0-9_.-]*) printf 'Invalid Qt platform theme: %s\n' "$QT_PLATFORM_THEME" >&2; exit 2 ;;
+esac
+case "$QT_SYNC_MODE" in
+    manual|auto|pair|kvantum|kcolorscheme|gtk3) ;;
+    *) printf 'Invalid Qt sync mode: %s\n' "$QT_SYNC_MODE" >&2; exit 2 ;;
+esac
 [[ $FONT_SIZE =~ ^[0-9]+$ && $MONO_SIZE =~ ^[0-9]+$ && $DOCUMENT_SIZE =~ ^[0-9]+$ && $CURSOR_SIZE =~ ^[0-9]+$ ]] || {
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
 }
+
+# Kvantum is a QStyle plugin. /usr/share/Kvantum proves nothing — GTK themes such
+# as celestial-gtk-theme ship Kvantum *themes* there without Kvantum itself — so
+# test for the shared object Qt actually loads. The search path is overridable so
+# the tests can exercise the "no Kvantum" branch on a machine that has it.
+KVANTUM_LIB_DIRS=${DMS_THEME_SYNC_LIB_DIRS:-"/usr/lib /usr/lib64"}
+kvantum_style_plugin_installed() {
+    # shellcheck disable=SC2086 — the search path is a deliberate word list.
+    find $KVANTUM_LIB_DIRS -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
+}
+
+# qt6ct-kde is qt6ct built against KF6::ColorScheme, which is what lets it parse
+# the KColorScheme (.colors) file DMS exports — stock qt6ct expects its own
+# [ColorScheme] arrays and falls back to the default palette without a word.
+# The patch lands in libqt6ct-common, so only the patched build carries a
+# libKF6ColorScheme NEEDED entry there; grepping for that string tells the two
+# apart without executing anything (ldd runs the loader; grep does not).
+QT6CT_COMMON_DIRS=${DMS_THEME_SYNC_QT6CT_DIRS:-"/usr/lib /usr/lib64"}
+qt6ct_kde_installed() {
+    local d f
+    # shellcheck disable=SC2086 — deliberate word list, same as above.
+    for d in $QT6CT_COMMON_DIRS; do
+        for f in "$d"/libqt6ct-common.so*; do
+            [[ -f $f ]] && grep -aq 'libKF6ColorScheme' "$f" 2>/dev/null && return 0
+        done
+    done
+    return 1
+}
+
+# Kvantum themes are directories holding <name>.kvconfig; user themes shadow
+# system ones, which is also the order Kvantum itself resolves them in.
+list_kvantum_themes() {
+    local root dir name
+    for root in "$XDG_CONFIG_HOME/Kvantum" /usr/share/Kvantum; do
+        [[ -d $root ]] || continue
+        for dir in "$root"/*/; do
+            name=$(basename "$dir")
+            [[ -f $dir$name.kvconfig ]] && printf '%s\n' "$name"
+        done
+    done | awk '!seen[tolower($0)]++'
+}
+
+# The GTK theme's Kvantum counterpart, when both halves of a same-author pair
+# are installed: WhiteSur-Dark -> WhiteSurDark, Orchis-Dark -> OrchisDark,
+# Materia-dark -> MateriaDark, Catppuccin-* -> catppuccin-<flavour>-<accent>.
+# Matching is by family token because every author writes the variant suffix
+# differently; the colour mode then picks the light/dark member. adw-gtk3 is
+# special-cased: its Qt half is KvLibadwaita, which shares no substring.
+kvantum_theme_for_gtk() {
+    local gtk=$1 family t tl tok score best="" best_score=-1
+    case "${gtk,,}" in
+        "") return 1 ;;
+        adw-gtk3*|adwaita*) family=libadwaita ;;
+        *) family=${gtk%%-*}; family=${family,,} ;;
+    esac
+    # Tokens beyond the family refine the choice — a Catppuccin accent
+    # (Flamingo), a Solid/Compact variant — so Catppuccin-Flamingo-Dark lands
+    # on catppuccin-mocha-flamingo, not on whichever mocha is listed first.
+    local -a toks=()
+    IFS='-' read -ra toks <<<"${gtk,,}"
+    while IFS= read -r t; do
+        tl=${t,,}
+        [[ $tl == *"$family"* ]] || continue
+        # DankMatugen is our own render, not a pair for anything.
+        [[ $tl == dankmatugen ]] && continue
+        score=0
+        for tok in "${toks[@]}"; do
+            case $tok in ''|dark|light|gtk|theme) continue ;; esac
+            [[ $tl == *"$tok"* ]] && score=$((score + 1))
+        done
+        # The colour mode outranks token overlap but never disqualifies: a
+        # one-variant pair (Orchis alone) still beats no pair at all. Catppuccin
+        # encodes the mode as a flavour, not a Dark suffix; frappé and
+        # macchiato stay reachable by naming the GTK theme after them.
+        if [[ $family == catppuccin ]]; then
+            { [[ $MODE == light && $tl == *latte* ]] || [[ $MODE == dark && $tl == *mocha* ]]; } \
+                && score=$((score + 10))
+        else
+            { [[ $MODE == dark && $tl == *dark* ]] || [[ $MODE == light && $tl != *dark* ]]; } \
+                && score=$((score + 10))
+        fi
+        (( score > best_score )) && { best=$t; best_score=$score; }
+    done < <(list_kvantum_themes)
+    [[ -n $best ]] && { printf '%s' "$best"; return 0; }
+    return 1
+}
+
+# "auto" picks the combination that works on this machine: Kvantum, when it is
+# installed, needs the qtXct platform theme to be read at all; without it there
+# is nothing to gain from qtXct, so Qt apps follow the GTK theme instead. Both
+# are resolved here, before anything reads QT_STYLE or QT_PLATFORM_THEME.
+if [[ $QT_PLATFORM_THEME == auto ]]; then
+    if kvantum_style_plugin_installed; then QT_PLATFORM_THEME=qtct; else QT_PLATFORM_THEME=gtk3; fi
+fi
+
+# Resolve the Qt platform-theme values once; both are empty under "preserve".
+#
+# "qtct" is the one name that differs per Qt version (qt5ct vs qt6ct), so it
+# keeps its own case. Everything else is a plugin name Qt loads verbatim —
+# gtk3, kde, xdgdesktopportal, flatpak, snap — and the settings UI offers only
+# the ones this machine actually has (QStyleFactory/QPlatformTheme keys). An
+# unknown name here used to fall through the case and be dropped in silence.
+resolve_qt_platform_vars() {
+    QT_PLATFORM_QT5=""
+    QT_PLATFORM_QT6=""
+    case "$QT_PLATFORM_THEME" in
+        preserve|"") ;;
+        qtct) QT_PLATFORM_QT5=qt5ct; QT_PLATFORM_QT6=qt6ct ;;
+        *) QT_PLATFORM_QT5=$QT_PLATFORM_THEME; QT_PLATFORM_QT6=$QT_PLATFORM_THEME ;;
+    esac
+}
+resolve_qt_platform_vars
+
+# What Qt will actually load: our value if we write one, otherwise whatever the
+# session already exports (which is precisely what "preserve" defers to).
+effective_platform_theme() {
+    if [[ -n $QT_PLATFORM_QT6 ]]; then printf '%s' "$QT_PLATFORM_QT6"
+    else printf '%s' "${QT_QPA_PLATFORMTHEME_QT6:-${QT_QPA_PLATFORMTHEME:-}}"; fi
+}
+
+# An "auto" style is only worth setting where qtXct.conf is read; anywhere else
+# it would be inert, so leave the style alone and let the GTK theme drive Qt.
+if [[ $QT_STYLE == auto ]]; then
+    case "$(effective_platform_theme)" in
+        qt5ct|qt6ct) kvantum_style_plugin_installed && QT_STYLE=kvantum || QT_STYLE=preserve ;;
+        *) QT_STYLE=preserve ;;
+    esac
+fi
 [[ $BACKUP_RETENTION =~ ^[0-9]+$ ]] || { printf 'Backup retention must be an integer\n' >&2; exit 2; }
 
 log() { printf '%s\n' "$*"; }
@@ -146,6 +289,83 @@ GTK_REQUEST=$GTK_THEME_DARK
 [[ $MODE == light ]] && GTK_REQUEST=$GTK_THEME_LIGHT
 GTK_THEME=$(resolve_gtk_theme "$GTK_REQUEST" "$MODE")
 
+# --- GTK <-> Qt route ----------------------------------------------------------
+#
+# One decision instead of two knobs. "manual" keeps the platform-theme and
+# widget-style options authoritative — exactly the pre-0.7 behaviour. Every
+# other mode overrides them with a combination that is known to work, because
+# the combinations are the whole point: kvantum without qtct is inert, a
+# .colors palette without qt6ct-kde is silently ignored, and a style written
+# under gtk3 never gets read.
+#
+#   pair          qtct + kvantum, selecting the Kvantum half of the GTK theme's
+#                 same-author pair (WhiteSur, Orchis, Catppuccin, KvLibadwaita…)
+#   kvantum       qtct + kvantum, rendering DankMatugen from the DMS palette
+#   kcolorscheme  qtct + Fusion, palette from DankMatugen.colors — the route
+#                 that needs qt6ct-kde to actually work
+#   gtk3          Qt follows the GTK theme; nothing reads qt5ct/qt6ct.conf
+#   auto          best available, in that order
+KVANTUM_PAIR_THEME=""
+QT_SYNC_ROUTE=$QT_SYNC_MODE
+
+apply_qt_sync_route() {
+    QT_SYNC_ROUTE=$1
+    case "$1" in
+        pair)         QT_PLATFORM_THEME=qtct; QT_STYLE=kvantum; KVANTUM_PAIR_THEME=$2 ;;
+        kvantum)      QT_PLATFORM_THEME=qtct; QT_STYLE=kvantum; SYNC_KVANTUM=true ;;
+        kcolorscheme) QT_PLATFORM_THEME=qtct; QT_STYLE=Fusion ;;
+        gtk3)         QT_PLATFORM_THEME=gtk3; QT_STYLE=preserve ;;
+    esac
+}
+
+resolve_qt_sync_mode() {
+    local mode=$1 pair_gtk pair
+    # Under "preserve" there is no resolved GTK theme; pair against the live one.
+    pair_gtk=${GTK_THEME:-$(current_gtk_theme)}
+    case "$mode" in
+        auto)
+            if kvantum_style_plugin_installed; then
+                if pair=$(kvantum_theme_for_gtk "$pair_gtk"); then
+                    apply_qt_sync_route pair "$pair"; return
+                fi
+                if [[ $SYNC_KVANTUM == true && -n $KV_COLORS ]]; then
+                    apply_qt_sync_route kvantum; return
+                fi
+            fi
+            if qt6ct_kde_installed; then
+                apply_qt_sync_route kcolorscheme; return
+            fi
+            apply_qt_sync_route gtk3
+            ;;
+        pair)
+            if pair=$(kvantum_theme_for_gtk "$pair_gtk"); then
+                apply_qt_sync_route pair "$pair"
+            else
+                log "qt-sync: no Kvantum theme pairs with GTK theme '${pair_gtk:-unknown}'; rendering the DMS palette instead"
+                apply_qt_sync_route kvantum
+            fi
+            ;;
+        kvantum|kcolorscheme|gtk3) apply_qt_sync_route "$mode" ;;
+    esac
+}
+
+if [[ $QT_SYNC_MODE != manual ]]; then
+    resolve_qt_sync_mode "$QT_SYNC_MODE"
+    resolve_qt_platform_vars
+fi
+
+# The settings UI asks what this machine can do before offering routes; answer
+# and leave before anything is written or snapshotted.
+if [[ $PROBE_QT == true ]]; then
+    printf 'qt6ct=%s\n' "$(qt6ct_kde_installed && printf kde || printf vanilla)"
+    printf 'kvantum=%s\n' "$(kvantum_style_plugin_installed && printf yes || printf no)"
+    probe_gtk=${GTK_THEME:-$(current_gtk_theme)}
+    printf 'gtk=%s\n' "$probe_gtk"
+    printf 'pair=%s\n' "$(kvantum_theme_for_gtk "$probe_gtk" || printf none)"
+    printf 'route=%s\n' "$QT_SYNC_ROUTE"
+    exit 0
+fi
+
 if [[ $ICON_THEME == "System Default" ]]; then
     ICON_THEME=""
 fi
@@ -204,16 +424,50 @@ hue_chroma() {
     }'
 }
 
+svg_fills() { grep -oE 'fill:#[0-9a-fA-F]{6}' "$1" | sed 's/fill://' | sort -u; }
+
 # The perceived folder colour is the most chromatic fill in the SVG. Its
 # position is not stable: in folder-red.svg it is the 3rd fill, in folder-yaru
 # .svg the 2nd, and picking by index silently grabs a grey.
+#
+# $2 is an optional space-separated list of fills to ignore. Catppuccin needs it:
+# its folders draw a sheet of paper in the flavour's `text` colour, a lavender at
+# chroma ~16, while the pastel accents sit below that — rosewater is chroma 8.
+# Without excluding the paper, folder-cat-mocha-rosewater reads as lavender.
 dominant_fill() {
-    local svg=$1 best="" best_c=-1 hex c
+    local svg=$1 exclude=${2-} best="" best_c=-1 hex c
     while read -r hex; do
+        [[ " $exclude " == *" $hex "* ]] && continue
         c=$(hue_chroma "$hex" | cut -d' ' -f2)
         awk -v a="$c" -v b="$best_c" 'BEGIN{exit !(a>b)}' && { best=$hex; best_c=$c; }
-    done < <(grep -oE 'fill:#[0-9a-fA-F]{6}' "$svg" | sed 's/fill://' | sort -u)
+    done < <(svg_fills "$svg")
     printf '%s' "$best"
+}
+
+# Every variant of a flavour shares the paper colour and nothing else, so find it
+# by intersecting their fills instead of hardcoding a hex per flavour.
+catppuccin_variants() {
+    local places=$1 flavor=$2 f name
+    for f in "$places"/folder-cat-"$flavor"-*.svg; do
+        [[ -e $f ]] || continue
+        name=$(basename "$f" .svg); name=${name#folder-}
+        [[ -e $places/folder-$name-documents.svg ]] || continue
+        printf '%s\n' "$name"
+    done
+}
+
+catppuccin_paper() {
+    local places=$1 flavor=$2 acc tmp name first=true
+    acc=$(mktemp); tmp=$(mktemp)
+    while read -r name; do
+        if $first; then
+            svg_fills "$places/folder-$name.svg" > "$acc"; first=false
+        else
+            comm -12 "$acc" <(svg_fills "$places/folder-$name.svg") > "$tmp"; mv "$tmp" "$acc"
+        fi
+    done < <(catppuccin_variants "$places" "$flavor")
+    $first || tr '\n' ' ' < "$acc"
+    rm -f "$acc" "$tmp"
 }
 
 # A colour is any X for which both folder-X.svg and folder-X-<variant>.svg
@@ -246,10 +500,37 @@ _folder_palette_match() {
     [[ -n $best ]] && printf '%s %s' "$best" "$bestd"
 }
 
+# Within one flavour every accent appears once, so hue alone decides and there is
+# no chroma tie-break to make: the four flavours differ in lightness, not hue.
+_catppuccin_match() {
+    local places=$1 ah=$2 flavor=$3 paper name hex h c d best="" bestd=999
+    paper=$(catppuccin_paper "$places" "$flavor")
+    [[ -n $paper ]] || return 1
+    while read -r name; do
+        hex=$(dominant_fill "$places/folder-$name.svg" "$paper"); [[ -n $hex ]] || continue
+        read -r h c <<<"$(hue_chroma "$hex")"
+        d=$(awk -v a="$ah" -v b="$h" 'BEGIN{d=(b-a+180)%360-180; if(d<0)d=-d; print d}')
+        awk -v d="$d" -v bd="$bestd" 'BEGIN{exit !(d < bd)}' && { best=$name; bestd=$d; }
+    done < <(catppuccin_variants "$places" "$flavor")
+    [[ -n $best ]] && printf '%s' "$best"
+}
+
+# Catppuccin ships one folder set per flavour, so when the GTK theme is a
+# Catppuccin the folders can match the theme exactly instead of approximately.
+# The flavour follows the colour mode, the way Catppuccin itself pairs them;
+# frappe and macchiato are reachable only by naming the base theme directly.
+catppuccin_flavor_for_mode() {
+    [[ $MODE == light ]] && printf latte || printf mocha
+}
+
 nearest_folder_color() {
     local places=$1 accent=$2 ah ac best d
     read -r ah ac <<<"$(hue_chroma "$accent")"
     awk -v c="$ac" 'BEGIN{exit !(c < 12)}' && { printf 'grey'; return 0; }
+    if [[ ${GTK_THEME,,} == catppuccin* ]]; then
+        best=$(_catppuccin_match "$places" "$ah" "$(catppuccin_flavor_for_mode)" || true)
+        [[ -n $best ]] && { printf '%s' "$best"; return 0; }
+    fi
     read -r best d <<<"$(_folder_palette_match "$places" "$ah" true)"
     if [[ -n $best ]] && awk -v d="$d" 'BEGIN{exit !(d <= 30)}'; then
         printf '%s' "$best"; return 0
@@ -497,6 +778,11 @@ ensure_matugen_css_import() {
     fi
     mkdir -p "$gtk_dir"
     if [[ -f $css_file ]] && grep -Fq '@import url("dank-colors.css");' "$css_file"; then
+        # GTK watches the user gtk.css itself, not the files it @imports. When
+        # DMS switches theme it rewrites only dank-colors.css, so every running
+        # GTK app keeps painting the old palette until something bumps gtk.css.
+        # Touching it makes GTK re-parse, and the re-parse re-reads the import.
+        touch "$css_file"
         return
     fi
 
@@ -540,12 +826,17 @@ set_gsetting_string org.gnome.desktop.wm.preferences titlebar-font "$FONT Bold $
 set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark ]] && printf prefer-dark || printf prefer-light)"
 set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 
+# The 10-field font string is Qt5's legacy QFont::toString format, and its
+# weight field uses Qt5's 0-99 scale (50 = normal). Qt6 detects the legacy field
+# count and converts — but only if the value IS legacy: writing the OpenType 400
+# here makes Qt6 clamp it to 900/Black, and every Qt and KDE app renders bold.
+# Verified with QFont::fromString: "...,400,0,0,0,0,0" -> weight 900, bold.
 for qt_version in 5 6; do
     qt_file="$XDG_CONFIG_HOME/qt${qt_version}ct/qt${qt_version}ct.conf"
     [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
-    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0\""
-    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,400,0,0,0,0,0\""
+    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0\""
+    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0\""
     if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
         update_ini "$qt_file" Appearance custom_palette true
         update_ini "$qt_file" Appearance color_scheme_path "$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
@@ -554,11 +845,11 @@ done
 
 if [[ $SYNC_KDE == true ]]; then
     KDEGLOBALS="$XDG_CONFIG_HOME/kdeglobals"
-    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
     [[ -n $ICON_THEME ]] && update_ini "$KDEGLOBALS" Icons Theme "$ICON_THEME"
     if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
         update_ini "$KDEGLOBALS" General ColorScheme DankMatugen
@@ -667,10 +958,6 @@ fi
 # InioX/matugen-themes, MIT) with the 12 Material roles DMS hands us, then point
 # kvantum.kvconfig at the result. The SVG has to be recoloured too: it is where
 # every widget shape lives, and it contains no hard-coded hex at all.
-kvantum_style_plugin_installed() {
-    find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
-}
-
 sync_kvantum_theme() {
     local tpl_dir out_dir name=DankMatugen role hex
     tpl_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../assets/kvantum" 2>/dev/null && pwd)" || return 1
@@ -707,7 +994,17 @@ sync_kvantum_theme() {
     log "kvantum: theme '$name' rendered and selected"
 }
 
-if [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
+# A paired theme wins over the DankMatugen render: pairing means "both halves
+# come from one design", and overwriting the pair's colours with the DMS
+# palette would undo exactly that.
+if [[ -n $KVANTUM_PAIR_THEME ]]; then
+    if $DRY_RUN; then
+        log "DRY-RUN: select Kvantum theme '$KVANTUM_PAIR_THEME' (paired with GTK '${GTK_THEME:-$(current_gtk_theme)}')"
+    else
+        update_ini "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" General theme "$KVANTUM_PAIR_THEME"
+        log "kvantum: paired theme '$KVANTUM_PAIR_THEME' selected for GTK theme '${GTK_THEME:-$(current_gtk_theme)}'"
+    fi
+elif [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
     if $DRY_RUN || kvantum_style_plugin_installed; then
         sync_kvantum_theme || true
     fi
@@ -799,13 +1096,9 @@ LABWC_ENV="$LABWC_DIR/environment"
 LABWC_BEGIN='# >>> dmsThemeSync >>>'
 LABWC_END='# <<< dmsThemeSync <<<'
 
-# Resolve the Qt platform-theme values once; both are empty under "preserve".
-QT_PLATFORM_QT5=""
-QT_PLATFORM_QT6=""
-case "$QT_PLATFORM_THEME" in
-    gtk3) QT_PLATFORM_QT5=gtk3; QT_PLATFORM_QT6=gtk3 ;;
-    qtct) QT_PLATFORM_QT5=qt5ct; QT_PLATFORM_QT6=qt6ct ;;
-esac
+# QT_PLATFORM_QT5/QT_PLATFORM_QT6, effective_platform_theme() and the "auto"
+# resolution are set near the top of this file: QT_STYLE is consumed by the qtXct
+# writer and the Kvantum block long before this point.
 
 # DMS passes --compositor (CompositorService.compositor). Fall back to sniffing
 # the session env so the helper also works when invoked standalone or in tests.
@@ -942,11 +1235,10 @@ write_labwc_env_block() {
 # `include "user..."` if present. If the line already exists anywhere in
 # config.kdl, its position is respected and nothing is moved.
 write_niri_env_include() {
-    local qt5="" qt6=""
-    case "$QT_PLATFORM_THEME" in
-        gtk3) qt5=gtk3; qt6=gtk3 ;;
-        qtct) qt5=qt5ct; qt6=qt6ct ;;
-    esac
+    # Same values every other writer uses. This used to re-derive them from a
+    # closed gtk3|qtct case of its own, so on Niri any other platform theme was
+    # dropped even though the rest of the script handled it.
+    local qt5=$QT_PLATFORM_QT5 qt6=$QT_PLATFORM_QT6
 
     local tmp="$NIRI_INCLUDE.tmp.$$"
     {
@@ -1030,13 +1322,19 @@ else
 fi
 
 # Update the running systemd user environment in all cases (current session).
+#
+# The same resolved values every persistent writer uses — this block used to
+# re-derive them from a closed gtk3|qtct case, so any other platform theme
+# reached the niri include and environment.d but not the live session, and the
+# two disagreed until the next login. Under "preserve" nothing is set and
+# nothing is unset: a value the plugin exported earlier lingers until re-login,
+# which is the price of "hands off" — unsetting could destroy a value the user
+# put there themselves.
 if ! $DRY_RUN && [[ $NO_RUNTIME != true ]] && command -v systemctl >/dev/null 2>&1; then
     env_args=("XCURSOR_SIZE=$CURSOR_SIZE" "HYPRCURSOR_SIZE=$CURSOR_SIZE")
     [[ -n $CURSOR_THEME ]] && env_args+=("XCURSOR_THEME=$CURSOR_THEME" "HYPRCURSOR_THEME=$CURSOR_THEME")
-    if [[ $QT_PLATFORM_THEME == gtk3 ]]; then
-        env_args+=("QT_QPA_PLATFORMTHEME=gtk3" "QT_QPA_PLATFORMTHEME_QT6=gtk3")
-    elif [[ $QT_PLATFORM_THEME == qtct ]]; then
-        env_args+=("QT_QPA_PLATFORMTHEME=qt5ct" "QT_QPA_PLATFORMTHEME_QT6=qt6ct")
+    if [[ -n $QT_PLATFORM_QT5 ]]; then
+        env_args+=("QT_QPA_PLATFORMTHEME=$QT_PLATFORM_QT5" "QT_QPA_PLATFORMTHEME_QT6=$QT_PLATFORM_QT6")
     fi
     systemctl --user set-environment "${env_args[@]}" >/dev/null 2>&1 || true
 fi
@@ -1122,9 +1420,55 @@ verify_theme_assets() {
     # Test for the style plugin Qt actually loads. /usr/share/Kvantum proves
     # nothing: GTK themes such as celestial-gtk-theme ship Kvantum *themes*
     # there without Kvantum itself being installed.
-    if [[ $QT_STYLE == kvantum ]] \
-        && ! find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+    if [[ $QT_STYLE == kvantum ]] && ! kvantum_style_plugin_installed; then
         note "Qt style is 'kvantum' but the Kvantum style plugin is missing; Qt falls back to Fusion"
+    fi
+    # qt5ct/qt6ct.conf is read by the qtXct *platform theme* and nothing else, so
+    # under any other one the style we just wrote is inert. Verified with qtdiag:
+    # PLATFORMTHEME=gtk3 reports "Styles requested: Fusion,windows".
+    #
+    # Only the style is reported. The palette is not lost under gtk3 — Qt apps
+    # follow the GTK theme, which does carry the Matugen colours — so claiming it
+    # never arrives would be false. With no platform theme at all, nothing does.
+    local effective
+    effective=$(effective_platform_theme)
+    if [[ $QT_STYLE != preserve ]]; then
+        case "$effective" in
+            qt5ct|qt6ct) ;;
+            gtk3) note "Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style '$QT_STYLE' in qt5ct/qt6ct.conf is ignored" ;;
+            "") note "no Qt platform theme is set: Qt ignores qt5ct/qt6ct.conf, so style '$QT_STYLE' and the DMS palette do not reach Qt apps" ;;
+            *)  note "Qt platform theme is '$effective', which does not read qt5ct/qt6ct.conf: style '$QT_STYLE' is ignored" ;;
+        esac
+    fi
+    # DMS exports its Qt palette as a KColorScheme (.colors) file, and stock
+    # qt6ct cannot parse that format: loadColorScheme() expects its own
+    # [ColorScheme] arrays, finds none, and keeps the default palette without
+    # a word (verified against qt6ct 0.11). Only qt6ct-kde — the same qt6ct
+    # built against KF6::ColorScheme — reads it. Under the kvantum style the
+    # palette comes from the Kvantum theme instead, so only this case is broken.
+    if [[ $APPLY_MATUGEN_COLORS == true && $QT_STYLE != kvantum && $effective == qt6ct ]] \
+        && [[ -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]] \
+        && ! qt6ct_kde_installed; then
+        note "stock qt6ct cannot parse DankMatugen.colors (KColorScheme format): Qt apps keep their default palette — install qt6ct-kde (drop-in replacement) or switch the widget style to kvantum"
+    fi
+    # An explicitly requested route that this machine cannot serve is a
+    # different failure from a knob combination: name the missing piece.
+    if [[ $QT_SYNC_ROUTE == kcolorscheme ]] && ! qt6ct_kde_installed; then
+        note "the kcolorscheme route needs qt6ct-kde, which is not installed"
+    fi
+    if [[ $KVANTUM_PAIR_THEME != "" ]] && ! kvantum_style_plugin_installed; then
+        note "a Kvantum theme pair was selected but the Kvantum style plugin is missing; Qt falls back to Fusion"
+    fi
+    # GTK follows what DMS *exported* (dank-colors.css); Qt and Kvantum follow
+    # the *live* theme the daemon reads. DMS does not regenerate the export for
+    # custom/downloaded themes, so the two can diverge — the bar shows the new
+    # palette while GTK apps keep the old one. Compare the accents and say so.
+    local kv_primary css_accent
+    kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
+    css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css" 2>/dev/null | grep -oE '#[0-9a-fA-F]{6}')
+    if [[ -n $kv_primary && -n $css_accent && ${kv_primary,,} != "${css_accent,,}" ]]; then
+        note "DMS's exported GTK palette ($css_accent) is not the live theme ($kv_primary): GTK apps follow the stale export"
     fi
     return 0
 }
@@ -1158,4 +1502,4 @@ if ! $DRY_RUN; then
         || log "reconcile: $RECONCILE_ISSUES issue(s) above"
 fi
 
-log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS"
+log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS"

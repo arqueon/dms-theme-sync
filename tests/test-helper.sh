@@ -45,8 +45,8 @@ assert_line "$XDG_CONFIG_HOME/gtk-4.0/settings.ini" "gtk-cursor-theme-size=32"
 assert_line "$XDG_CONFIG_HOME/gtk-3.0/gtk.css" '@import url("dank-colors.css");'
 assert_line "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" '@import url("dank-colors.css");'
 assert_line "$HOME/.gtkrc-2.0" 'gtk-theme-name="Matcha-light-sea"'
-assert_line "$XDG_CONFIG_HOME/qt5ct/qt5ct.conf" 'general="Archivo,11,-1,5,400,0,0,0,0,0"'
-assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 'fixed="Cascadia Mono,12,-1,5,400,0,0,0,0,0"'
+assert_line "$XDG_CONFIG_HOME/qt5ct/qt5ct.conf" 'general="Archivo,11,-1,5,50,0,0,0,0,0"'
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 'fixed="Cascadia Mono,12,-1,5,50,0,0,0,0,0"'
 assert_line "$XDG_CONFIG_HOME/kdeglobals" 'Theme=Papirus-Dark'
 assert_line "$XDG_CONFIG_HOME/kcminputrc" 'cursorSize=32'
 assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME=qt5ct'
@@ -85,7 +85,38 @@ grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
     printf 'Restore did not remove a file that was absent in the snapshot\n' >&2
     exit 1
 }
-"$ROOT/scripts/theme-snapshot.sh" list | grep -Fqx "$snapshot"
+# list prints "id<TAB>name"; the name column is empty when unnamed.
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$snapshot"
+
+# --- Named snapshots are pinned: retention neither counts nor deletes them ----
+snap_named=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 2 --no-runtime --name "keep me" )
+snap_named=${snap_named#BACKUP_CREATED:}
+for _ in 1 2 3; do
+    sleep 1.1
+    "$ROOT/scripts/theme-snapshot.sh" backup --retention 2 --no-runtime >/dev/null
+done
+"$ROOT/scripts/theme-snapshot.sh" list | grep -Fq "$snap_named	keep me" \
+    || { printf 'Named snapshot was rotated away by retention\n' >&2; exit 1; }
+[[ $("$ROOT/scripts/theme-snapshot.sh" list | awk -F'\t' '$2==""' | wc -l) -eq 2 ]] \
+    || { printf 'Unnamed snapshots did not rotate to the retention limit\n' >&2; exit 1; }
+
+# Pinning an existing snapshot exempts it; unpinning returns it to the rotation.
+oldest_unnamed=$("$ROOT/scripts/theme-snapshot.sh" list | awk -F'\t' '$2==""' | tail -1 | cut -f1)
+"$ROOT/scripts/theme-snapshot.sh" name --snapshot "$oldest_unnamed" --name "pinned later" >/dev/null
+sleep 1.1
+"$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-runtime >/dev/null
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$oldest_unnamed" \
+    || { printf 'Snapshot pinned after creation was still rotated away\n' >&2; exit 1; }
+"$ROOT/scripts/theme-snapshot.sh" name --snapshot "$oldest_unnamed" --name "" >/dev/null
+sleep 1.1
+"$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-runtime >/dev/null
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -Fqx "$oldest_unnamed" \
+    && { printf 'Unpinned snapshot survived the rotation\n' >&2; exit 1; }
+
+# A stray directory in the backup root must neither be listed nor eat slots.
+mkdir -p "$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/stray-dir"
+"$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -q '^stray-dir$' \
+    && { printf 'Non-snapshot directory listed as a snapshot\n' >&2; exit 1; }
 
 # --- Niri: top-level include in config.kdl, migration from environment.kdl ---
 NIRI_DIR="$XDG_CONFIG_HOME/niri"
@@ -186,6 +217,115 @@ rm -rf "$TERMINAL_DIR"
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$term_snapshot" --no-runtime >/dev/null
 assert_line "$TERMINAL_DIR/kitty.conf" "font_family Cascadia Mono"
 
+# --- GTK <-> Qt routes: detection, pairing, and the vanilla-qt6ct diagnostic ---
+
+# Controlled detection environments. The qt6ct discriminator is the
+# libKF6ColorScheme NEEDED string in libqt6ct-common: only the -kde build
+# carries it, so a file with (or without) that string is a faithful stand-in.
+KVLIB="$TMP/kvlib"; mkdir -p "$KVLIB"; : > "$KVLIB/libkvantum-fake.so"
+NOKVLIB="$TMP/nokvlib"; mkdir -p "$NOKVLIB"
+QT6KDE="$TMP/qt6kde"; mkdir -p "$QT6KDE"
+printf 'libKF6ColorScheme.so.6' > "$QT6KDE/libqt6ct-common.so.0.11"
+QT6VAN="$TMP/qt6van"; mkdir -p "$QT6VAN"
+printf 'no kde here' > "$QT6VAN/libqt6ct-common.so.0.11"
+
+# A same-author pair: WhiteSur GTK (both modes) and WhiteSur Kvantum halves.
+mkdir -p "$XDG_DATA_HOME/themes/WhiteSur-Dark" "$XDG_DATA_HOME/themes/WhiteSur" \
+    "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark" "$XDG_CONFIG_HOME/Kvantum/WhiteSur"
+: > "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark/WhiteSurDark.kvconfig"
+: > "$XDG_CONFIG_HOME/Kvantum/WhiteSur/WhiteSur.kvconfig"
+
+# --compositor sway: the Niri block above created ~/.config/niri, and without
+# an explicit compositor the helper would sniff the real session (niri) and
+# route the env vars into the KDL include instead of environment.d.
+run_route() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --gtk-theme-light auto --gtk-theme-dark auto \
+        --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd true --no-runtime \
+        --compositor sway "$@"
+}
+
+# auto + Kvantum + pair installed: qtct platform, kvantum style, pair selected
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark WhiteSur-Dark --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=WhiteSurDark"
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=kvantum"
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=qt5ct"
+
+# light mode picks the light half of the same pair
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode light --gtk-theme-light WhiteSur --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=WhiteSur"
+
+# auto without Kvantum but with qt6ct-kde: the KColorScheme route (qtct + Fusion)
+DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=Fusion"
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=qt5ct"
+
+# auto with neither: Qt follows GTK
+DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=gtk3"
+
+# explicit pair mode with no matching Kvantum theme: falls back to the
+# DankMatugen render, and says so
+kv_roles="primary=#112233;on_surface=#e0e0e0;surface=#101010;surface_variant=#202020"
+kv_roles+=";surface_container_low=#151515;surface_container_highest=#252525"
+kv_roles+=";surface_bright=#303030;surface_dim=#0a0a0a;inverse_on_surface=#101010"
+kv_roles+=";inverse_primary=#334455;primary_fixed_dim=#223344;tertiary_fixed_dim=#445566"
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark Matcha-dark-sea --qt-sync-mode pair \
+    --sync-kvantum true --kvantum-colors "$kv_roles")
+grep -q 'no Kvantum theme pairs' <<<"$route_out" \
+    || { printf 'Pair fallback not reported:\n%s\n' "$route_out" >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=DankMatugen"
+
+# stock qt6ct + .colors palette + non-kvantum style: the silent no-op is named
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark auto --qt-platform-theme qtct --qt-style Fusion)
+grep -q 'install qt6ct-kde' <<<"$route_out" \
+    || { printf 'Vanilla qt6ct diagnostic missing:\n%s\n' "$route_out" >&2; exit 1; }
+
+# with qt6ct-kde present the same run stays quiet about it
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark auto --qt-platform-theme qtct --qt-style Fusion)
+grep -q 'cannot parse DankMatugen.colors' <<<"$route_out" \
+    && { printf 'Diagnostic fired with qt6ct-kde installed\n' >&2; exit 1; }
+
+# --probe-qt answers without touching anything
+probe_before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
+probe_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark WhiteSur-Dark --qt-sync-mode auto --probe-qt)
+probe_after=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
+[[ $probe_before == "$probe_after" ]] || { printf 'Probe wrote to disk\n' >&2; exit 1; }
+grep -Fxq 'qt6ct=kde' <<<"$probe_out" || { printf 'Probe qt6ct wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+grep -Fxq 'kvantum=yes' <<<"$probe_out" || { printf 'Probe kvantum wrong\n' >&2; exit 1; }
+grep -Fxq 'pair=WhiteSurDark' <<<"$probe_out" || { printf 'Probe pair wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+grep -Fxq 'route=pair' <<<"$probe_out" || { printf 'Probe route wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+
+# Catppuccin: the accent token refines the pick within the mode's flavour
+mkdir -p "$XDG_DATA_HOME/themes/Catppuccin-Flamingo-Dark" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-mocha-blue" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-mocha-flamingo" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-latte-flamingo"
+for t in catppuccin-mocha-blue catppuccin-mocha-flamingo catppuccin-latte-flamingo; do
+    : > "$XDG_CONFIG_HOME/Kvantum/$t/$t.kvconfig"
+done
+probe_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark Catppuccin-Flamingo-Dark --qt-sync-mode auto --probe-qt)
+grep -Fxq 'pair=catppuccin-mocha-flamingo' <<<"$probe_out" \
+    || { printf 'Catppuccin accent pairing wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+
+# The blocks below assume a pristine Kvantum state (their first assertion is
+# that nothing has been rendered), so drop everything this block created.
+rm -rf "$XDG_CONFIG_HOME/Kvantum"
+
 # --- Folder accent overlay: off by default, built only when opted in ---------
 # Needs a real Papirus install to read folder colours from; skip where absent.
 PAPIRUS=""
@@ -243,6 +383,69 @@ if [[ -n $PAPIRUS ]]; then
     run_folder --sync-folder-color false
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
+
+    # --- Catppuccin: match the theme exactly, not approximately ---------------
+    #
+    # papirus-folders-catppuccin ships 4 flavours x 14 accents. When the GTK
+    # theme is a Catppuccin the folders can come from the same palette, so the
+    # flavour follows the colour mode and only the accent is matched by hue.
+    if [[ -e $PAPIRUS/64x64/places/folder-cat-mocha-blue.svg ]]; then
+        mkdir -p "$XDG_DATA_HOME/themes/Catppuccin-Yellow-Dark" \
+                 "$XDG_DATA_HOME/themes/Catppuccin-Yellow-Light"
+
+        cat_folder() { # $1=accent $2=mode $3=gtk theme -> folder-*.svg target
+            printf '@define-color accent_bg_color %s;\n' "$1" \
+                > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+            rm -rf "$OVERLAY"
+            "$ROOT/scripts/apply-theme.sh" --compositor generic --mode "$2" \
+                --gtk-theme-dark "$3" --gtk-theme-light "$3" \
+                --icon-theme Papirus-Dark --sync-folder-color true \
+                --folder-base-theme Papirus-Dark --sync-kde false \
+                --sync-xsettingsd false --backup-enabled false --no-runtime >/dev/null 2>&1
+            basename "$(readlink "$OVERLAY/64x64/places/folder.svg")"
+        }
+
+        [[ $(cat_folder '#b6c4ff' dark Catppuccin-Yellow-Dark) == folder-cat-mocha-lavender.svg ]] \
+            || { printf 'Catppuccin GTK theme did not map the accent to a mocha folder\n' >&2; exit 1; }
+        [[ $(cat_folder '#b6c4ff' light Catppuccin-Yellow-Light) == folder-cat-latte-lavender.svg ]] \
+            || { printf 'Light mode did not map the accent to a latte folder\n' >&2; exit 1; }
+
+        # Catppuccin draws the paper inside the folder in the flavour's `text`
+        # colour — a lavender at chroma ~16 — while rosewater sits at chroma 8.
+        # Pick "most saturated fill" and folder-cat-mocha-rosewater reads as a
+        # lavender, so a lavender accent would land on the pink folders.
+        [[ $(cat_folder '#f2cdcd' dark Catppuccin-Yellow-Dark) == folder-cat-mocha-flamingo.svg ]] \
+            || { printf 'Pastel accent did not map to its own folder (paper colour won)\n' >&2; exit 1; }
+
+        # A non-Catppuccin GTK theme keeps the plain Papirus palette.
+        [[ $(cat_folder '#e25252' dark Adwaita) == folder-red.svg ]] \
+            || { printf 'Non-Catppuccin theme did not use the plain folder palette\n' >&2; exit 1; }
+
+        # papirus-folders-catppuccin is an optional dependency: a Catppuccin GTK
+        # theme on a machine that only has plain Papirus must fall back to the
+        # nearest plain colour, not fail and not skip the overlay.
+        NOCAT="$XDG_DATA_HOME/icons/Papirus-NoCat"
+        mkdir -p "$NOCAT/64x64/places"
+        cp -a "$PAPIRUS/64x64/places/." "$NOCAT/64x64/places/"
+        rm -f "$NOCAT/64x64/places/"folder-cat-*
+        cp "$PAPIRUS/index.theme" "$NOCAT/index.theme"
+        printf '@define-color accent_bg_color #b6c4ff;\n' \
+            > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+        "$ROOT/scripts/apply-theme.sh" --compositor generic --mode dark \
+            --gtk-theme-dark Catppuccin-Yellow-Dark --icon-theme Papirus-Dark \
+            --sync-folder-color true --folder-base-theme Papirus-NoCat \
+            --sync-kde false --sync-xsettingsd false --backup-enabled false \
+            --no-runtime >/dev/null 2>&1
+        [[ $(basename "$(readlink "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders/64x64/places/folder.svg")") == folder-indigo.svg ]] \
+            || { printf 'Catppuccin theme without the cat-* folders did not fall back to a plain colour\n' >&2; exit 1; }
+        rm -rf "$NOCAT" "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders"
+
+        rm -rf "$OVERLAY"
+        printf '@define-color accent_bg_color #e25252;\n' \
+            > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+    else
+        printf 'catppuccin folders: skipped (papirus-folders-catppuccin not installed)\n'
+    fi
 else
     printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
 fi
@@ -348,5 +551,163 @@ PY
 else
     printf 'kvantum: skipped (style plugin not installed)\n'
 fi
+
+# --- Qt platform theme: any plugin name Qt can load, and the style-is-inert note -
+#
+# qt5ct/qt6ct.conf is read by the qtXct platform theme and nobody else. Under
+# gtk3 or kde the style we write is inert, and saying so is the whole point of
+# the reconcile pass. Verified against qtdiag: PLATFORMTHEME=gtk3 reports
+# "Styles requested: Fusion,windows".
+# The compositor is forced generic: under Niri the KDL include replaces
+# environment.d and deletes it, which is a different code path. Unsetting
+# NIRI_SOCKET is not enough — detect_compositor also sniffs XDG_CURRENT_DESKTOP.
+qt_note() { # $1=platform theme  $2=style  -> reconcile lines only
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --font Archivo --mono-font "Cascadia Mono" \
+        --icon-theme Papirus-Dark --cursor-theme Breeze \
+        --mode dark --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --no-runtime \
+        --qt-platform-theme "$1" --qt-style "$2" 2>&1 | grep '^reconcile:' || true
+}
+
+grep -q "style 'kvantum' in qt5ct/qt6ct.conf is ignored" <<<"$(qt_note gtk3 kvantum)" \
+    || { printf 'No note that gtk3 ignores the Qt style\n' >&2; exit 1; }
+grep -q "does not read qt5ct/qt6ct.conf" <<<"$(qt_note kde Breeze)" \
+    || { printf 'No note that kde ignores the Qt style\n' >&2; exit 1; }
+grep -q "no Qt platform theme is set" <<<"$(qt_note preserve kvantum)" \
+    || { printf 'No note when nothing reads qt5ct/qt6ct.conf\n' >&2; exit 1; }
+# qtct is the one combination where the style does arrive: stay quiet.
+grep -q 'qt5ct/qt6ct.conf' <<<"$(qt_note qtct kvantum)" \
+    && { printf 'Spurious note under the qtct platform theme\n' >&2; exit 1; }
+# A style of "preserve" means we wrote none, so there is nothing to warn about.
+grep -q 'is ignored' <<<"$(qt_note gtk3 preserve)" \
+    && { printf 'Note about an ignored style when no style was written\n' >&2; exit 1; }
+
+# Platform themes beyond gtk3/qtct used to fall through a closed case and be
+# dropped without a word. They must reach environment.d verbatim.
+rm -f "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+qt_note xdgdesktopportal Fusion >/dev/null
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME=xdgdesktopportal'
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME_QT6=xdgdesktopportal'
+
+# ...but the value lands in environment.d and in niri/Hyprland config, so a name
+# that could break out of those files is rejected outright.
+if "$ROOT/scripts/apply-theme.sh" --qt-platform-theme 'a b"c' --no-runtime >/dev/null 2>&1; then
+    printf 'Accepted a Qt platform theme name with shell/KDL metacharacters\n' >&2
+    exit 1
+fi
+
+# --- "auto": Kvantum when the machine has it, follow GTK when it does not -------
+#
+# Kvantum needs the qtXct platform theme to be read at all, so the two settings
+# resolve together. DMS_THEME_SYNC_LIB_DIRS fakes both worlds regardless of what
+# this machine has installed.
+FAKE_KV="$TMP/with-kvantum"
+NO_KV="$TMP/without-kvantum"
+mkdir -p "$FAKE_KV" "$NO_KV"
+: > "$FAKE_KV/libkvantum.so"
+
+auto_env() { # $1=lib dirs -> "platformtheme|style"
+    local envfile="$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+    rm -f "$envfile" "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 DMS_THEME_SYNC_LIB_DIRS="$1" \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --qt-platform-theme auto --qt-style auto \
+        --sync-kvantum true --kvantum-colors "$KV_COLORS" \
+        --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --no-runtime >/dev/null 2>&1
+    printf '%s|%s' \
+        "$(sed -n 's/^QT_QPA_PLATFORMTHEME=//p' "$envfile" 2>/dev/null)" \
+        "$(sed -n 's/^style=//p' "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 2>/dev/null)"
+}
+
+[[ $(auto_env "$FAKE_KV") == 'qt5ct|kvantum' ]] \
+    || { printf 'auto did not pick qtct+kvantum where Kvantum is installed\n' >&2; exit 1; }
+[[ -d $XDG_CONFIG_HOME/Kvantum/DankMatugen ]] \
+    || { printf 'auto picked kvantum but rendered no theme\n' >&2; exit 1; }
+rm -rf "$XDG_CONFIG_HOME/Kvantum"
+
+# No Kvantum: fall back to gtk3 and write no style at all, since under gtk3 a
+# style in qt6ct.conf would never be read.
+[[ $(auto_env "$NO_KV") == 'gtk3|' ]] \
+    || { printf 'auto did not fall back to gtk3 with no style when Kvantum is absent\n' >&2; exit 1; }
+[[ ! -d $XDG_CONFIG_HOME/Kvantum/DankMatugen ]] \
+    || { printf 'Kvantum theme rendered without the style plugin installed\n' >&2; exit 1; }
+
+# An explicit platform theme still wins over auto's preference: the style resolves
+# against it, so under gtk3 "auto" writes nothing rather than something inert.
+rm -f "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 DMS_THEME_SYNC_LIB_DIRS="$FAKE_KV" \
+    "$ROOT/scripts/apply-theme.sh" --compositor generic --qt-platform-theme gtk3 --qt-style auto \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime >/dev/null 2>&1
+grep -q '^style=' "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 2>/dev/null \
+    && { printf 'auto wrote a Qt style under gtk3, where it is ignored\n' >&2; exit 1; }
+
+# --- Niri: the platform theme reaches the KDL include, whatever its name -------
+#
+# write_niri_env_include used to re-derive the value from a closed gtk3|qtct case
+# of its own, silently dropping anything else even after the rest of the script
+# learned to carry it.
+env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
+    "$ROOT/scripts/apply-theme.sh" --compositor niri --qt-platform-theme xdgdesktopportal \
+    --qt-style preserve --sync-kde false --sync-xsettingsd false \
+    --backup-enabled false --no-runtime >/dev/null 2>&1
+grep -Fq 'QT_QPA_PLATFORMTHEME "xdgdesktopportal"' "$NIRI_DIR/dms-theme-sync.kdl" \
+    || { printf 'Niri include dropped a platform theme outside gtk3/qtct\n' >&2; exit 1; }
+
+# --- GTK export drift: reconcile says when dank-colors.css is not the live theme
+#
+# GTK follows what DMS exported; Qt/Kvantum follow the live theme. DMS skips the
+# export for custom/downloaded themes, so a registry theme can leave GTK painting
+# the previous palette. The daemon re-exports, and reconcile is the safety net.
+printf '@define-color accent_bg_color #c7b3f3;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+drift_out=$(env -u NIRI_SOCKET "$ROOT/scripts/apply-theme.sh" --compositor generic \
+    --qt-platform-theme qtct --qt-style preserve --sync-kvantum false \
+    --kvantum-colors "primary=#ac3232;on_surface=#e6d4d8" \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime 2>&1)
+grep -q "is not the live theme" <<<"$drift_out" \
+    || { printf 'No drift note when the GTK export disagrees with the live theme\n' >&2; exit 1; }
+printf '@define-color accent_bg_color #AC3232;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+drift_out=$(env -u NIRI_SOCKET "$ROOT/scripts/apply-theme.sh" --compositor generic \
+    --qt-platform-theme qtct --qt-style preserve --sync-kvantum false \
+    --kvantum-colors "primary=#ac3232;on_surface=#e6d4d8" \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime 2>&1)
+grep -q "is not the live theme" <<<"$drift_out" \
+    && { printf 'Drift note fired although the accents match (case)\n' >&2; exit 1; }
+printf '/* Generated with Matugen */\n@define-color accent_color #123456;\n' \
+    > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+
+# --- Live session env: the same resolved values as the persistent writers ------
+#
+# The systemctl block used to re-derive the platform theme from a closed
+# gtk3|qtct case, so any other name reached the niri include and environment.d
+# but not the live session. Runtime commands are stubbed (pkill included — a
+# real one would kill the user's xsettingsd) and systemctl captures its args.
+STUBS="$TMP/stubs"
+mkdir -p "$STUBS"
+for cmd in gsettings fc-cache fc-match xsettingsd niri pkill pgrep dconf; do
+    printf '#!/bin/sh\nexit 0\n' > "$STUBS/$cmd"; chmod +x "$STUBS/$cmd"
+done
+printf '#!/bin/sh\necho "$@" >> "%s/systemctl.log"\nexit 0\n' "$TMP" > "$STUBS/systemctl"
+chmod +x "$STUBS/systemctl"
+
+live_env() { # $1=platform theme -> captured systemctl args
+    rm -f "$TMP/systemctl.log"
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 PATH="$STUBS:$PATH" \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --qt-platform-theme "$1" --qt-style preserve \
+        --sync-kde false --sync-xsettingsd false --backup-enabled false >/dev/null 2>&1
+    cat "$TMP/systemctl.log" 2>/dev/null
+}
+
+grep -q 'QT_QPA_PLATFORMTHEME=xdgdesktopportal' <<<"$(live_env xdgdesktopportal)" \
+    || { printf 'Live session env did not receive a platform theme outside gtk3/qtct\n' >&2; exit 1; }
+grep -q 'QT_QPA_PLATFORMTHEME=qt5ct' <<<"$(live_env qtct)" \
+    || { printf 'Live session env did not receive qt5ct under qtct\n' >&2; exit 1; }
+# preserve means hands off: no QT variable set (and none unset — a value the
+# user exported themselves must survive).
+grep -q 'QT_QPA_PLATFORMTHEME' <<<"$(live_env preserve)" \
+    && { printf 'Live session env was touched under preserve\n' >&2; exit 1; }
 
 printf 'helper tests: ok\n'

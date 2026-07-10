@@ -13,23 +13,29 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    // Qt platform themes and widget styles, as reported by Qt itself. These used
+    // to be hardcoded lists, which offered names this machine may not have and
+    // hid the ones it does. The defaults below are the two synthetic entries plus
+    // what Qt always builds in, so the dropdowns are usable if qtdiag is absent.
+    property var availableQtPlatformThemes: ["preserve", "qtct"]
+    property var availableQtStyles: ["preserve", "Fusion", "Windows"]
     // Only Papirus ships the folder colour variants the accent sync needs. Once
     // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
     // base theme rather than the applied one.
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
-
-    // Visible section divider. The file used to mark its sections with `// ---`
-    // comments, which organise the source and nothing else: in the UI the ~30
-    // controls ran together as one flat list.
-    component SectionHeader: StyledText {
-        width: parent ? parent.width : 0
-        font.pixelSize: Theme.fontSizeMedium
-        font.weight: Font.Bold
-        color: Theme.primary
-    }
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
+    // What the --probe-qt run found on this machine; drives the route
+    // descriptions so the user picks between things that actually exist here.
+    property string probeQt6ct: ""
+    property string probeKvantum: ""
+    property string probeGtk: ""
+    property string probePair: ""
+    property string qtSyncModeValue: "manual"
+    property string qtPlatformThemeValue: "preserve"
+    property string qtStyleValue: "Fusion"
     property var snapshots: []
-
+    property var snapshotNames: ({
+    })
     // Plugin-owned values. Loaded from / saved to plugin data directly so the
     // controls reflect the stored choice even before option lists finish loading.
     property string gtkThemeLightValue: "auto"
@@ -40,7 +46,6 @@ PluginSettings {
     property int monoFontSizeValue: 12
     property int documentFontSizeValue: 11
     property int backupRetentionValue: 10
-
     // DMS color themes, mirrored from the live DMS API. These act on DMS directly,
     // exactly like the DMS Settings "Theme" tab.
     readonly property var dmsThemeOptions: {
@@ -61,6 +66,79 @@ PluginSettings {
     readonly property var dmsThemeLabels: dmsThemeOptions.map(function(o) {
         return o.label;
     })
+    readonly property var qtSyncModeOptions: [{
+        "label": "Manual — use the Qt applications options below",
+        "value": "manual"
+    }, {
+        "label": "Automatic — best available route",
+        "value": "auto"
+    }, {
+        "label": "Kvantum theme paired with the GTK theme",
+        "value": "pair"
+    }, {
+        "label": "Kvantum rendered from the DMS palette",
+        "value": "kvantum"
+    }, {
+        "label": "DMS palette via qt6ct-kde (KColorScheme)",
+        "value": "kcolorscheme"
+    }, {
+        "label": "Follow the GTK theme (gtk3)",
+        "value": "gtk3"
+    }]
+    readonly property var qtPlatformThemeOptions: availableQtPlatformThemes.map(function(name) {
+        if (name === "auto")
+            return {
+            "label": "Auto (Kvantum if installed, else follow GTK)",
+            "value": "auto"
+        };
+
+        if (name === "preserve")
+            return {
+            "label": "Leave to my environment (recommended)",
+            "value": "preserve"
+        };
+
+        if (name === "qtct")
+            return {
+            "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
+            "value": "qtct"
+        };
+
+        if (name === "gtk3")
+            return {
+            "label": "Plugin sets Follow GTK (gtk3)",
+            "value": "gtk3"
+        };
+
+        if (name === "xdgdesktopportal")
+            return {
+            "label": "Portal only: dark/light + accent, no style (xdgdesktopportal)",
+            "value": "xdgdesktopportal"
+        };
+
+        return {
+            "label": name,
+            "value": name
+        };
+    })
+    readonly property var qtStyleOptions: availableQtStyles.map(function(name) {
+        if (name === "auto")
+            return {
+            "label": "Auto (Kvantum if installed and readable)",
+            "value": "auto"
+        };
+
+        if (name === "preserve")
+            return {
+            "label": "Preserve current style",
+            "value": "preserve"
+        };
+
+        return {
+            "label": name,
+            "value": name
+        };
+    })
     readonly property var matugenSchemeOptions: (typeof Theme !== "undefined" && Theme.availableMatugenSchemes) ? Theme.availableMatugenSchemes : []
     readonly property var matugenSchemeLabels: matugenSchemeOptions.map(function(o) {
         return o.label;
@@ -73,6 +151,7 @@ PluginSettings {
         for (let i = 0; i < options.length; i++) {
             if (options[i].value === value)
                 return options[i].label;
+
         }
         return value;
     }
@@ -81,21 +160,53 @@ PluginSettings {
         for (let i = 0; i < options.length; i++) {
             if (options[i].label === label)
                 return options[i].value;
+
         }
         return label;
     }
 
+    function applyHelper() {
+        return Paths.strip(Qt.resolvedUrl("scripts/apply-theme.sh").toString());
+    }
+
+    // --probe-qt output is "key=value" lines; unknown keys are ignored so the
+    // helper can grow the probe without breaking older UIs.
+    function parseQtProbe(text) {
+        const lines = (text || "").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+            const idx = lines[i].indexOf("=");
+            if (idx < 1)
+                continue;
+
+            const key = lines[i].slice(0, idx).trim();
+            const value = lines[i].slice(idx + 1).trim();
+            if (key === "qt6ct")
+                probeQt6ct = value;
+            else if (key === "kvantum")
+                probeKvantum = value;
+            else if (key === "gtk")
+                probeGtk = value;
+            else if (key === "pair")
+                probePair = value;
+        }
+    }
+
+    function snapshotHelper() {
+        return Paths.strip(Qt.resolvedUrl("scripts/theme-snapshot.sh").toString());
+    }
+
     function formatSnapshot(id) {
         const m = (id || "").match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
-        if (!m)
-            return id;
-        return m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6];
+        const date = m ? m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6] : id;
+        const name = snapshotNames[id];
+        return name ? "📌 " + name + " — " + date : date;
     }
 
     function snapshotForLabel(label) {
         for (let i = 0; i < snapshots.length; i++) {
             if (root.formatSnapshot(snapshots[i]) === label)
                 return snapshots[i];
+
         }
         return "";
     }
@@ -103,6 +214,9 @@ PluginSettings {
     function reloadPluginValues() {
         gtkThemeLightValue = String(root.loadValue("gtkThemeLight", "auto") || "auto");
         gtkThemeDarkValue = String(root.loadValue("gtkThemeDark", "auto") || "auto");
+        qtSyncModeValue = String(root.loadValue("qtSyncMode", "manual") || "manual");
+        qtPlatformThemeValue = String(root.loadValue("qtPlatformTheme", "preserve") || "preserve");
+        qtStyleValue = String(root.loadValue("qtStyle", "Fusion") || "Fusion");
         documentFontValue = String(root.loadValue("documentFontFamily", "") || "");
         regularFontSizeValue = Number(root.loadValue("regularFontSize", 11)) || 11;
         monoFontSizeValue = Number(root.loadValue("monoFontSize", 12)) || 12;
@@ -146,17 +260,81 @@ PluginSettings {
         installedGtkThemes = options;
     }
 
+    // Not every key Qt reports is a choice worth offering. qt5ct/qt6ct collapse
+    // into the single "qtct" entry (the plugin writes a different name per Qt
+    // version; picking one alone leaves the other toolkit unthemed). snap and
+    // flatpak are libqxdgdesktopportal registering the same plugin under names
+    // meant for apps inside those sandboxes — three entries, one plugin. And kde
+    // (plasma-integration) expects a running Plasma session, which a DMS desktop
+    // by definition is not; anyone exporting it by hand still gets the reconcile
+    // note, but the dropdown does not offer a switch that is never right here.
+    function parseQtPlatformThemes(text) {
+        const options = ["auto", "preserve", "qtct"];
+        const seen = ({
+            "auto": true,
+            "preserve": true,
+            "qtct": true,
+            "qt5ct": true,
+            "qt6ct": true,
+            "snap": true,
+            "flatpak": true,
+            "kde": true
+        });
+        const names = (text || "").split("\n");
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i].trim();
+            if (name && !seen[name]) {
+                options.push(name);
+                seen[name] = true;
+            }
+        }
+        return options;
+    }
+
+    // qt5ct-style/qt6ct-style are proxy styles: they read the very config file
+    // we are writing, so offering them as the style would be circular.
+    function parseQtStyles(text) {
+        const options = ["auto", "preserve"];
+        const seen = ({
+            "auto": true,
+            "preserve": true,
+            "qt5ct-style": true,
+            "qt6ct-style": true
+        });
+        const names = (text || "").split("\n");
+        for (let i = 0; i < names.length; i++) {
+            const name = names[i].trim();
+            if (name && !seen[name]) {
+                options.push(name);
+                seen[name] = true;
+            }
+        }
+        return options.length > 2 ? options : ["auto", "preserve", "Fusion", "Windows"];
+    }
+
+    // list prints "id<TAB>name"; the name column is empty for unnamed snapshots.
+    // A named snapshot is pinned — retention neither counts nor deletes it.
     function parseSnapshots(text) {
         const list = [];
+        const names = ({
+        });
         const lines = (text || "").split("\n");
         for (let i = 0; i < lines.length; i++) {
-            const id = lines[i].trim();
-            if (id)
-                list.push(id);
+            const parts = lines[i].split("\t");
+            const id = (parts[0] || "").trim();
+            if (!id)
+                continue;
+
+            list.push(id);
+            if (parts.length > 1 && parts[1].trim())
+                names[id] = parts[1].trim();
+
         }
         snapshots = list;
+        snapshotNames = names;
         if (list.length > 0 && list.indexOf(selectedSnapshot) === -1)
             selectedSnapshot = list[0];
+
     }
 
     function refreshSnapshots() {
@@ -170,13 +348,14 @@ PluginSettings {
     Component.onCompleted: reloadPluginValues()
 
     Connections {
-        target: root.pluginService
-        ignoreUnknownSignals: true
-
         function onPluginDataChanged(changedPluginId) {
             if (changedPluginId === root.pluginId)
                 root.reloadPluginValues();
+
         }
+
+        target: root.pluginService
+        ignoreUnknownSignals: true
     }
 
     Process {
@@ -239,11 +418,59 @@ PluginSettings {
 
     }
 
+    // Ask Qt what it can load rather than guessing. `qtdiag` prints two
+    // "available" lines — platform themes under "Platforms requested", styles
+    // under "Styles requested" — so both greps are anchored to their section.
+    // Offscreen keeps it from needing a display. If qtdiag is absent (qt6-tools
+    // not installed) the collector gets nothing and the defaults stand.
+    Process {
+        id: qtPlatformThemesProcess
+
+        running: true
+        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Platforms requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.availableQtPlatformThemes = root.parseQtPlatformThemes(text)
+        }
+
+    }
+
+    Process {
+        id: qtStylesProcess
+
+        running: true
+        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Styles requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.availableQtStyles = root.parseQtStyles(text)
+        }
+
+    }
+
+    // Ask the helper, not a re-implementation: --probe-qt answers with the same
+    // detection functions the apply run will use (qt6ct flavour, Kvantum
+    // presence, the Kvantum pair for the current GTK theme), so what this UI
+    // promises and what the helper does cannot drift apart.
+    Process {
+        id: qtProbeProcess
+
+        running: true
+        command: ["bash", root.applyHelper(), "--probe-qt", "--mode", (typeof Theme !== "undefined" && Theme.isLightMode) ? "light" : "dark", "--gtk-theme-light", root.gtkThemeLightValue || "auto", "--gtk-theme-dark", root.gtkThemeDarkValue || "auto"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.parseQtProbe(text)
+        }
+
+    }
+
+    // The helper's `list`, not a private find: only the helper prints the
+    // id<TAB>name pairs the pinned markers come from, and only it knows to
+    // ignore directories that are not snapshots.
     Process {
         id: snapshotListProcess
 
         running: true
-        command: ["sh", "-c", "find \"${XDG_STATE_HOME:-$HOME/.local/state}/DankMaterialShell/plugins/dmsThemeSync/backups\" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\\n' 2>/dev/null | LC_ALL=C sort -r"]
+        command: ["bash", root.snapshotHelper(), "list"]
 
         stdout: StdioCollector {
             onStreamFinished: root.parseSnapshots(text)
@@ -710,35 +937,169 @@ PluginSettings {
     }
 
     SectionHeader {
+        text: "GTK ↔ Qt synchronization"
+    }
+
+    StyledText {
+        width: parent.width
+        // The probe fills in after a moment; until then say nothing rather than
+        // something wrong.
+        text: {
+            if (!root.probeQt6ct)
+                return "Probing what this machine can do…";
+
+            const parts = [];
+            parts.push(root.probeQt6ct === "kde" ? "qt6ct-kde ✓ (reads the DMS palette directly)" : "stock qt6ct (cannot read the DMS .colors palette — qt6ct-kde fixes that)");
+            parts.push(root.probeKvantum === "yes" ? "Kvantum ✓" : "Kvantum not installed");
+            if (root.probePair && root.probePair !== "none")
+                parts.push("Kvantum pair for " + root.probeGtk + ": " + root.probePair);
+            else if (root.probeKvantum === "yes")
+                parts.push("no Kvantum pair for " + root.probeGtk);
+            return "Detected: " + parts.join(" · ");
+        }
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
+    }
+
+    // Not a SelectionSetting: that component puts the trigger in a fixed
+    // 200 px column next to the label, and these option labels are sentences.
+    // The full-width pattern below (own title + description, compact dropdown
+    // stretched to the row) is the same one the GTK theme selectors use, and
+    // the popup inherits the trigger's width, so the options finally fit.
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Synchronization route"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: a Kvantum theme paired with the GTK theme (same author, both halves one design) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtSyncModeOptions, root.qtSyncModeValue)
+            options: root.qtSyncModeOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtSyncModeOptions, label);
+                if (value && value !== root.qtSyncModeValue) {
+                    root.qtSyncModeValue = value;
+                    root.saveValue("qtSyncMode", value);
+                }
+            }
+        }
+
+    }
+
+    SectionHeader {
         text: "Qt applications"
     }
 
-    SelectionSetting {
-        settingKey: "qtPlatformTheme"
-        label: "Qt5/Qt6 platform theme"
-        description: "qt5ct/qt6ct config files are always written. This only controls QT_QPA_PLATFORMTHEME. Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d; otherwise let the plugin write it (needs logout/login)."
-        options: [{
-            "label": "Leave to my environment (recommended)",
-            "value": "preserve"
-        }, {
-            "label": "Plugin sets Follow GTK (gtk3)",
-            "value": "gtk3"
-        }, {
-            "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
-            "value": "qtct"
-        }]
-        defaultValue: "preserve"
+    StyledText {
+        width: parent.width
+        visible: root.qtSyncModeValue !== "manual"
+        text: "The synchronization route above is not 'Manual', so it decides the platform theme and widget style — the two options below are written but then overridden on every apply."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.warning !== undefined ? Theme.warning : Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
-    SelectionSetting {
-        settingKey: "qtStyle"
-        label: "Qt widget style"
-        description: "Fallback style written to qt5ct and qt6ct"
-        options: ["Fusion", "Breeze", "kvantum", "Windows", {
-            "label": "Preserve current style",
-            "value": "preserve"
-        }]
-        defaultValue: "Fusion"
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Qt5/Qt6 platform theme"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: {
+                // Where QT_QPA_PLATFORMTHEME actually lands depends on the compositor:
+                // on Niri the plugin writes a KDL include and environment.d is NOT
+                // used, so naming only environment.d here was wrong on the very
+                // machines this runs on.
+                const c = (typeof CompositorService !== "undefined" && CompositorService.compositor) || "";
+                let where;
+                if (c === "niri")
+                    where = "On niri it is written to ~/.config/niri/dms-theme-sync.kdl (included from config.kdl); environment.d is not used";
+                else if (c === "hyprland")
+                    where = "On Hyprland it is written to environment.d plus a Hyprland include";
+                else
+                    where = "It is written to environment.d (systemd user session)";
+                return "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
+            }
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtPlatformThemeOptions, root.qtPlatformThemeValue)
+            options: root.qtPlatformThemeOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtPlatformThemeOptions, label);
+                if (value && value !== root.qtPlatformThemeValue) {
+                    root.qtPlatformThemeValue = value;
+                    root.saveValue("qtPlatformTheme", value);
+                }
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            text: "Qt widget style"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.qtStyleOptions, root.qtStyleValue)
+            options: root.qtStyleOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const value = root.valueForLabel(root.qtStyleOptions, label);
+                if (value && value !== root.qtStyleValue) {
+                    root.qtStyleValue = value;
+                    root.saveValue("qtStyle", value);
+                }
+            }
+        }
+
     }
 
     SectionHeader {
@@ -944,7 +1305,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncKvantum"
         label: "Generate a Kvantum theme from the DMS palette"
-        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'."
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the DMS-palette-Kvantum step; a paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
         defaultValue: false
     }
 
@@ -1067,7 +1428,7 @@ PluginSettings {
 
             StyledText {
                 width: parent.width
-                text: root.snapshots.length > 0 ? "Pick a snapshot by date and restore it. Restoring disables auto-apply first so the recovered state is not immediately overwritten." : "No backups yet. Create one below or apply with backups enabled."
+                text: root.snapshots.length > 0 ? "Pick a snapshot and restore it. Restoring disables auto-apply first so the recovered state is not immediately overwritten. Unnamed snapshots rotate away when the retention limit is reached — give a name (📌) to any configuration you cannot afford to lose." : "No backups yet. Create one below or apply with backups enabled."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceVariantText
                 wrapMode: Text.WordWrap
@@ -1108,15 +1469,79 @@ PluginSettings {
 
             }
 
-            DankButton {
-                text: "Back up now"
-                iconName: "backup"
-                onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backup"])
+            StyledText {
+                width: parent.width
+                text: "Name & pin"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
             }
 
             StyledText {
                 width: parent.width
-                text: "Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nIPC: dms ipc call dmsThemeSync apply|backup|restoreLatest|status"
+                text: "A named snapshot (📌) is pinned: retention never rotates it away. Type a name, then either pin the snapshot selected above or take a new named backup. Pinning with the field empty unpins the selected one."
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+                wrapMode: Text.WordWrap
+            }
+
+            DankTextField {
+                id: snapshotNameField
+
+                width: parent.width
+                placeholderText: "Snapshot name, e.g. \"known good — before experiments\""
+            }
+
+            Row {
+                width: parent.width
+                spacing: Theme.spacingM
+
+                DankButton {
+                    id: pinButton
+
+                    text: snapshotNameField.text ? "Pin selected" : "Unpin selected"
+                    iconName: "push_pin"
+                    enabled: root.selectedSnapshot !== "" && !snapshotActionProcess.running
+                    onClicked: {
+                        snapshotActionProcess.command = ["bash", root.snapshotHelper(), "name", "--snapshot", root.selectedSnapshot, "--name", snapshotNameField.text];
+                        snapshotActionProcess.running = true;
+                    }
+                }
+
+                DankButton {
+                    id: backupNowButton
+
+                    text: snapshotNameField.text ? "Back up now (pinned)" : "Back up now"
+                    iconName: "backup"
+                    enabled: !snapshotActionProcess.running
+                    onClicked: {
+                        let cmd = ["bash", root.snapshotHelper(), "backup", "--retention", String(root.backupRetentionValue), "--label", "manual"];
+                        if (snapshotNameField.text)
+                            cmd = cmd.concat(["--name", snapshotNameField.text]);
+
+                        snapshotActionProcess.command = cmd;
+                        snapshotActionProcess.running = true;
+                    }
+                }
+
+            }
+
+            // Straight to the script, not through the daemon's IPC: the daemon
+            // serialises snapshot actions behind its apply gate and answers
+            // "busy" — which a button click has no way to show — and its IPC
+            // registration does not survive plugin reloads. Naming is a one-line
+            // metadata write; running it here keeps the click always effective
+            // and lets the list refresh the moment it finishes.
+            Process {
+                id: snapshotActionProcess
+
+                running: false
+                onExited: root.refreshSnapshots()
+            }
+
+            StyledText {
+                width: parent.width
+                text: "Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nIPC: dms ipc call dmsThemeSync apply|backup|backupNamed <name>|nameSnapshot <id> <name>|restoreLatest|status"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceVariantText
@@ -1125,6 +1550,16 @@ PluginSettings {
 
         }
 
+    }
+
+    // Visible section divider. The file used to mark its sections with `// ---`
+    // comments, which organise the source and nothing else: in the UI the ~30
+    // controls ran together as one flat list.
+    component SectionHeader: StyledText {
+        width: parent ? parent.width : 0
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Bold
+        color: Theme.primary
     }
 
 }
