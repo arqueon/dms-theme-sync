@@ -148,8 +148,9 @@ PluginSettings {
     // entry, because the plugin has to write a different name per Qt version and
     // choosing one alone would leave the other toolkit unthemed.
     function parseQtPlatformThemes(text) {
-        const options = ["preserve", "qtct"];
+        const options = ["auto", "preserve", "qtct"];
         const seen = ({
+            "auto": true,
             "preserve": true,
             "qtct": true,
             "qt5ct": true,
@@ -169,8 +170,9 @@ PluginSettings {
     // qt5ct-style/qt6ct-style are proxy styles: they read the very config file
     // we are writing, so offering them as the style would be circular.
     function parseQtStyles(text) {
-        const options = ["preserve"];
+        const options = ["auto", "preserve"];
         const seen = ({
+            "auto": true,
             "preserve": true,
             "qt5ct-style": true,
             "qt6ct-style": true
@@ -183,7 +185,7 @@ PluginSettings {
                 seen[name] = true;
             }
         }
-        return options.length > 1 ? options : ["preserve", "Fusion", "Windows"];
+        return options.length > 2 ? options : ["auto", "preserve", "Fusion", "Windows"];
     }
 
     function parseSnapshots(text) {
@@ -790,6 +792,12 @@ PluginSettings {
         label: "Qt5/Qt6 platform theme"
         description: "Only the platform themes installed on this machine are listed. This controls QT_QPA_PLATFORMTHEME (needs logout/login). Keep 'Leave to my environment' if you already set it in /etc/environment or environment.d. Note that only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 or kde the widget style below is ignored."
         options: root.availableQtPlatformThemes.map(function(name) {
+            if (name === "auto")
+                return {
+                "label": "Auto (Kvantum if installed, else follow GTK)",
+                "value": "auto"
+            };
+
             if (name === "preserve")
                 return {
                 "label": "Leave to my environment (recommended)",
@@ -816,12 +824,21 @@ PluginSettings {
     SelectionSetting {
         settingKey: "qtStyle"
         label: "Qt widget style"
-        description: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads."
+        description: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all."
         options: root.availableQtStyles.map(function(name) {
-            return name === "preserve" ? ({
+            if (name === "auto")
+                return {
+                "label": "Auto (Kvantum if installed and readable)",
+                "value": "auto"
+            };
+
+            if (name === "preserve")
+                return {
                 "label": "Preserve current style",
                 "value": "preserve"
-            }) : name;
+            };
+
+            return name;
         })
         defaultValue: "Fusion"
     }

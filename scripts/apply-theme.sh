@@ -74,13 +74,62 @@ case "$MODE" in light|dark) ;; *) printf 'Invalid mode: %s\n' "$MODE" >&2; exit 
 # environment.d and into niri/Hyprland config, so restrict it to a charset that
 # cannot break out of those files rather than to a closed list of names.
 case "$QT_PLATFORM_THEME" in
-    preserve|qtct) ;;
+    auto|preserve|qtct) ;;
     ""|*[!a-zA-Z0-9_.-]*) printf 'Invalid Qt platform theme: %s\n' "$QT_PLATFORM_THEME" >&2; exit 2 ;;
 esac
 [[ $FONT_SIZE =~ ^[0-9]+$ && $MONO_SIZE =~ ^[0-9]+$ && $DOCUMENT_SIZE =~ ^[0-9]+$ && $CURSOR_SIZE =~ ^[0-9]+$ ]] || {
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
 }
+
+# Kvantum is a QStyle plugin. /usr/share/Kvantum proves nothing — GTK themes such
+# as celestial-gtk-theme ship Kvantum *themes* there without Kvantum itself — so
+# test for the shared object Qt actually loads. The search path is overridable so
+# the tests can exercise the "no Kvantum" branch on a machine that has it.
+KVANTUM_LIB_DIRS=${DMS_THEME_SYNC_LIB_DIRS:-"/usr/lib /usr/lib64"}
+kvantum_style_plugin_installed() {
+    # shellcheck disable=SC2086 — the search path is a deliberate word list.
+    find $KVANTUM_LIB_DIRS -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
+}
+
+# "auto" picks the combination that works on this machine: Kvantum, when it is
+# installed, needs the qtXct platform theme to be read at all; without it there
+# is nothing to gain from qtXct, so Qt apps follow the GTK theme instead. Both
+# are resolved here, before anything reads QT_STYLE or QT_PLATFORM_THEME.
+if [[ $QT_PLATFORM_THEME == auto ]]; then
+    if kvantum_style_plugin_installed; then QT_PLATFORM_THEME=qtct; else QT_PLATFORM_THEME=gtk3; fi
+fi
+
+# Resolve the Qt platform-theme values once; both are empty under "preserve".
+#
+# "qtct" is the one name that differs per Qt version (qt5ct vs qt6ct), so it
+# keeps its own case. Everything else is a plugin name Qt loads verbatim —
+# gtk3, kde, xdgdesktopportal, flatpak, snap — and the settings UI offers only
+# the ones this machine actually has (QStyleFactory/QPlatformTheme keys). An
+# unknown name here used to fall through the case and be dropped in silence.
+QT_PLATFORM_QT5=""
+QT_PLATFORM_QT6=""
+case "$QT_PLATFORM_THEME" in
+    preserve|"") ;;
+    qtct) QT_PLATFORM_QT5=qt5ct; QT_PLATFORM_QT6=qt6ct ;;
+    *) QT_PLATFORM_QT5=$QT_PLATFORM_THEME; QT_PLATFORM_QT6=$QT_PLATFORM_THEME ;;
+esac
+
+# What Qt will actually load: our value if we write one, otherwise whatever the
+# session already exports (which is precisely what "preserve" defers to).
+effective_platform_theme() {
+    if [[ -n $QT_PLATFORM_QT6 ]]; then printf '%s' "$QT_PLATFORM_QT6"
+    else printf '%s' "${QT_QPA_PLATFORMTHEME_QT6:-${QT_QPA_PLATFORMTHEME:-}}"; fi
+}
+
+# An "auto" style is only worth setting where qtXct.conf is read; anywhere else
+# it would be inert, so leave the style alone and let the GTK theme drive Qt.
+if [[ $QT_STYLE == auto ]]; then
+    case "$(effective_platform_theme)" in
+        qt5ct|qt6ct) kvantum_style_plugin_installed && QT_STYLE=kvantum || QT_STYLE=preserve ;;
+        *) QT_STYLE=preserve ;;
+    esac
+fi
 [[ $BACKUP_RETENTION =~ ^[0-9]+$ ]] || { printf 'Backup retention must be an integer\n' >&2; exit 2; }
 
 log() { printf '%s\n' "$*"; }
@@ -674,10 +723,6 @@ fi
 # InioX/matugen-themes, MIT) with the 12 Material roles DMS hands us, then point
 # kvantum.kvconfig at the result. The SVG has to be recoloured too: it is where
 # every widget shape lives, and it contains no hard-coded hex at all.
-kvantum_style_plugin_installed() {
-    find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
-}
-
 sync_kvantum_theme() {
     local tpl_dir out_dir name=DankMatugen role hex
     tpl_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../assets/kvantum" 2>/dev/null && pwd)" || return 1
@@ -806,27 +851,9 @@ LABWC_ENV="$LABWC_DIR/environment"
 LABWC_BEGIN='# >>> dmsThemeSync >>>'
 LABWC_END='# <<< dmsThemeSync <<<'
 
-# Resolve the Qt platform-theme values once; both are empty under "preserve".
-#
-# "qtct" is the one name that differs per Qt version (qt5ct vs qt6ct), so it
-# keeps its own case. Everything else is a plugin name Qt loads verbatim —
-# gtk3, kde, xdgdesktopportal, flatpak, snap — and the settings UI offers only
-# the ones this machine actually has (QStyleFactory/QPlatformTheme keys). An
-# unknown name here used to fall through the case and be dropped in silence.
-QT_PLATFORM_QT5=""
-QT_PLATFORM_QT6=""
-case "$QT_PLATFORM_THEME" in
-    preserve|"") ;;
-    qtct) QT_PLATFORM_QT5=qt5ct; QT_PLATFORM_QT6=qt6ct ;;
-    *) QT_PLATFORM_QT5=$QT_PLATFORM_THEME; QT_PLATFORM_QT6=$QT_PLATFORM_THEME ;;
-esac
-
-# What Qt will actually load: our value if we write one, otherwise whatever the
-# session already exports (which is precisely what "preserve" defers to).
-effective_platform_theme() {
-    if [[ -n $QT_PLATFORM_QT6 ]]; then printf '%s' "$QT_PLATFORM_QT6"
-    else printf '%s' "${QT_QPA_PLATFORMTHEME_QT6:-${QT_QPA_PLATFORMTHEME:-}}"; fi
-}
+# QT_PLATFORM_QT5/QT_PLATFORM_QT6, effective_platform_theme() and the "auto"
+# resolution are set near the top of this file: QT_STYLE is consumed by the qtXct
+# writer and the Kvantum block long before this point.
 
 # DMS passes --compositor (CompositorService.compositor). Fall back to sniffing
 # the session env so the helper also works when invoked standalone or in tests.
@@ -963,11 +990,10 @@ write_labwc_env_block() {
 # `include "user..."` if present. If the line already exists anywhere in
 # config.kdl, its position is respected and nothing is moved.
 write_niri_env_include() {
-    local qt5="" qt6=""
-    case "$QT_PLATFORM_THEME" in
-        gtk3) qt5=gtk3; qt6=gtk3 ;;
-        qtct) qt5=qt5ct; qt6=qt6ct ;;
-    esac
+    # Same values every other writer uses. This used to re-derive them from a
+    # closed gtk3|qtct case of its own, so on Niri any other platform theme was
+    # dropped even though the rest of the script handled it.
+    local qt5=$QT_PLATFORM_QT5 qt6=$QT_PLATFORM_QT6
 
     local tmp="$NIRI_INCLUDE.tmp.$$"
     {
@@ -1143,8 +1169,7 @@ verify_theme_assets() {
     # Test for the style plugin Qt actually loads. /usr/share/Kvantum proves
     # nothing: GTK themes such as celestial-gtk-theme ship Kvantum *themes*
     # there without Kvantum itself being installed.
-    if [[ $QT_STYLE == kvantum ]] \
-        && ! find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+    if [[ $QT_STYLE == kvantum ]] && ! kvantum_style_plugin_installed; then
         note "Qt style is 'kvantum' but the Kvantum style plugin is missing; Qt falls back to Fusion"
     fi
     # qt5ct/qt6ct.conf is read by the qtXct *platform theme* and nothing else, so

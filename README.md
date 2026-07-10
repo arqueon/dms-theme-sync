@@ -119,6 +119,15 @@ Under `gtk3` the *colours* still arrive — Qt applications follow the GTK theme
 
 Both dropdowns are populated from what this machine can actually load, as reported by `qtdiag`: the platform themes Qt found (`gtk3`, `kde`, `xdgdesktopportal`, …) and the styles in `QStyleFactory` (`Breeze`, `kvantum`, `Fusion`, …). `qt5ct`/`qt6ct` are offered as the single **DMS palette** entry, because the plugin has to write a different name per Qt version. If `qtdiag` is missing, the lists fall back to the names Qt always builds in.
 
+Set both to **Auto** to let the machine decide. Kvantum only means anything where `qt5ct.conf`/`qt6ct.conf` is read, so the two resolve together:
+
+| | Platform theme | Style |
+|---|---|---|
+| Kvantum installed | `qtct` | `kvantum`, with the theme rendered from the DMS palette |
+| Kvantum absent | `gtk3` | none written — Qt apps follow the GTK theme |
+
+Pinning the platform theme by hand still wins: with `gtk3` selected, an **Auto** style writes nothing rather than something inert.
+
 ### Kvantum
 
 Choosing the `kvantum` style writes `style=kvantum` into `qt5ct.conf` and `qt6ct.conf` regardless of whether Kvantum is installed. Qt then falls back to Fusion **without saying anything**, which is precisely the class of silent failure this plugin exists to remove. Reconcile therefore checks for the style plugin Qt actually loads (`libkvantum*.so`) and reports when it is missing. `/usr/share/Kvantum` is not evidence: GTK themes such as `celestial-gtk-theme` ship Kvantum *themes* there without Kvantum itself.

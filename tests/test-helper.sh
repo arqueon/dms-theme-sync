@@ -395,4 +395,62 @@ if "$ROOT/scripts/apply-theme.sh" --qt-platform-theme 'a b"c' --no-runtime >/dev
     exit 1
 fi
 
+# --- "auto": Kvantum when the machine has it, follow GTK when it does not -------
+#
+# Kvantum needs the qtXct platform theme to be read at all, so the two settings
+# resolve together. DMS_THEME_SYNC_LIB_DIRS fakes both worlds regardless of what
+# this machine has installed.
+FAKE_KV="$TMP/with-kvantum"
+NO_KV="$TMP/without-kvantum"
+mkdir -p "$FAKE_KV" "$NO_KV"
+: > "$FAKE_KV/libkvantum.so"
+
+auto_env() { # $1=lib dirs -> "platformtheme|style"
+    local envfile="$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+    rm -f "$envfile" "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+    env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 DMS_THEME_SYNC_LIB_DIRS="$1" \
+        "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --qt-platform-theme auto --qt-style auto \
+        --sync-kvantum true --kvantum-colors "$KV_COLORS" \
+        --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --no-runtime >/dev/null 2>&1
+    printf '%s|%s' \
+        "$(sed -n 's/^QT_QPA_PLATFORMTHEME=//p' "$envfile" 2>/dev/null)" \
+        "$(sed -n 's/^style=//p' "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 2>/dev/null)"
+}
+
+[[ $(auto_env "$FAKE_KV") == 'qt5ct|kvantum' ]] \
+    || { printf 'auto did not pick qtct+kvantum where Kvantum is installed\n' >&2; exit 1; }
+[[ -d $XDG_CONFIG_HOME/Kvantum/DankMatugen ]] \
+    || { printf 'auto picked kvantum but rendered no theme\n' >&2; exit 1; }
+rm -rf "$XDG_CONFIG_HOME/Kvantum"
+
+# No Kvantum: fall back to gtk3 and write no style at all, since under gtk3 a
+# style in qt6ct.conf would never be read.
+[[ $(auto_env "$NO_KV") == 'gtk3|' ]] \
+    || { printf 'auto did not fall back to gtk3 with no style when Kvantum is absent\n' >&2; exit 1; }
+[[ ! -d $XDG_CONFIG_HOME/Kvantum/DankMatugen ]] \
+    || { printf 'Kvantum theme rendered without the style plugin installed\n' >&2; exit 1; }
+
+# An explicit platform theme still wins over auto's preference: the style resolves
+# against it, so under gtk3 "auto" writes nothing rather than something inert.
+rm -f "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 DMS_THEME_SYNC_LIB_DIRS="$FAKE_KV" \
+    "$ROOT/scripts/apply-theme.sh" --compositor generic --qt-platform-theme gtk3 --qt-style auto \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime >/dev/null 2>&1
+grep -q '^style=' "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" 2>/dev/null \
+    && { printf 'auto wrote a Qt style under gtk3, where it is ignored\n' >&2; exit 1; }
+
+# --- Niri: the platform theme reaches the KDL include, whatever its name -------
+#
+# write_niri_env_include used to re-derive the value from a closed gtk3|qtct case
+# of its own, silently dropping anything else even after the rest of the script
+# learned to carry it.
+env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
+    "$ROOT/scripts/apply-theme.sh" --compositor niri --qt-platform-theme xdgdesktopportal \
+    --qt-style preserve --sync-kde false --sync-xsettingsd false \
+    --backup-enabled false --no-runtime >/dev/null 2>&1
+grep -Fq 'QT_QPA_PLATFORMTHEME "xdgdesktopportal"' "$NIRI_DIR/dms-theme-sync.kdl" \
+    || { printf 'Niri include dropped a platform theme outside gtk3/qtct\n' >&2; exit 1; }
+
 printf 'helper tests: ok\n'
