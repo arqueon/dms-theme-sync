@@ -657,12 +657,17 @@ set_gsetting_string org.gnome.desktop.wm.preferences titlebar-font "$FONT Bold $
 set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark ]] && printf prefer-dark || printf prefer-light)"
 set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 
+# The 10-field font string is Qt5's legacy QFont::toString format, and its
+# weight field uses Qt5's 0-99 scale (50 = normal). Qt6 detects the legacy field
+# count and converts — but only if the value IS legacy: writing the OpenType 400
+# here makes Qt6 clamp it to 900/Black, and every Qt and KDE app renders bold.
+# Verified with QFont::fromString: "...,400,0,0,0,0,0" -> weight 900, bold.
 for qt_version in 5 6; do
     qt_file="$XDG_CONFIG_HOME/qt${qt_version}ct/qt${qt_version}ct.conf"
     [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
-    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0\""
-    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,400,0,0,0,0,0\""
+    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0\""
+    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0\""
     if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
         update_ini "$qt_file" Appearance custom_palette true
         update_ini "$qt_file" Appearance color_scheme_path "$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
@@ -671,11 +676,11 @@ done
 
 if [[ $SYNC_KDE == true ]]; then
     KDEGLOBALS="$XDG_CONFIG_HOME/kdeglobals"
-    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,400,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
     [[ -n $ICON_THEME ]] && update_ini "$KDEGLOBALS" Icons Theme "$ICON_THEME"
     if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
         update_ini "$KDEGLOBALS" General ColorScheme DankMatugen
