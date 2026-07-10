@@ -83,6 +83,10 @@ PluginSettings {
         return label;
     }
 
+    function snapshotHelper() {
+        return Paths.strip(Qt.resolvedUrl("scripts/theme-snapshot.sh").toString());
+    }
+
     function formatSnapshot(id) {
         const m = (id || "").match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
         const date = m ? m[1] + "-" + m[2] + "-" + m[3] + "  " + m[4] + ":" + m[5] + ":" + m[6] : id;
@@ -1249,53 +1253,74 @@ PluginSettings {
 
             }
 
-            // One field, two verbs: with a snapshot selected, "Pin" names it in
-            // place (empty text unpins); "Back up now" creates a new snapshot,
-            // pinned when the field has a name.
+            StyledText {
+                width: parent.width
+                text: "Name & pin"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+            }
+
+            StyledText {
+                width: parent.width
+                text: "A named snapshot (📌) is pinned: retention never rotates it away. Type a name, then either pin the snapshot selected above or take a new named backup. Pinning with the field empty unpins the selected one."
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+                wrapMode: Text.WordWrap
+            }
+
+            DankTextField {
+                id: snapshotNameField
+
+                width: parent.width
+                placeholderText: "Snapshot name, e.g. \"known good — before experiments\""
+            }
+
             Row {
                 width: parent.width
                 spacing: Theme.spacingM
 
-                DankTextField {
-                    id: snapshotNameField
-
-                    width: parent.width - pinButton.width - backupNowButton.width - Theme.spacingM * 2
-                    placeholderText: "Name to pin (empty = unpin / rotating backup)"
-                }
-
                 DankButton {
                     id: pinButton
 
-                    text: "Pin"
+                    text: snapshotNameField.text ? "Pin selected" : "Unpin selected"
                     iconName: "push_pin"
-                    enabled: root.selectedSnapshot !== ""
+                    enabled: root.selectedSnapshot !== "" && !snapshotActionProcess.running
                     onClicked: {
-                        Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "nameSnapshot", root.selectedSnapshot, snapshotNameField.text]);
-                        snapshotRefreshTimer.restart();
+                        snapshotActionProcess.command = ["bash", root.snapshotHelper(), "name", "--snapshot", root.selectedSnapshot, "--name", snapshotNameField.text];
+                        snapshotActionProcess.running = true;
                     }
                 }
 
                 DankButton {
                     id: backupNowButton
 
-                    text: "Back up now"
+                    text: snapshotNameField.text ? "Back up now (pinned)" : "Back up now"
                     iconName: "backup"
+                    enabled: !snapshotActionProcess.running
                     onClicked: {
+                        let cmd = ["bash", root.snapshotHelper(), "backup", "--retention", String(root.backupRetentionValue), "--label", "manual"];
                         if (snapshotNameField.text)
-                            Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backupNamed", snapshotNameField.text]);
-                        else
-                            Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "backup"]);
-                        snapshotRefreshTimer.restart();
+                            cmd = cmd.concat(["--name", snapshotNameField.text]);
+
+                        snapshotActionProcess.command = cmd;
+                        snapshotActionProcess.running = true;
                     }
                 }
 
             }
 
-            Timer {
-                id: snapshotRefreshTimer
+            // Straight to the script, not through the daemon's IPC: the daemon
+            // serialises snapshot actions behind its apply gate and answers
+            // "busy" — which a button click has no way to show — and its IPC
+            // registration does not survive plugin reloads. Naming is a one-line
+            // metadata write; running it here keeps the click always effective
+            // and lets the list refresh the moment it finishes.
+            Process {
+                id: snapshotActionProcess
 
-                interval: 1500
-                onTriggered: root.refreshSnapshots()
+                running: false
+                onExited: root.refreshSnapshots()
             }
 
             StyledText {
