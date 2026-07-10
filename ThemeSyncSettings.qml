@@ -24,6 +24,13 @@ PluginSettings {
     // base theme rather than the applied one.
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
+    // What the --probe-qt run found on this machine; drives the route
+    // descriptions so the user picks between things that actually exist here.
+    property string probeQt6ct: ""
+    property string probeKvantum: ""
+    property string probeGtk: ""
+    property string probePair: ""
+    property string qtSyncModeValue: "manual"
     property var snapshots: []
     property var snapshotNames: ({
     })
@@ -83,6 +90,32 @@ PluginSettings {
         return label;
     }
 
+    function applyHelper() {
+        return Paths.strip(Qt.resolvedUrl("scripts/apply-theme.sh").toString());
+    }
+
+    // --probe-qt output is "key=value" lines; unknown keys are ignored so the
+    // helper can grow the probe without breaking older UIs.
+    function parseQtProbe(text) {
+        const lines = (text || "").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+            const idx = lines[i].indexOf("=");
+            if (idx < 1)
+                continue;
+
+            const key = lines[i].slice(0, idx).trim();
+            const value = lines[i].slice(idx + 1).trim();
+            if (key === "qt6ct")
+                probeQt6ct = value;
+            else if (key === "kvantum")
+                probeKvantum = value;
+            else if (key === "gtk")
+                probeGtk = value;
+            else if (key === "pair")
+                probePair = value;
+        }
+    }
+
     function snapshotHelper() {
         return Paths.strip(Qt.resolvedUrl("scripts/theme-snapshot.sh").toString());
     }
@@ -106,6 +139,7 @@ PluginSettings {
     function reloadPluginValues() {
         gtkThemeLightValue = String(root.loadValue("gtkThemeLight", "auto") || "auto");
         gtkThemeDarkValue = String(root.loadValue("gtkThemeDark", "auto") || "auto");
+        qtSyncModeValue = String(root.loadValue("qtSyncMode", "manual") || "manual");
         documentFontValue = String(root.loadValue("documentFontFamily", "") || "");
         regularFontSizeValue = Number(root.loadValue("regularFontSize", 11)) || 11;
         monoFontSizeValue = Number(root.loadValue("monoFontSize", 12)) || 12;
@@ -332,6 +366,22 @@ PluginSettings {
 
         stdout: StdioCollector {
             onStreamFinished: root.availableQtStyles = root.parseQtStyles(text)
+        }
+
+    }
+
+    // Ask the helper, not a re-implementation: --probe-qt answers with the same
+    // detection functions the apply run will use (qt6ct flavour, Kvantum
+    // presence, the Kvantum pair for the current GTK theme), so what this UI
+    // promises and what the helper does cannot drift apart.
+    Process {
+        id: qtProbeProcess
+
+        running: true
+        command: ["bash", root.applyHelper(), "--probe-qt", "--mode", (typeof Theme !== "undefined" && Theme.isLightMode) ? "light" : "dark", "--gtk-theme-light", root.gtkThemeLightValue || "auto", "--gtk-theme-dark", root.gtkThemeDarkValue || "auto"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.parseQtProbe(text)
         }
 
     }
@@ -810,7 +860,68 @@ PluginSettings {
     }
 
     SectionHeader {
+        text: "GTK ↔ Qt synchronization"
+    }
+
+    StyledText {
+        width: parent.width
+        // The probe fills in after a moment; until then say nothing rather than
+        // something wrong.
+        text: {
+            if (!root.probeQt6ct)
+                return "Probing what this machine can do…";
+
+            const parts = [];
+            parts.push(root.probeQt6ct === "kde" ? "qt6ct-kde ✓ (reads the DMS palette directly)" : "stock qt6ct (cannot read the DMS .colors palette — qt6ct-kde fixes that)");
+            parts.push(root.probeKvantum === "yes" ? "Kvantum ✓" : "Kvantum not installed");
+            if (root.probePair && root.probePair !== "none")
+                parts.push("Kvantum pair for " + root.probeGtk + ": " + root.probePair);
+            else if (root.probeKvantum === "yes")
+                parts.push("no Kvantum pair for " + root.probeGtk);
+            return "Detected: " + parts.join(" · ");
+        }
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
+    }
+
+    SelectionSetting {
+        settingKey: "qtSyncMode"
+        label: "Synchronization route"
+        description: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: a Kvantum theme paired with the GTK theme (same author, both halves one design) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
+        options: [{
+            "label": "Manual — use the Qt applications options below",
+            "value": "manual"
+        }, {
+            "label": "Automatic — best available route",
+            "value": "auto"
+        }, {
+            "label": "Kvantum theme paired with the GTK theme",
+            "value": "pair"
+        }, {
+            "label": "Kvantum rendered from the DMS palette",
+            "value": "kvantum"
+        }, {
+            "label": "DMS palette via qt6ct-kde (KColorScheme)",
+            "value": "kcolorscheme"
+        }, {
+            "label": "Follow the GTK theme (gtk3)",
+            "value": "gtk3"
+        }]
+        defaultValue: "manual"
+    }
+
+    SectionHeader {
         text: "Qt applications"
+    }
+
+    StyledText {
+        width: parent.width
+        visible: root.qtSyncModeValue !== "manual"
+        text: "The synchronization route above is not 'Manual', so it decides the platform theme and widget style — the two options below are written but then overridden on every apply."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.warning !== undefined ? Theme.warning : Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
     SelectionSetting {
@@ -1092,7 +1203,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncKvantum"
         label: "Generate a Kvantum theme from the DMS palette"
-        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'."
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the DMS-palette-Kvantum step; a paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
         defaultValue: false
     }
 

@@ -217,6 +217,115 @@ rm -rf "$TERMINAL_DIR"
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$term_snapshot" --no-runtime >/dev/null
 assert_line "$TERMINAL_DIR/kitty.conf" "font_family Cascadia Mono"
 
+# --- GTK <-> Qt routes: detection, pairing, and the vanilla-qt6ct diagnostic ---
+
+# Controlled detection environments. The qt6ct discriminator is the
+# libKF6ColorScheme NEEDED string in libqt6ct-common: only the -kde build
+# carries it, so a file with (or without) that string is a faithful stand-in.
+KVLIB="$TMP/kvlib"; mkdir -p "$KVLIB"; : > "$KVLIB/libkvantum-fake.so"
+NOKVLIB="$TMP/nokvlib"; mkdir -p "$NOKVLIB"
+QT6KDE="$TMP/qt6kde"; mkdir -p "$QT6KDE"
+printf 'libKF6ColorScheme.so.6' > "$QT6KDE/libqt6ct-common.so.0.11"
+QT6VAN="$TMP/qt6van"; mkdir -p "$QT6VAN"
+printf 'no kde here' > "$QT6VAN/libqt6ct-common.so.0.11"
+
+# A same-author pair: WhiteSur GTK (both modes) and WhiteSur Kvantum halves.
+mkdir -p "$XDG_DATA_HOME/themes/WhiteSur-Dark" "$XDG_DATA_HOME/themes/WhiteSur" \
+    "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark" "$XDG_CONFIG_HOME/Kvantum/WhiteSur"
+: > "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark/WhiteSurDark.kvconfig"
+: > "$XDG_CONFIG_HOME/Kvantum/WhiteSur/WhiteSur.kvconfig"
+
+# --compositor sway: the Niri block above created ~/.config/niri, and without
+# an explicit compositor the helper would sniff the real session (niri) and
+# route the env vars into the KDL include instead of environment.d.
+run_route() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --gtk-theme-light auto --gtk-theme-dark auto \
+        --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd true --no-runtime \
+        --compositor sway "$@"
+}
+
+# auto + Kvantum + pair installed: qtct platform, kvantum style, pair selected
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark WhiteSur-Dark --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=WhiteSurDark"
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=kvantum"
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=qt5ct"
+
+# light mode picks the light half of the same pair
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode light --gtk-theme-light WhiteSur --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=WhiteSur"
+
+# auto without Kvantum but with qt6ct-kde: the KColorScheme route (qtct + Fusion)
+DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=Fusion"
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=qt5ct"
+
+# auto with neither: Qt follows GTK
+DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=gtk3"
+
+# explicit pair mode with no matching Kvantum theme: falls back to the
+# DankMatugen render, and says so
+kv_roles="primary=#112233;on_surface=#e0e0e0;surface=#101010;surface_variant=#202020"
+kv_roles+=";surface_container_low=#151515;surface_container_highest=#252525"
+kv_roles+=";surface_bright=#303030;surface_dim=#0a0a0a;inverse_on_surface=#101010"
+kv_roles+=";inverse_primary=#334455;primary_fixed_dim=#223344;tertiary_fixed_dim=#445566"
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark Matcha-dark-sea --qt-sync-mode pair \
+    --sync-kvantum true --kvantum-colors "$kv_roles")
+grep -q 'no Kvantum theme pairs' <<<"$route_out" \
+    || { printf 'Pair fallback not reported:\n%s\n' "$route_out" >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=DankMatugen"
+
+# stock qt6ct + .colors palette + non-kvantum style: the silent no-op is named
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark auto --qt-platform-theme qtct --qt-style Fusion)
+grep -q 'install qt6ct-kde' <<<"$route_out" \
+    || { printf 'Vanilla qt6ct diagnostic missing:\n%s\n' "$route_out" >&2; exit 1; }
+
+# with qt6ct-kde present the same run stays quiet about it
+route_out=$(DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark auto --qt-platform-theme qtct --qt-style Fusion)
+grep -q 'cannot parse DankMatugen.colors' <<<"$route_out" \
+    && { printf 'Diagnostic fired with qt6ct-kde installed\n' >&2; exit 1; }
+
+# --probe-qt answers without touching anything
+probe_before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
+probe_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    run_route --mode dark --gtk-theme-dark WhiteSur-Dark --qt-sync-mode auto --probe-qt)
+probe_after=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
+[[ $probe_before == "$probe_after" ]] || { printf 'Probe wrote to disk\n' >&2; exit 1; }
+grep -Fxq 'qt6ct=kde' <<<"$probe_out" || { printf 'Probe qt6ct wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+grep -Fxq 'kvantum=yes' <<<"$probe_out" || { printf 'Probe kvantum wrong\n' >&2; exit 1; }
+grep -Fxq 'pair=WhiteSurDark' <<<"$probe_out" || { printf 'Probe pair wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+grep -Fxq 'route=pair' <<<"$probe_out" || { printf 'Probe route wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+
+# Catppuccin: the accent token refines the pick within the mode's flavour
+mkdir -p "$XDG_DATA_HOME/themes/Catppuccin-Flamingo-Dark" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-mocha-blue" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-mocha-flamingo" \
+    "$XDG_CONFIG_HOME/Kvantum/catppuccin-latte-flamingo"
+for t in catppuccin-mocha-blue catppuccin-mocha-flamingo catppuccin-latte-flamingo; do
+    : > "$XDG_CONFIG_HOME/Kvantum/$t/$t.kvconfig"
+done
+probe_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark Catppuccin-Flamingo-Dark --qt-sync-mode auto --probe-qt)
+grep -Fxq 'pair=catppuccin-mocha-flamingo' <<<"$probe_out" \
+    || { printf 'Catppuccin accent pairing wrong:\n%s\n' "$probe_out" >&2; exit 1; }
+
+# The blocks below assume a pristine Kvantum state (their first assertion is
+# that nothing has been rendered), so drop everything this block created.
+rm -rf "$XDG_CONFIG_HOME/Kvantum"
+
 # --- Folder accent overlay: off by default, built only when opted in ---------
 # Needs a real Papirus install to read folder colours from; skip where absent.
 PAPIRUS=""

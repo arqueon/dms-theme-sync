@@ -112,11 +112,39 @@ Two things make a theme switch actually *land* everywhere:
 
 ## Qt policy
 
+### The synchronization route
+
+**GTK ↔ Qt synchronization** is one decision instead of two knobs. Every route
+except **Manual** overrides the platform-theme and widget-style options below
+with a combination that is known to work — because the combinations are the
+whole point: `kvantum` without `qtct` is inert, a `.colors` palette without
+`qt6ct-kde` is silently ignored, and a style written under `gtk3` is never
+read.
+
+| Route | What Qt apps get |
+|---|---|
+| **Manual** *(default)* | The two options below, exactly as before this setting existed |
+| **Automatic** | The best route this machine supports, re-evaluated on every apply: pair → DMS-palette Kvantum → qt6ct-kde palette → follow GTK |
+| **Kvantum paired with the GTK theme** | The Kvantum half of a same-author pair — WhiteSur ↔ WhiteSurDark, Orchis, Catppuccin (flavour by colour mode, accent by name), adw-gtk3 ↔ KvLibadwaita. Both halves come from one design, so Qt and GTK stop being approximations of each other. No pair installed → falls back to the DMS-palette render and says so |
+| **Kvantum from the DMS palette** | The rendered `DankMatugen` Kvantum theme (see below) |
+| **DMS palette via qt6ct-kde** | The `DankMatugen.colors` palette on Fusion widgets — the route that needs `qt6ct-kde` to actually work (see the warning below) |
+| **Follow the GTK theme** | The `gtk3` platform theme; colours arrive through GTK |
+
+The settings page probes the machine first — with the helper's own detection
+functions, so what the UI promises and what an apply does cannot drift — and
+reports which qt6ct flavour is installed, whether Kvantum is present, and the
+Kvantum pair (if any) for the current GTK theme.
+
+### The platform theme (Manual route)
+
 The plugin **always** writes the `qt5ct`/`qt6ct` files (style, icons, fonts, `DankMatugen.colors`). The Qt policy only controls the **`QT_QPA_PLATFORMTHEME`** variable, which decides whether Qt apps actually obey those files.
 
 - **Leave to my environment** *(default)* — the plugin does not touch the variable. Use this if you set it yourself (e.g. `/etc/environment`, `environment.d`, or your compositor config). This matches DMS, which never writes it either.
 - **Plugin sets Follow GTK (`gtk3`)** — Qt apps follow the chosen GTK theme.
-- **Plugin sets DMS palette (`qt5ct`/`qt6ct`)** — Qt apps use the `DankMatugen.colors` palette.
+- **Plugin sets DMS palette (`qt5ct`/`qt6ct`)** — Qt apps use the `DankMatugen.colors` palette — **with `qt6ct-kde`**. Stock `qt6ct` cannot parse that file; see the warning below.
+
+> [!WARNING]
+> **Stock `qt6ct` cannot read the DMS palette.** DMS exports `DankMatugen.colors` in KDE's KColorScheme format (`[Colors:Window]`, `[Colors:View]`, …). Stock qt6ct's `loadColorScheme()` expects its own `[ColorScheme]` arrays, finds none, and keeps the default palette **without a word** (verified against qt6ct 0.11). [`qt6ct-kde`](https://aur.archlinux.org/packages/qt6ct-kde) is the same qt6ct built against `KF6::ColorScheme` — it parses `.colors` natively, searches `~/.local/share/color-schemes`, and renders KDE apps correctly on top. It `provides`/`conflicts` `qt6ct`, so it is a drop-in swap. Under the `kvantum` style the palette comes from the Kvantum theme instead, which is why this only bites the non-Kvantum routes; reconcile names it when it happens.
 
 > [!NOTE]
 > Environment changes only apply to **new** sessions: restart the apps and, usually, log out and back in.
@@ -272,7 +300,8 @@ The fontconfig, `environment.d`, Hyprland include, labwc env and terminal font f
 Everything degrades gracefully when a toolkit is missing. Install what you use:
 
 - `gsettings`/`dconf` — GNOME settings and portal hints
-- `qt5ct` and `qt6ct` (or `qt6ct-kde`) — Qt configuration
+- `qt5ct` and `qt6ct` — Qt configuration
+- `qt6ct-kde` — **recommended over stock `qt6ct`**: DMS exports its Qt palette as a KColorScheme (`.colors`) file, and stock qt6ct cannot parse that format — it silently keeps the default palette, so without Kvantum the Material You colours never reach Qt apps. `qt6ct-kde` is the same qt6ct built against `KF6::ColorScheme` (packaged by Arch's KDE maintainers, `provides`/`conflicts` `qt6ct` so it swaps in cleanly) and reads the file natively; it also makes KDE/KF6 apps render correctly and brings `qqc2-desktop-style` for Kirigami ones. The trade-off: it lives in the AUR and is rebuilt against each Qt update
 - `qt6-tools` — provides `qtdiag`, which is how the Qt platform-theme and style dropdowns are populated; without it they fall back to the names Qt always builds in
 - `xsettingsd` — legacy X11/XWayland clients
 - `kvantum` — only if you want SVG-drawn Qt widgets; `qt6ct` with the DMS palette already gives colour consistency
