@@ -46,7 +46,12 @@ PluginComponent {
     readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
-    readonly property bool syncKvantum: (pluginData.syncKvantum !== undefined ? pluginData.syncKvantum : false) && qtStyle === "kvantum"
+    // Only the user's toggle. Whether Kvantum actually applies is the helper's
+    // call: it resolves an "auto" style first, and gating here on
+    // qtStyle === "kvantum" made auto skip the render — the style landed in
+    // qt6ct.conf but the theme was never rendered or selected, so Qt painted
+    // whatever kvantum.kvconfig last pointed at (Celestial, with bold text).
+    readonly property bool syncKvantum: pluginData.syncKvantum !== undefined ? pluginData.syncKvantum : false
 
     // The Kvantum templates want 12 Material roles. Theme exposes most of them
     // as properties; the rest live on currentThemeData, and the fallbacks below
