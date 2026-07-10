@@ -614,6 +614,11 @@ ensure_matugen_css_import() {
     fi
     mkdir -p "$gtk_dir"
     if [[ -f $css_file ]] && grep -Fq '@import url("dank-colors.css");' "$css_file"; then
+        # GTK watches the user gtk.css itself, not the files it @imports. When
+        # DMS switches theme it rewrites only dank-colors.css, so every running
+        # GTK app keeps painting the old palette until something bumps gtk.css.
+        # Touching it makes GTK re-parse, and the re-parse re-reads the import.
+        touch "$css_file"
         return
     fi
 
@@ -1260,6 +1265,17 @@ verify_theme_assets() {
             "") note "no Qt platform theme is set: Qt ignores qt5ct/qt6ct.conf, so style '$QT_STYLE' and the DMS palette do not reach Qt apps" ;;
             *)  note "Qt platform theme is '$effective', which does not read qt5ct/qt6ct.conf: style '$QT_STYLE' is ignored" ;;
         esac
+    fi
+    # GTK follows what DMS *exported* (dank-colors.css); Qt and Kvantum follow
+    # the *live* theme the daemon reads. DMS does not regenerate the export for
+    # custom/downloaded themes, so the two can diverge — the bar shows the new
+    # palette while GTK apps keep the old one. Compare the accents and say so.
+    local kv_primary css_accent
+    kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
+    css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css" 2>/dev/null | grep -oE '#[0-9a-fA-F]{6}')
+    if [[ -n $kv_primary && -n $css_accent && ${kv_primary,,} != "${css_accent,,}" ]]; then
+        note "DMS's exported GTK palette ($css_accent) is not the live theme ($kv_primary): GTK apps follow the stale export"
     fi
     return 0
 }

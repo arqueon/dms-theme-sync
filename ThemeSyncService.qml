@@ -121,10 +121,30 @@ PluginComponent {
         return args;
     }
 
+    // DMS regenerates its Matugen templates (dank-colors.css, DankMatugen.colors)
+    // for the dynamic theme and for stock themes — but not for custom/downloaded
+    // ones: pick a registry theme and the bar goes red while GTK keeps painting
+    // the previous palette, because the export never ran. Ask DMS to export
+    // through its own machinery, exactly the call its stock-theme path makes.
+    // No matugen loop: for custom themes Theme.* reads theme.json, not the
+    // generated files, so the regeneration cannot re-trigger this.
+    function maybeExportDmsColors() {
+        if (Theme.currentTheme !== "custom")
+            return ;
+
+        if (!Theme.currentThemeData || typeof Theme.setDesiredTheme !== "function" || typeof Theme.buildMatugenColorsFromTheme !== "function")
+            return ;
+
+        const td = Theme.currentThemeData;
+        const stockColors = Theme.buildMatugenColorsFromTheme(td, td);
+        Theme.setDesiredTheme("hex", hex6(Theme.primary), Theme.isLightMode, SettingsData.iconTheme || "System Default", td.matugen_type || "scheme-tonal-spot", stockColors);
+    }
+
     function requestApply(showResult) {
         if (!showResult && configSignature === appliedSignature)
             return ;
 
+        maybeExportDmsColors();
         manualRequest = showResult;
         if (applying) {
             pendingApply = true;

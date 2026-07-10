@@ -547,6 +547,28 @@ env -u QT_QPA_PLATFORMTHEME -u QT_QPA_PLATFORMTHEME_QT6 \
 grep -Fq 'QT_QPA_PLATFORMTHEME "xdgdesktopportal"' "$NIRI_DIR/dms-theme-sync.kdl" \
     || { printf 'Niri include dropped a platform theme outside gtk3/qtct\n' >&2; exit 1; }
 
+# --- GTK export drift: reconcile says when dank-colors.css is not the live theme
+#
+# GTK follows what DMS exported; Qt/Kvantum follow the live theme. DMS skips the
+# export for custom/downloaded themes, so a registry theme can leave GTK painting
+# the previous palette. The daemon re-exports, and reconcile is the safety net.
+printf '@define-color accent_bg_color #c7b3f3;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+drift_out=$(env -u NIRI_SOCKET "$ROOT/scripts/apply-theme.sh" --compositor generic \
+    --qt-platform-theme qtct --qt-style preserve --sync-kvantum false \
+    --kvantum-colors "primary=#ac3232;on_surface=#e6d4d8" \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime 2>&1)
+grep -q "is not the live theme" <<<"$drift_out" \
+    || { printf 'No drift note when the GTK export disagrees with the live theme\n' >&2; exit 1; }
+printf '@define-color accent_bg_color #AC3232;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+drift_out=$(env -u NIRI_SOCKET "$ROOT/scripts/apply-theme.sh" --compositor generic \
+    --qt-platform-theme qtct --qt-style preserve --sync-kvantum false \
+    --kvantum-colors "primary=#ac3232;on_surface=#e6d4d8" \
+    --sync-kde false --sync-xsettingsd false --backup-enabled false --no-runtime 2>&1)
+grep -q "is not the live theme" <<<"$drift_out" \
+    && { printf 'Drift note fired although the accents match (case)\n' >&2; exit 1; }
+printf '/* Generated with Matugen */\n@define-color accent_color #123456;\n' \
+    > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+
 # --- Live session env: the same resolved values as the persistent writers ------
 #
 # The systemctl block used to re-derive the platform theme from a closed
