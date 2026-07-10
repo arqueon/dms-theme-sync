@@ -2,7 +2,7 @@
   "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
   "id": "dmsThemeSync",
   "name": "DMS Theme Sync",
-  "description": "Linux theming is a dozen config systems that never met. This makes one decision - DMS's - reach GTK2/3/4, Qt, Kvantum, KDE, Flatpak, Fontconfig and XSettings, then verifies it landed",
+  "description": "Linux theming is a dozen config systems that never met. This makes one decision - DMS's - reach GTK2/3/4, Qt, Kvantum, KDE, Flatpak, Fontconfig and XSettings, verifies it landed, and picks the GTK-Qt route (theme pairs, Kvantum, qt6ct-kde) that this machine can actually serve",
   "version": "0.7.0",
   "license": "GPL-3.0-or-later",
   "author": "arqueon",

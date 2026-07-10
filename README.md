@@ -2,6 +2,13 @@
 
 **Cross-toolkit theme synchronization for [Dank Material Shell](https://danklinux.com/docs/dankmaterialshell).** DMS Theme Sync treats DMS as the single source of truth for appearance and propagates it to GTK, Qt, KDE, Flatpak and X11/XWayland applications — no wallpaper manager required.
 
+Since 0.7 it also **decides how Qt gets there**: a single GTK ↔ Qt
+synchronization route replaces the platform-theme/style knob pair, probes what
+the machine can actually do, and can pair the GTK theme with its same-author
+Kvantum half — WhiteSur with WhiteSurDark, Catppuccin-Flamingo-Dark with
+catppuccin-mocha-flamingo, adw-gtk3 with KvLibadwaita — so Qt and GTK stop
+being approximations of each other (see [Qt policy](#qt-policy)).
+
 It runs as a background **daemon**, adds an optional **bar widget**, and ships a standalone **configuration dialog**.
 
 ## Scope
@@ -34,6 +41,8 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 ## Highlights
 
 - **One place for everything.** The plugin UI mirrors every DMS appearance control — color theme, light/dark mode, Matugen palette & contrast, fonts, icons, cursor and cursor size — next to its own options, so you never jump between DMS Settings and the plugin.
+- **One GTK ↔ Qt decision.** A synchronization route instead of two knobs: Automatic resolves pair → DMS-palette Kvantum → qt6ct-kde palette → follow GTK, re-evaluated on every apply against what is actually installed. The settings page probes the machine with the helper's own detection functions, so what the UI offers and what an apply does cannot drift apart.
+- **Same-author theme pairing.** When the GTK theme's Kvantum half is installed (WhiteSur, Orchis, Catppuccin with the right flavour *and* accent, adw-gtk3 → KvLibadwaita), Qt draws from the same design instead of an approximation — and the pair wins over the palette render, deliberately.
 - **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, Kvantum, KDE, Flatpak, Fontconfig, XSettings and XCursor.
 - **It checks its own work.** After every apply it reads the system back: prunes dangling GTK symlinks, re-asserts gsettings, confirms `fc-match` really returns the font it asked for, and names the themes and tools that will fight it.
 - **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass. Optionally renders a Kvantum theme and recolours Papirus folders from the same palette.
@@ -47,8 +56,8 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 | --- | --- |
 | **GTK** | `~/.gtkrc-2.0`, GTK3/GTK4 `settings.ini`, safe Matugen color import |
 | **GNOME** | GSettings (theme, icons, cursor + size, fonts) and the portal color-scheme hint |
-| **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette |
-| **Kvantum** | opt-in: renders `DankMatugen.{kvconfig,svg}` from the DMS palette and selects it (see [Kvantum](#kvantum)) |
+| **Qt5/Qt6** | `qt5ct`/`qt6ct` style, icons, fonts and the `DankMatugen.colors` palette — with the GTK ↔ Qt route deciding what actually reads them (see [Qt policy](#qt-policy)) |
+| **Kvantum** | the GTK theme's same-author Kvantum pair when installed; otherwise opt-in: renders `DankMatugen.{kvconfig,svg}` from the DMS palette and selects it (see [Kvantum](#kvantum)) |
 | **KDE** | `kdeglobals`, `kcminputrc` |
 | **Fontconfig** | `sans-serif`, `serif`, `monospace` aliases |
 | **X11** | XSettings and XCursor defaults |
@@ -308,6 +317,13 @@ Everything degrades gracefully when a toolkit is missing. Install what you use:
 - `papirus-icon-theme` — the folder accent overlay; it is the only theme shipping ~80 folder colours in one package
 - `papirus-folders-catppuccin` — extra: lets a Catppuccin GTK theme use the matching Catppuccin folders instead of the nearest plain colour. Without it, plain Papirus is used and nothing breaks
 - the selected GTK theme and its engine (e.g. the **Murrine** engine for GTK2 themes)
+- Kvantum halves of same-author pairs, for the pairing route: `kvantum-theme-catppuccin-git`, `kvantum-theme-whitesur-git`, `kvantum-theme-orchis-git`, `kvantum-theme-libadwaita-git` (KvLibadwaita, the adw-gtk3 partner)
+
+On Arch, [arqueon/desktop-assets](https://github.com/arqueon/desktop-assets)
+packages all of the above as a curated, reproducible meta-package catalogue —
+icons, GTK themes, Kvantum pairs, cursors and fonts, every name verified
+against the official repos and the AUR — and documents this plugin's Automatic
+route as its reference desktop.
 
 > [!NOTE]
 > GTK4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's generated GTK4 CSS stays the color source; the plugin still syncs fonts, icons, cursor and dark/light preference.
