@@ -65,7 +65,11 @@ PluginComponent {
         const pick = (...cs) => hex6(cs.find(c => c) || Theme.surface);
         const roles = {
             primary: Theme.primary,
-            on_surface: Theme.onSurface,
+            // surfaceText, not the onSurface alias: in the running shell that
+            // alias can sit frozen at opaque black while surfaceText is correct
+            // (seen live: onSurface=#000000, surfaceText=#f9dcd5). surfaceText
+            // is what DMS paints its own bar text with, so it cannot drift.
+            on_surface: pick(td.surfaceText, Theme.surfaceText),
             surface: Theme.surface,
             surface_variant: Theme.surfaceVariant,
             surface_container_low: Theme.surfaceContainerLow,
