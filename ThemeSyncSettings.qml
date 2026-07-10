@@ -336,11 +336,14 @@ PluginSettings {
 
     }
 
+    // The helper's `list`, not a private find: only the helper prints the
+    // id<TAB>name pairs the pinned markers come from, and only it knows to
+    // ignore directories that are not snapshots.
     Process {
         id: snapshotListProcess
 
         running: true
-        command: ["sh", "-c", "find \"${XDG_STATE_HOME:-$HOME/.local/state}/DankMaterialShell/plugins/dmsThemeSync/backups\" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp.*' -printf '%f\\n' 2>/dev/null | LC_ALL=C sort -r"]
+        command: ["bash", root.snapshotHelper(), "list"]
 
         stdout: StdioCollector {
             onStreamFinished: root.parseSnapshots(text)
