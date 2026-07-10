@@ -19,6 +19,9 @@ Some of what that means in practice, all of it found on real systems:
 - **Dead symlinks accumulate.** `nwg-look` points `gtk.css` and `gtk-dark.css` at the theme you selected; uninstall it and libadwaita trips over the dangling link on every launch, quietly.
 - **Sandboxes see none of it.** Flatpak apps get dark/light from the portal and nothing else — not the theme name, not your `gtk.css` — unless someone sets an override.
 - **A theme name is a string until something resolves it.** A compositor config can happily name a cursor theme nobody installed, and a Qt style (`kvantum`) that has no plugin behind it, and both fail by falling back rather than complaining.
+- **The 10-field font string is a Qt5 format, weights included.** Its weight field uses Qt5's 0–99 scale (50 = normal). Write the OpenType 400 there and Qt6 clamps it to 900: every Qt and KDE application renders its whole interface in Black weight. This plugin did exactly that, and nobody saw it for as long as nothing read the file.
+- **Running GTK apps watch `gtk.css`, not what it `@import`s.** Rewriting only `dank-colors.css` repaints nothing that is already open. Touching `gtk.css` forces the re-parse, and the re-parse re-reads the import.
+- **A palette can be delivered to one toolkit and not another.** DMS regenerates its GTK export for the dynamic and stock themes but not for custom/downloaded ones — pick a registry theme and the bar changes while Thunar keeps the old colours, with nothing anywhere saying why.
 
 So the plugin writes, then **reconciles**: it prunes dangling links, re-asserts gsettings, checks that `fc-match` really returns the font it asked for, verifies that every named theme exists on disk, and names the tools that are going to fight it. Anything unambiguous it repairs; anything that needs a human it reports with the file to look at, and touches nothing.
 
@@ -97,6 +100,15 @@ dms ipc call dmsThemeSync restore 20260628-182500
 dms ipc call dmsThemeSync configure
 dms ipc call dmsThemeSync status      # pretty-printed JSON
 ```
+
+## Following DMS — no external trigger needed
+
+The daemon watches a configuration signature that covers fonts, sizes, icons, cursor, colour mode **and every colour of the live theme**. Change anything in DMS — the wallpaper, a stock colour, a downloaded registry theme — and the signature changes, and an apply runs on its own about a second later. No wallpaper-manager hook, no script, no keybind is required; a Variety/pywal-style trigger calling `apply` is harmless but redundant.
+
+Two things make a theme switch actually *land* everywhere:
+
+- **Custom and downloaded themes reach GTK.** DMS regenerates its Matugen export only for the dynamic and stock themes. When the live theme is a custom one, the daemon asks DMS to export through its own machinery (the same `setDesiredTheme` call the stock path makes) before applying — so `dank-colors.css` always describes the theme you actually chose. If the exported accent and the live theme ever still disagree, reconcile reports it by name.
+- **Running GTK apps recolour.** GTK only watches the user `gtk.css`, not the files it imports, so each apply touches `gtk.css`; the re-parse re-reads `dank-colors.css` and open windows repaint without a restart. Qt apps under the qtXct platform theme repaint on their next start.
 
 ## Qt policy
 
