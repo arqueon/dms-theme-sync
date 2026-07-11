@@ -118,15 +118,20 @@ qt6ct_kde_installed() {
     return 1
 }
 
-# Kvantum themes are directories holding <name>.kvconfig; user themes shadow
-# system ones, which is also the order Kvantum itself resolves them in.
+# Kvantum themes are directories holding <name>.kvconfig — but a folder may
+# hold more than one: light/dark pairs often share it (KvLibadwaita/ ships
+# KvLibadwaita.kvconfig AND KvLibadwaitaDark.kvconfig), and Kvantum resolves
+# the variant by kvconfig name, not by folder. Listing only the folder-named
+# kvconfig would hide every such dark half. User themes shadow system ones,
+# which is also the order Kvantum itself resolves them in.
 list_kvantum_themes() {
-    local root dir name
+    local root dir cfg
     for root in "$XDG_CONFIG_HOME/Kvantum" /usr/share/Kvantum; do
         [[ -d $root ]] || continue
         for dir in "$root"/*/; do
-            name=$(basename "$dir")
-            [[ -f $dir$name.kvconfig ]] && printf '%s\n' "$name"
+            for cfg in "$dir"*.kvconfig; do
+                [[ -f $cfg ]] && basename "$cfg" .kvconfig
+            done
         done
     done | awk '!seen[tolower($0)]++'
 }
