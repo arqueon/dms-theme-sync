@@ -284,7 +284,22 @@ PluginComponent {
         parentWidget: root
     }
 
+    // DMS re-creates every daemon plugin each time another one finishes
+    // loading during the startup scan, and Quickshell 0.3.0 keeps the IPC
+    // registration of the destroyed generations — the next call to a stale
+    // entry segfaults the whole shell (DMS #1956). Registering only after the
+    // scan has settled keeps the short-lived generations out of the registry.
+    property bool ipcSettled: false
+
+    Timer {
+        interval: 8000
+        running: true
+        onTriggered: root.ipcSettled = true
+    }
+
     IpcHandler {
+        enabled: root.ipcSettled
+
         function apply() : string {
             root.requestApply(true);
             return root.applying ? "queued" : "scheduled";
