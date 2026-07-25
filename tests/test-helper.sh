@@ -592,6 +592,19 @@ assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=1,2,3"
 # untouched sections still arrive verbatim
 assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundNormal=5,6,7"
 
+# DMS's own scheme files are equalised too: KColorSchemeManager pins a scheme
+# per app (dolphinrc ColorScheme=DankMatugen) and pinned apps read these files
+# directly — every new view (tab, split pane) captures the alternate from them.
+grep -A2 '\[Colors:View\]' "$SCHEMES/DankMatugen.colors" | grep -Fqx 'BackgroundAlternate=1,2,3' \
+    || { printf 'DMS scheme file kept its striped View alternate\n' >&2; exit 1; }
+# a regeneration behind our back (any DankMatugen* variant) is re-patched
+printf '[General]\nColorScheme=DankMatugenDark\nName=Dank Dark\n\n[Colors:View]\nBackgroundAlternate=40,50,60\nBackgroundNormal=4,5,6\n' \
+    > "$SCHEMES/DankMatugenDark.colors"
+run_uniform --sync-kde true --qt-style Fusion --uniform-list-bg true >/dev/null
+grep -A2 '\[Colors:View\]' "$SCHEMES/DankMatugenDark.colors" | grep -Fqx 'BackgroundAlternate=4,5,6' \
+    || { printf 'Regenerated DMS scheme variant was not re-equalised\n' >&2; exit 1; }
+rm -f "$SCHEMES/DankMatugenDark.colors"
+
 # kdeglobals refresh is a section replace, not an append: run twice, one copy
 count=$(grep -c '^\[Colors:View\]' "$XDG_CONFIG_HOME/kdeglobals")
 [[ $count -eq 1 ]] || { printf 'kdeglobals holds %s copies of [Colors:View]\n' "$count" >&2; exit 1; }

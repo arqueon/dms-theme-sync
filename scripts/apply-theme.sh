@@ -839,10 +839,24 @@ set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 # QPalette::AlternateBase, and there is no Dolphin toggle for it: the colour
 # comes from whichever palette source the active route uses. DMS's exported
 # scheme keeps [Colors:View] BackgroundAlternate distinct from BackgroundNormal
-# by design, and that file is regenerated on every theme change, so editing it
-# would fight the daemon. Instead we derive a plugin-owned scheme from it with
-# the View alternate equalised — same pattern as the -DankFolders overlay: a
-# derived asset, refreshed on every apply, swept when the toggle goes off.
+# by design, so two moves cover its consumers:
+#
+# 1. A plugin-owned scheme derived from it with the View alternate equalised —
+#    same pattern as the -DankFolders overlay: a derived asset, refreshed on
+#    every apply, swept when the toggle goes off. kdeglobals and qt6ct point
+#    at this one.
+# 2. The DankMatugen*.colors files themselves get the same equalisation.
+#    KColorSchemeManager pins a scheme PER APP (Settings > Color Scheme writes
+#    e.g. ColorScheme=DankMatugen into dolphinrc), and a pinned app reads
+#    DMS's file directly — every view it creates from then on (new tab, split
+#    pane, new window) captures the striped alternate at construction and
+#    keeps it, no matter how uniform kdeglobals is (seen live in Dolphin
+#    26.04: fresh tabs striped while old views sat uniform). Patching the
+#    regenerated output rather than a template is the Kvantum-render move:
+#    DMS rewrites these files on every wallpaper/mode change, and this run —
+#    which follows DMS — re-patches them at the same cadence as the
+#    kdeglobals refresh. When the toggle goes off there is nothing to restore
+#    from; the stripes return with DMS's next regeneration.
 DANK_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
 UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankUniform.colors"
 # v0.8.0 briefly named the derived scheme DankMatugenUniform; sweep it so the
@@ -885,11 +899,40 @@ derive_uniform_scheme() {
     mv "$tmp" "$UNIFORM_SCHEME"
 }
 
+# Move 2 above: equalise the View alternate inside DMS's own scheme files, for
+# the apps that pin one of them per-app and so never look at DankUniform.
+uniform_dms_schemes() {
+    local f tmp
+    for f in "$XDG_DATA_HOME"/color-schemes/DankMatugen*.colors; do
+        [[ -f $f ]] || continue
+        if $DRY_RUN; then
+            log "DRY-RUN: equalise [Colors:View] alternate in ${f##*/}"
+            continue
+        fi
+        tmp="$f.tmp.$$"
+        awk '
+            /^\[/ { in_view = ($0 == "[Colors:View]") }
+            in_view && index($0, "BackgroundNormal=") == 1 { normal = substr($0, 18) }
+            { lines[++n] = $0 }
+            END {
+                for (i = 1; i <= n; i++) {
+                    line = lines[i]
+                    if (line ~ /^\[/) in_view = (line == "[Colors:View]")
+                    if (in_view && index(line, "BackgroundAlternate=") == 1 && normal != "")
+                        line = "BackgroundAlternate=" normal
+                    print line
+                }
+            }
+        ' "$f" > "$tmp" && mv "$tmp" "$f"
+    done
+}
+
 # The scheme every Qt/KDE consumer below points at: the uniform derivation when
 # the toggle is on and the source exists, DMS's own export otherwise.
 SCHEME_SOURCE="$DANK_SCHEME"
 KDE_SCHEME_NAME="DankMatugen"
 if [[ $UNIFORM_LIST_BG == true && $APPLY_MATUGEN_COLORS == true ]]; then
+    uniform_dms_schemes
     if derive_uniform_scheme; then
         SCHEME_SOURCE="$UNIFORM_SCHEME"
         KDE_SCHEME_NAME="DankUniform"
@@ -1662,6 +1705,19 @@ verify_uniform_list_bg() {
                 note "your own copy of Kvantum theme '$KVANTUM_PAIR_THEME' ($cfg) keeps alternating list colours; edit or remove it"
             fi
         fi
+    fi
+    # Apps that pin a scheme per-app read DMS's files directly. This run just
+    # equalised them, so a striped one here means something regenerated it
+    # behind us and pinned apps (e.g. Dolphin) stripe until the next apply.
+    local f normal alternate
+    if [[ $APPLY_MATUGEN_COLORS == true ]]; then
+        for f in "$XDG_DATA_HOME"/color-schemes/DankMatugen*.colors; do
+            [[ -f $f ]] || continue
+            normal=$(awk '/^\[/{v=($0=="[Colors:View]")} v && index($0,"BackgroundNormal=")==1 {print substr($0,18); exit}' "$f")
+            alternate=$(awk '/^\[/{v=($0=="[Colors:View]")} v && index($0,"BackgroundAlternate=")==1 {print substr($0,21); exit}' "$f")
+            [[ -n $normal && -n $alternate && $alternate != "$normal" ]] \
+                && note "${f##*/} keeps alternating list colours: apps pinned to it stripe in every new view"
+        done
     fi
     return 0
 }
