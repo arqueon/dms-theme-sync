@@ -46,6 +46,7 @@ Linux theming will not be fixed by this plugin. It can, within reach, stop being
 - **Cross-toolkit.** GTK2/3/4, GNOME/GSettings, Qt5/6, Kvantum, KDE, Flatpak, Fontconfig, XSettings and XCursor.
 - **It checks its own work.** After every apply it reads the system back: prunes dangling GTK symlinks, re-asserts gsettings, confirms `fc-match` really returns the font it asked for, and names the themes and tools that will fight it.
 - **Matugen-aware.** Reuses DMS's native Matugen output; never runs a second Matugen pass. Optionally renders a Kvantum theme and recolours Papirus folders from the same palette.
+- **No more zebra stripes.** Dolphin's alternating row colors have no off switch in Dolphin — and the obvious fix (making the alternate color equal the base color) *doesn't work* under Kvantum's transparent-view hack. The **Uniform list backgrounds** toggle removes the stripes on every Qt route at once; the why is a small case study in [its own section](#uniform-list-backgrounds--removing-dolphins-alternating-row-colors).
 - **DMS decides, the plugin propagates.** It changes DMS settings only through DMS's own API, never behind its back.
 - **Safe by default.** Every apply takes a restorable snapshot first.
 - **Detected dropdowns only.** No free-form theme/font fields; numeric sizes use sliders with reset buttons.
@@ -191,6 +192,29 @@ So the plugin renders the theme on every apply: `~/.config/Kvantum/DankMatugen/D
 
 The templates live in `assets/kvantum/`, vendored verbatim from [InioX/matugen-themes](https://github.com/InioX/matugen-themes) (MIT, see the `NOTICE` there) so an apply never depends on the network. They ask for twelve Material roles; DMS's `Theme` singleton exposes most of them and the rest are derived exactly the way DMS derives them in `buildMatugenColorsFromTheme()`. A role the plugin cannot resolve is **reported**, never written as a literal `{{colors.…}}` — Kvantum would read that as an invalid colour and quietly paint grey.
 
+### Uniform list backgrounds — removing Dolphin's alternating row colors
+
+**The symptom:** Dolphin's details view paints every other row in a different colour, there is no Dolphin setting to turn it off, and the usual internet advice (edit the color scheme, set `alternate-background-color` in a qt6ct stylesheet) either doesn't reach Dolphin's custom view or stops working on the next wallpaper change. This section documents the actual mechanics, because getting it wrong is easy — we did, twice — and each wrong fix *looks* correct.
+
+File managers stripe their lists with `QPalette::AlternateBase`, and the colour comes from whichever palette source the active GTK ↔ Qt route uses. That makes "remove the stripes" a three-front problem, and the **Uniform list backgrounds** toggle covers each front on the surface the plugin owns:
+
+- **KColorScheme route** — DMS regenerates `DankMatugen.colors` on every theme change, so editing it would fight the daemon. The plugin derives `DankUniform.colors` from it (View alternate equalised) and points `qt6ct`/`kdeglobals` there. The derived name deliberately does **not** start with `DankMatugen`: DMS core re-applies its own (striped) scheme through `plasma-apply-colorscheme` whenever the kdeglobals scheme name matches that prefix, which reintroduced the stripes for ~10 s after every wallpaper change — long enough for any KDE app that (re)read its palette in that window to keep them until restart. A foreign prefix takes DMS out of the kdeglobals business while the toggle is on.
+- **DankMatugen Kvantum render** — Kvantum polishes the palette from its own `[GeneralColors]`, so under the `kvantum` style the stripes come from `alt.base.color`. The render is patched in the *output*, never in the vendored template.
+- **Paired Kvantum theme** — a third party's design in `/usr/share/Kvantum`. Kvantum resolves user themes first, by kvconfig name, so the plugin shadows the theme in `~/.config/Kvantum/<name>/` with a patched `alt.base.color`, the SVG symlinked (pacman updates flow through), and a marker file recording the origin. A copy the *user* made — no marker — is never touched; reconcile reports it instead. Shadows for themes no longer selected are swept on every run, all of them when the toggle goes off.
+
+Why the obvious fixes fail — the three traps, in the order we fell into them:
+
+1. **A qt6ct stylesheet** (`QAbstractItemView { alternate-background-color: … }`) never reaches Dolphin: its details view is a custom `QGraphicsView`-based `KItemListView`, not a `QAbstractItemView`, so the selector simply doesn't match. The stylesheet works on Kate's or Qt Designer's lists and silently does nothing where you wanted it.
+2. **Making the alternate colour equal the base colour** — in the color scheme, in `kdeglobals`, or in the Kvantum theme — looks like the definitive fix and *still stripes*. Kvantum themes such as KvLibadwaita ship `transparent_dolphin_view=true`, under which Dolphin's *normal* rows show the **window** colour while the alternates are still painted with `AlternateBase`. Base and window differ, so the equalised stripes survive (measured live: rows at the DMS background against rows at Kvantum's base grey).
+
+3. **Fixing the scheme but keeping its name** — a derived scheme whose name still starts with `DankMatugen` gets stomped by DMS core itself: on every wallpaper regeneration it sees "its" scheme active in kdeglobals and runs `plasma-apply-colorscheme` with the original striped one, undoing the fix for the ~10 s until the plugin re-applies. Transient on paper; permanent for any KDE app that happened to read its palette inside that window.
+
+The value that actually works on the two Kvantum fronts is a **fully transparent** `#00000000` alternate: painting with it is a no-op, so opaque views show base through it and transparent views show the window through it. It is the one "no stripes" value that holds on every route — which is what the toggle writes.
+
+Independently of the toggle, every apply re-copies the scheme's `[Colors:*]` sections into `kdeglobals`. KDE apps read their colours from that embedded copy, which only `plasma-apply-colorscheme` refreshes — and DMS invokes it on mode switches, not on wallpaper regenerations, so the copy silently ages while the `.colors` file moves on. Reconcile verifies the two agree after each run.
+
+Running apps re-read the palette on restart; the stripes disappear the next time each application starts.
+
 ### Folder accent
 
 The folder overlay picks the Papirus folder set whose hue is nearest the Matugen accent. Papirus also carries themed palettes (`nordic`, `yaru`, `cat-*`) whose hues collide with the plain ones, so the plain palette is searched first and the themed entries are a fallback — otherwise `#a1c9ff` lands on `nordic` as readily as on `blue`.
@@ -298,6 +322,8 @@ The helper makes **key-level, idempotent** edits; it never replaces whole GTK/Qt
 - `~/.config/hypr/dms-theme-sync.conf` / `dms-theme-sync.lua` — Hyprland only (plus one `source`/`require` line in your main config)
 - `~/.config/labwc/environment` — labwc only (a delimited `dmsThemeSync` block; surrounding lines untouched)
 - `~/.config/dms-theme-sync/{kitty.conf,alacritty.toml,ghostty.conf}` — only when **Synchronize terminal fonts** is on; referenced from your terminal configs, never injected into them
+- `~/.local/share/color-schemes/DankUniform.colors` — only while **Uniform list backgrounds** is on; derived from DMS's `DankMatugen.colors` on every apply, deleted when the toggle goes off
+- `~/.config/Kvantum/<pair-theme>/` — only while **Uniform list backgrounds** is on and a Kvantum pair theme is selected; a marker file (`.dms-theme-sync-uniform`) records it as plugin-made, and unmarked user copies are never touched
 
 The fontconfig, `environment.d`, Hyprland include, labwc env and terminal font files are captured in snapshots (including their prior absence), so restore can revert or remove them. The Niri include is regenerated on each apply and left in place to avoid a dangling `include`.
 

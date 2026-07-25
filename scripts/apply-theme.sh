@@ -26,6 +26,7 @@ SYNC_FOLDER_COLOR=false
 FOLDER_BASE_THEME=""
 SYNC_FLATPAK=false
 SYNC_KVANTUM=false
+UNIFORM_LIST_BG=false
 KV_COLORS=""
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
@@ -59,6 +60,7 @@ while (( $# )); do
         --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
         --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
         --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
+        --uniform-list-bg) UNIFORM_LIST_BG=${2:?}; shift 2 ;;
         --kvantum-colors) KV_COLORS=${2-}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
@@ -831,6 +833,72 @@ set_gsetting_string org.gnome.desktop.wm.preferences titlebar-font "$FONT Bold $
 set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark ]] && printf prefer-dark || printf prefer-light)"
 set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 
+# --- Uniform list backgrounds -------------------------------------------------
+#
+# File managers (Dolphin's details view above all) stripe their lists with
+# QPalette::AlternateBase, and there is no Dolphin toggle for it: the colour
+# comes from whichever palette source the active route uses. DMS's exported
+# scheme keeps [Colors:View] BackgroundAlternate distinct from BackgroundNormal
+# by design, and that file is regenerated on every theme change, so editing it
+# would fight the daemon. Instead we derive a plugin-owned scheme from it with
+# the View alternate equalised — same pattern as the -DankFolders overlay: a
+# derived asset, refreshed on every apply, swept when the toggle goes off.
+DANK_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
+UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankUniform.colors"
+# v0.8.0 briefly named the derived scheme DankMatugenUniform; sweep it so the
+# picker holds one uniform scheme, not two.
+LEGACY_UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
+
+derive_uniform_scheme() {
+    [[ -f $DANK_SCHEME ]] || return 1
+    if $DRY_RUN; then
+        log "DRY-RUN: derive ${UNIFORM_SCHEME##*/} from ${DANK_SCHEME##*/}"
+        return 0
+    fi
+    local tmp="$UNIFORM_SCHEME.tmp.$$"
+    # The name deliberately does NOT carry the DankMatugen prefix: DMS core's
+    # isDMSKDEColorSchemeActive() matches by prefix and then runs
+    # plasma-apply-colorscheme with the (non-uniform) DankMatugenDark/Light
+    # scheme, stomping the uniform sections out of kdeglobals until the next
+    # plugin apply — a ~10 s window in which every KDE app that (re)reads its
+    # palette picks the stripes back up (seen live in a Dolphin split pane).
+    # With a foreign prefix DMS leaves kdeglobals alone, and the refresh below
+    # is its only writer while the toggle is on.
+    awk '
+        /^\[/ { in_view = ($0 == "[Colors:View]"); in_general = ($0 == "[General]") }
+        in_view && index($0, "BackgroundNormal=") == 1 { normal = substr($0, 18) }
+        { lines[++n] = $0 }
+        END {
+            for (i = 1; i <= n; i++) {
+                line = lines[i]
+                if (line ~ /^\[/) { in_view = (line == "[Colors:View]"); in_general = (line == "[General]") }
+                if (in_view && index(line, "BackgroundAlternate=") == 1 && normal != "")
+                    line = "BackgroundAlternate=" normal
+                if (in_general && index(line, "ColorScheme=") == 1)
+                    line = "ColorScheme=DankUniform"
+                if (in_general && index(line, "Name=") == 1)
+                    line = "Name=Dank (uniform lists)"
+                print line
+            }
+        }
+    ' "$DANK_SCHEME" > "$tmp"
+    mv "$tmp" "$UNIFORM_SCHEME"
+}
+
+# The scheme every Qt/KDE consumer below points at: the uniform derivation when
+# the toggle is on and the source exists, DMS's own export otherwise.
+SCHEME_SOURCE="$DANK_SCHEME"
+KDE_SCHEME_NAME="DankMatugen"
+if [[ $UNIFORM_LIST_BG == true && $APPLY_MATUGEN_COLORS == true ]]; then
+    if derive_uniform_scheme; then
+        SCHEME_SOURCE="$UNIFORM_SCHEME"
+        KDE_SCHEME_NAME="DankUniform"
+    fi
+elif [[ -f $UNIFORM_SCHEME ]] && ! $DRY_RUN; then
+    rm -f "$UNIFORM_SCHEME"   # toggle turned off: leave no orphan scheme behind
+fi
+$DRY_RUN || rm -f "$LEGACY_UNIFORM_SCHEME"
+
 # The 10-field font string is Qt5's legacy QFont::toString format, and its
 # weight field uses Qt5's 0-99 scale (50 = normal). Qt6 detects the legacy field
 # count and converts — but only if the value IS legacy: writing the OpenType 400
@@ -842,11 +910,37 @@ for qt_version in 5 6; do
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
     update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0\""
     update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0\""
-    if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
+    if [[ $APPLY_MATUGEN_COLORS == true && -f $DANK_SCHEME ]]; then
         update_ini "$qt_file" Appearance custom_palette true
-        update_ini "$qt_file" Appearance color_scheme_path "$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
+        update_ini "$qt_file" Appearance color_scheme_path "$SCHEME_SOURCE"
     fi
 done
+
+# KDE apps read their colours straight from kdeglobals' [Colors:*] sections, a
+# full copy of the scheme that only plasma-apply-colorscheme refreshes — and DMS
+# invokes that on mode switches, not on every wallpaper regeneration, so the
+# copy silently ages while the .colors file moves on. Re-copy the sections from
+# the scheme we point everything else at, so kdeglobals can never go stale.
+refresh_kdeglobals_colors() {
+    local scheme_file=$1 kdeglobals=$2 tmp
+    [[ -f $scheme_file ]] || return 0
+    if $DRY_RUN; then
+        log "DRY-RUN: refresh [Colors:*] in $kdeglobals from ${scheme_file##*/}"
+        return 0
+    fi
+    tmp="$kdeglobals.tmp.$$"
+    {
+        awk '
+            /^\[/ { drop = ($0 ~ /^\[Colors:/ || $0 ~ /^\[ColorEffects:/) }
+            !drop { print }
+        ' "$kdeglobals" 2>/dev/null
+        awk '
+            /^\[/ { keep = ($0 ~ /^\[Colors:/ || $0 ~ /^\[ColorEffects:/) }
+            keep { print }
+        ' "$scheme_file"
+    } > "$tmp"
+    mv "$tmp" "$kdeglobals"
+}
 
 if [[ $SYNC_KDE == true ]]; then
     KDEGLOBALS="$XDG_CONFIG_HOME/kdeglobals"
@@ -856,8 +950,9 @@ if [[ $SYNC_KDE == true ]]; then
     update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
     update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
     [[ -n $ICON_THEME ]] && update_ini "$KDEGLOBALS" Icons Theme "$ICON_THEME"
-    if [[ $APPLY_MATUGEN_COLORS == true && -f $XDG_DATA_HOME/color-schemes/DankMatugen.colors ]]; then
-        update_ini "$KDEGLOBALS" General ColorScheme DankMatugen
+    if [[ $APPLY_MATUGEN_COLORS == true && -f $DANK_SCHEME ]]; then
+        update_ini "$KDEGLOBALS" General ColorScheme "$KDE_SCHEME_NAME"
+        refresh_kdeglobals_colors "$SCHEME_SOURCE" "$KDEGLOBALS"
     fi
     [[ -n $CURSOR_THEME ]] && update_ini "$XDG_CONFIG_HOME/kcminputrc" Mouse cursorTheme "$CURSOR_THEME"
     update_ini "$XDG_CONFIG_HOME/kcminputrc" Mouse cursorSize "$CURSOR_SIZE"
@@ -995,23 +1090,92 @@ sync_kvantum_theme() {
     leftover=$(grep -ohE '\{\{colors\.[a-z_]+' "$out_dir/$name.kvconfig" "$out_dir/$name.svg" | sort -u | head -3)
     [[ -n $leftover ]] && log "kvantum: unresolved roles: $(tr '\n' ' ' <<<"$leftover")"
 
+    # Kvantum polishes QPalette from its own [GeneralColors], so under this
+    # style the list stripes come from alt.base.color, not from any .colors
+    # file. Equalising it with base.color is NOT enough: the template carries
+    # transparent_dolphin_view=true, under which Dolphin's normal rows show the
+    # *window* colour while the alternates are still painted with
+    # AlternateBase — base and window differ, so the stripes survive (measured
+    # live: rows at the DMS background vs rows at base). A fully transparent
+    # alternate is the one value uniform everywhere: opaque views show base
+    # through it, transparent views show the window through it. The render is
+    # plugin-owned: patch the output, never the template.
+    if [[ $UNIFORM_LIST_BG == true ]]; then
+        update_ini "$out_dir/$name.kvconfig" GeneralColors alt.base.color '#00000000'
+    fi
+
     update_ini "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" General theme "$name"
     log "kvantum: theme '$name' rendered and selected"
+}
+
+# A paired theme's colours belong to its author, and a shadow copy in the user
+# Kvantum directory is how they can be adjusted without touching /usr/share:
+# Kvantum resolves user themes first, by kvconfig name. The copy carries a
+# marker file recording its origin, so a copy the USER made is never touched
+# (no marker -> hands off; reconcile reports it instead), pacman updates reach
+# the SVG through a symlink, and the sweep below removes only what we made.
+UNIFORM_MARKER=".dms-theme-sync-uniform"
+
+uniform_pair_shadow() {
+    local name=$1 dir sys_dir=""
+    local shadow="$XDG_CONFIG_HOME/Kvantum/$name"
+    if [[ -d $shadow && ! -f $shadow/$UNIFORM_MARKER ]]; then
+        return 0    # the user's own copy of the theme: their edit wins
+    fi
+    for dir in /usr/local/share/Kvantum/*/ /usr/share/Kvantum/*/; do
+        [[ -f $dir$name.kvconfig ]] && { sys_dir=${dir%/}; break; }
+    done
+    [[ -n $sys_dir ]] || { log "uniform: no system copy of Kvantum theme '$name'; leaving it as is"; return 1; }
+    if $DRY_RUN; then
+        log "DRY-RUN: shadow '$name' in ~/.config/Kvantum with a transparent alt.base.color"
+        return 0
+    fi
+    rm -rf "$shadow"; mkdir -p "$shadow"
+    cp "$sys_dir/$name.kvconfig" "$shadow/$name.kvconfig"
+    # Transparent, not base.color: themes like KvLibadwaita ship
+    # transparent_dolphin_view=true, so Dolphin's normal rows show the window
+    # while alternates are painted with AlternateBase — matching it to base
+    # still stripes against the window. Transparent vanishes against both.
+    update_ini "$shadow/$name.kvconfig" GeneralColors alt.base.color '#00000000'
+    [[ -f $sys_dir/$name.svg ]] && ln -sfn "$sys_dir/$name.svg" "$shadow/$name.svg"
+    printf 'source=%s\n' "$sys_dir" > "$shadow/$UNIFORM_MARKER"
+    log "uniform: '$name' shadowed with uniform list backgrounds"
+}
+
+# Sweep shadows we made for themes no longer selected ($1 = the one to keep,
+# empty to remove them all — the toggle-off path).
+sweep_uniform_shadows() {
+    local keep=$1 dir
+    $DRY_RUN && return 0
+    for dir in "$XDG_CONFIG_HOME/Kvantum"/*/; do
+        [[ -f $dir$UNIFORM_MARKER ]] || continue
+        [[ -n $keep && ${dir%/} == "$XDG_CONFIG_HOME/Kvantum/$keep" ]] && continue
+        rm -rf "${dir%/}"
+    done
 }
 
 # A paired theme wins over the DankMatugen render: pairing means "both halves
 # come from one design", and overwriting the pair's colours with the DMS
 # palette would undo exactly that.
 if [[ -n $KVANTUM_PAIR_THEME ]]; then
+    if [[ $UNIFORM_LIST_BG == true ]]; then
+        uniform_pair_shadow "$KVANTUM_PAIR_THEME" || true
+        sweep_uniform_shadows "$KVANTUM_PAIR_THEME"
+    else
+        sweep_uniform_shadows ""
+    fi
     if $DRY_RUN; then
         log "DRY-RUN: select Kvantum theme '$KVANTUM_PAIR_THEME' (paired with GTK '${GTK_THEME:-$(current_gtk_theme)}')"
     else
         update_ini "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" General theme "$KVANTUM_PAIR_THEME"
         log "kvantum: paired theme '$KVANTUM_PAIR_THEME' selected for GTK theme '${GTK_THEME:-$(current_gtk_theme)}'"
     fi
-elif [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
-    if $DRY_RUN || kvantum_style_plugin_installed; then
-        sync_kvantum_theme || true
+else
+    sweep_uniform_shadows ""
+    if [[ $SYNC_KVANTUM == true && $QT_STYLE == kvantum ]]; then
+        if $DRY_RUN || kvantum_style_plugin_installed; then
+            sync_kvantum_theme || true
+        fi
     fi
 fi
 
@@ -1478,7 +1642,44 @@ verify_theme_assets() {
     return 0
 }
 
-# 5. Other appearance tools do not coordinate with anyone. Their mere presence
+# 5. Uniform list backgrounds can only be guaranteed on surfaces the plugin
+#    owns. A user-made copy of the paired Kvantum theme shadows both the system
+#    theme and anything we could generate, so if it stripes, say so and name it.
+verify_uniform_list_bg() {
+    [[ $UNIFORM_LIST_BG == true ]] || return 0
+    local dir cfg base alt
+    if [[ -n $KVANTUM_PAIR_THEME ]]; then
+        dir="$XDG_CONFIG_HOME/Kvantum/$KVANTUM_PAIR_THEME"
+        cfg="$dir/$KVANTUM_PAIR_THEME.kvconfig"
+        if [[ -f $cfg && ! -f $dir/$UNIFORM_MARKER ]]; then
+            base=$(sed -n 's/^base\.color=//p' "$cfg" | head -n 1)
+            alt=$(sed -n 's/^alt\.base\.color=//p' "$cfg" | head -n 1)
+            # alt == base is not enough under transparent_dolphin_view: the
+            # normal rows show the window there, and only a fully transparent
+            # alternate vanishes against it.
+            if [[ -n $alt && ${alt,,} != '#00000000' ]] && \
+               { [[ $alt != "$base" ]] || grep -q '^transparent_dolphin_view=true' "$cfg"; }; then
+                note "your own copy of Kvantum theme '$KVANTUM_PAIR_THEME' ($cfg) keeps alternating list colours; edit or remove it"
+            fi
+        fi
+    fi
+    return 0
+}
+
+# 6. kdeglobals carries a full copy of the scheme's [Colors:*] sections. The
+#    refresh above keeps it in step; if it still disagrees after this run,
+#    something else rewrote it behind us.
+verify_kdeglobals_colors() {
+    local kdeglobals="$XDG_CONFIG_HOME/kdeglobals" want got
+    [[ -f $kdeglobals && -f $SCHEME_SOURCE ]] || return 0
+    want=$(awk '/^\[/{v=($0=="[Colors:View]")} v && index($0,"BackgroundNormal=")==1 {print substr($0,18); exit}' "$SCHEME_SOURCE")
+    got=$(awk '/^\[/{v=($0=="[Colors:View]")} v && index($0,"BackgroundNormal=")==1 {print substr($0,18); exit}' "$kdeglobals")
+    [[ -z $got || -z $want || $got == "$want" ]] \
+        || note "kdeglobals [Colors:View] ($got) does not match ${SCHEME_SOURCE##*/} ($want): KDE apps are painting a stale palette"
+    return 0
+}
+
+# 7. Other appearance tools do not coordinate with anyone. Their mere presence
 #    means the next thing the user clicks can undo this run. Report, never touch.
 detect_foreign_writers() {
     local cfg="${XDG_CONFIG_HOME:-$HOME/.config}" f
@@ -1498,6 +1699,8 @@ if ! $DRY_RUN; then
     # Filesystem-only checks: safe without a session, so they run in tests too.
     prune_broken_links
     verify_theme_assets
+    verify_uniform_list_bg
+    [[ $SYNC_KDE == true && $APPLY_MATUGEN_COLORS == true ]] && verify_kdeglobals_colors
     detect_foreign_writers
     if [[ $NO_RUNTIME != true ]]; then
         command -v gsettings >/dev/null 2>&1 && verify_gsettings
@@ -1507,4 +1710,4 @@ if ! $DRY_RUN; then
         || log "reconcile: $RECONCILE_ISSUES issue(s) above"
 fi
 
-log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS"
+log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG"

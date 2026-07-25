@@ -552,6 +552,107 @@ else
     printf 'kvantum: skipped (style plugin not installed)\n'
 fi
 
+# --- Uniform list backgrounds: derived scheme, render, pair shadow, kdeglobals -
+#
+# The stripes in Dolphin's details view come from QPalette::AlternateBase, whose
+# source depends on the route. The toggle must equalise every surface the plugin
+# owns and clean all of it up when turned off.
+SCHEMES="$XDG_DATA_HOME/color-schemes"
+printf '[General]\nColorScheme=DankMatugen\nName=Dank Shell (matugen)\n\n[Colors:View]\nBackgroundAlternate=10,20,30\nBackgroundNormal=1,2,3\nForegroundNormal=200,200,200\n\n[Colors:Window]\nBackgroundNormal=5,6,7\n' \
+    > "$SCHEMES/DankMatugen.colors"
+
+run_uniform() {
+    "$ROOT/scripts/apply-theme.sh" --compositor generic \
+        --font Archivo --mono-font "Cascadia Mono" \
+        --icon-theme Papirus-Dark --cursor-theme Breeze \
+        --mode dark --qt-platform-theme qtct --apply-matugen-colors true \
+        --sync-xsettingsd false --backup-enabled false --no-runtime "$@" 2>&1
+}
+
+# off (default): no derived scheme, qt6ct points at DMS's own file
+run_uniform --sync-kde true --qt-style Fusion >/dev/null
+[[ ! -e $SCHEMES/DankUniform.colors ]] \
+    || { printf 'Derived scheme written while the toggle was off\n' >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankMatugen.colors"
+# ...but kdeglobals still gets the fresh [Colors:*] copy (the staleness fix)
+assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=10,20,30"
+assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankMatugen'
+
+# on: derived scheme with the View alternate equalised, everything points at it
+run_uniform --sync-kde true --qt-style Fusion --uniform-list-bg true >/dev/null
+[[ -f $SCHEMES/DankUniform.colors ]] \
+    || { printf 'Derived uniform scheme not written\n' >&2; exit 1; }
+grep -A2 '\[Colors:View\]' "$SCHEMES/DankUniform.colors" | grep -Fqx 'BackgroundAlternate=1,2,3' \
+    || { printf 'Derived scheme did not equalise the View alternate\n' >&2; exit 1; }
+grep -Fqx 'ColorScheme=DankUniform' "$SCHEMES/DankUniform.colors" \
+    || { printf 'Derived scheme kept the original ColorScheme name\n' >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankUniform.colors"
+assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankUniform'
+assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=1,2,3"
+# untouched sections still arrive verbatim
+assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundNormal=5,6,7"
+
+# kdeglobals refresh is a section replace, not an append: run twice, one copy
+count=$(grep -c '^\[Colors:View\]' "$XDG_CONFIG_HOME/kdeglobals")
+[[ $count -eq 1 ]] || { printf 'kdeglobals holds %s copies of [Colors:View]\n' "$count" >&2; exit 1; }
+
+# the DankMatugen render gets a transparent alternate in the output, not in the
+# template: the template ships transparent_dolphin_view=true, under which an
+# alternate equal to base still stripes against the window colour.
+if find /usr/lib /usr/lib64 -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .; then
+    run_uniform --sync-kde false --qt-style kvantum --sync-kvantum true \
+        --kvantum-colors "$KV_COLORS" --uniform-list-bg true >/dev/null
+    kv_alt=$(sed -n 's/^alt\.base\.color=//p' "$XDG_CONFIG_HOME/Kvantum/DankMatugen/DankMatugen.kvconfig" | head -1)
+    [[ $kv_alt == '#00000000' ]] \
+        || { printf 'Rendered kvconfig alternate not transparent (alt=%s)\n' "$kv_alt" >&2; exit 1; }
+    grep -q 'alt.base.color={{' "$ROOT/assets/kvantum/DankMatugen.kvconfig.in" \
+        || { printf 'Template was modified instead of the render\n' >&2; exit 1; }
+    rm -rf "$XDG_CONFIG_HOME/Kvantum"
+fi
+
+# pair theme: a marked shadow copy is built from the system theme and swept off.
+# The fake system root cannot be under /usr in a test, so exercise the
+# user-copy rule instead: an unmarked user copy is never touched and reconcile
+# names it when it stripes.
+mkdir -p "$XDG_DATA_HOME/themes/WhiteSur-Dark" "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark"
+printf '[GeneralColors]\nbase.color=#101010\nalt.base.color=#202020\n' \
+    > "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark/WhiteSurDark.kvconfig"
+pair_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" run_uniform --sync-kde false \
+    --gtk-theme-dark WhiteSur-Dark --qt-sync-mode pair --uniform-list-bg true)
+grep -q "your own copy of Kvantum theme 'WhiteSurDark'" <<<"$pair_out" \
+    || { printf 'Unmarked user pair copy not reported:\n%s\n' "$pair_out" >&2; exit 1; }
+grep -Fqx 'alt.base.color=#202020' "$XDG_CONFIG_HOME/Kvantum/WhiteSurDark/WhiteSurDark.kvconfig" \
+    || { printf 'User-owned pair copy was modified\n' >&2; exit 1; }
+# a marked dir is ours: swept when the toggle goes off
+mkdir -p "$XDG_CONFIG_HOME/Kvantum/FakeShadow"
+printf 'source=/usr/share/Kvantum/FakeShadow\n' > "$XDG_CONFIG_HOME/Kvantum/FakeShadow/.dms-theme-sync-uniform"
+run_uniform --sync-kde false --qt-style Fusion >/dev/null
+[[ ! -d $XDG_CONFIG_HOME/Kvantum/FakeShadow ]] \
+    || { printf 'Marked shadow survived the toggle being off\n' >&2; exit 1; }
+[[ -d $XDG_CONFIG_HOME/Kvantum/WhiteSurDark ]] \
+    || { printf 'User-owned Kvantum copy was swept\n' >&2; exit 1; }
+rm -rf "$XDG_CONFIG_HOME/Kvantum"
+
+# off again: the derived scheme is removed and the pointers return to DMS's file
+run_uniform --sync-kde true --qt-style Fusion >/dev/null
+[[ ! -e $SCHEMES/DankUniform.colors ]] \
+    || { printf 'Derived scheme survived the toggle being turned off\n' >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankMatugen.colors"
+assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankMatugen'
+
+# reconcile names a stale kdeglobals copy (another writer rewrote it behind us)
+sed -i 's/^BackgroundNormal=1,2,3/BackgroundNormal=9,9,9/' "$XDG_CONFIG_HOME/kdeglobals"
+stale_out=$(run_uniform --sync-kde false --qt-style Fusion)
+grep -q 'stale palette' <<<"$stale_out" \
+    && { printf 'Stale note fired with sync-kde off\n' >&2; exit 1; }
+stale_out=$(run_uniform --sync-kde true --qt-style Fusion)
+grep -q 'stale palette' <<<"$stale_out" \
+    && { printf 'Stale note fired although the refresh just ran\n' >&2; exit 1; }
+assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundNormal=1,2,3"
+
+# restore the minimal scheme the earlier blocks expect
+printf '[ColorEffects:Disabled]\nColor=0,0,0\n' > "$SCHEMES/DankMatugen.colors"
+
 # --- Qt platform theme: any plugin name Qt can load, and the style-is-inert note -
 #
 # qt5ct/qt6ct.conf is read by the qtXct platform theme and nobody else. Under

@@ -936,6 +936,13 @@ PluginSettings {
         defaultValue: true
     }
 
+    ToggleSetting {
+        settingKey: "uniformListBg"
+        label: "Uniform list backgrounds"
+        description: "Remove the alternating row colors in file lists (Dolphin details view and friends) on every surface the plugin manages"
+        defaultValue: false
+    }
+
     SectionHeader {
         text: "GTK ↔ Qt synchronization"
     }
