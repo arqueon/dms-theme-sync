@@ -610,6 +610,25 @@ folder_base=${FOLDER_BASE_THEME:-$ICON_THEME}
 [[ $folder_base == *"$OVERLAY_SUFFIX" ]] && folder_base=${folder_base%"$OVERLAY_SUFFIX"}
 overlay_dir="$icons_home/${folder_base}${OVERLAY_SUFFIX}"
 
+# The overlay's name must stay ${folder_base}${OVERLAY_SUFFIX}: the QML side
+# recomputes that exact name to hand to DMS, and renaming per mode would strand
+# the icon-theme setting on every light/dark flip. The *content* is a different
+# matter — a light base's monochrome action icons (#444444 in Papirus) vanish
+# against a dark palette — so the symlinks and Inherits= derive from the mode's
+# variant of the base whenever one is installed.
+folder_source=$folder_base
+if [[ $MODE == dark ]]; then
+    for candidate in "${folder_base%-Light}-Dark" "${folder_base%-light}-dark"; do
+        [[ $candidate != "$folder_base" ]] || continue
+        icon_theme_dir "$candidate" >/dev/null && { folder_source=$candidate; break; }
+    done
+else
+    for candidate in "${folder_base%-Dark}" "${folder_base%-dark}"; do
+        [[ $candidate != "$folder_base" ]] || continue
+        icon_theme_dir "$candidate" >/dev/null && { folder_source=$candidate; break; }
+    done
+fi
+
 # Sweep overlays left behind by a previous base theme. Without this, switching
 # Papirus-Dark -> Tela strands `Papirus-Dark-DankFolders` in the theme picker.
 if ! $DRY_RUN; then
@@ -619,14 +638,14 @@ if ! $DRY_RUN; then
 fi
 
 if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
-    base_dir=$(icon_theme_dir "$folder_base" || true)
+    base_dir=$(icon_theme_dir "$folder_source" || true)
     places_dir="$base_dir/64x64/places"
     accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
         "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
         | grep -oE '#[0-9a-fA-F]{6}' || true)
 
     if [[ -z $base_dir || ! -d $places_dir ]]; then
-        log "folder-color: '$folder_base' has no Places icons; skipping"
+        log "folder-color: '$folder_source' has no Places icons; skipping"
     elif [[ -z $accent ]]; then
         log "folder-color: no Matugen accent found; skipping"
     else
@@ -636,6 +655,9 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
         elif $DRY_RUN; then
             log "DRY-RUN: build overlay $overlay_dir (accent $accent -> $color)"
         elif build_folder_overlay "$base_dir" "$color" "$overlay_dir"; then
+            if [[ $folder_source != "$folder_base" ]]; then
+                log "folder-color: deriving from $folder_source ($MODE-mode variant of $folder_base)"
+            fi
             # The overlay is a derived asset, not a decision. We build it and
             # name it; DMS decides whether it becomes the icon theme, so its own
             # drift check (checkIconThemeDrift) never sees a stranger in

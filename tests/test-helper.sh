@@ -384,6 +384,24 @@ if [[ -n $PAPIRUS ]]; then
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
+    # --- Dark mode derives the overlay from the base's dark variant -----------
+    #
+    # folderColorBaseTheme remembers a light base ("Papirus"); in dark mode the
+    # overlay must keep that name — the QML side recomputes it — but inherit
+    # Papirus-Dark, or every monochrome action icon renders #444444 against a
+    # near-black palette.
+    if [[ -d ${PAPIRUS%-Dark}/64x64/places ]]; then
+        OVERLAY_LIGHTBASE="$XDG_DATA_HOME/icons/Papirus-DankFolders"
+        run_folder --sync-folder-color true --folder-base-theme Papirus
+        [[ -d $OVERLAY_LIGHTBASE ]] \
+            || { printf 'Overlay not named after the configured base\n' >&2; exit 1; }
+        grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY_LIGHTBASE/index.theme" \
+            || { printf 'Dark mode did not derive the overlay from Papirus-Dark\n' >&2; exit 1; }
+        run_folder --sync-folder-color false --folder-base-theme Papirus
+        [[ ! -d $OVERLAY_LIGHTBASE ]] \
+            || { printf 'Light-base overlay survived the toggle being turned off\n' >&2; exit 1; }
+    fi
+
     # --- Catppuccin: match the theme exactly, not approximately ---------------
     #
     # papirus-folders-catppuccin ships 4 flavours x 14 accents. When the GTK
