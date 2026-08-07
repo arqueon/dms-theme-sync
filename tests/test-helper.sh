@@ -339,27 +339,32 @@ if [[ -n $PAPIRUS ]]; then
         > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
 
     run_folder() {
+        local folder_mode=${TEST_FOLDER_MODE:-dark}
         "$ROOT/scripts/apply-theme.sh" \
             --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
             --font-size 11 --mono-size 12 --document-size 13 \
             --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
-            --mode dark --gtk-theme-light auto --gtk-theme-dark auto \
+            --mode "$folder_mode" --gtk-theme-light auto --gtk-theme-dark auto \
             --qt-platform-theme qtct --qt-style Fusion \
             --apply-matugen-colors true --sync-kde false --sync-xsettingsd false \
-            --backup-enabled false --backup-retention 10 --no-runtime "$@" >/dev/null
+            --backup-enabled false --backup-retention 10 --no-runtime "$@"
     }
 
-    run_folder --sync-folder-color false
+    run_folder --sync-folder-color false >/dev/null
     [[ ! -d $OVERLAY ]] || { printf 'Overlay built while the toggle was off\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
-    run_folder --sync-folder-color true
+    folder_first_output=$(run_folder --sync-folder-color true)
+    grep -Fqx "ICON_THEME_RELOAD_REQUIRED:Papirus-Dark-DankFolders" <<<"$folder_first_output" \
+        || { printf 'First overlay build did not request an icon reload\n' >&2; exit 1; }
     [[ -d $OVERLAY ]] || { printf 'Overlay not built with the toggle on\n' >&2; exit 1; }
     # a red accent must resolve to the `red` folders, not to a themed near-hue
     [[ $(readlink "$OVERLAY/64x64/places/folder.svg") == *"/folder-red.svg" ]] \
         || { printf 'Accent did not map to the red folder set\n' >&2; exit 1; }
     grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY/index.theme" \
         || { printf 'Overlay does not inherit from the base theme\n' >&2; exit 1; }
+    grep -Fqx "X-DmsThemeSync-Signature=Papirus-Dark:red" "$OVERLAY/index.theme" \
+        || { printf 'Overlay signature does not describe its source and colour\n' >&2; exit 1; }
     # Papirus reaches its folder icons through ~220 relative aliases per size.
     # GTK apps ask for `folder`; KDE apps ask for `inode-directory`. Carry only
     # the former and Thunar and Dolphin show two different folder colours.
@@ -379,9 +384,34 @@ if [[ -n $PAPIRUS ]]; then
     # DMS's own drift check and unmanage the theme.
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
+    # Rebuilding the same derived theme must stay quiet: the D-Bus reload is
+    # reserved for semantic changes, not every automatic synchronization.
+    folder_repeat_output=$(run_folder --sync-folder-color true)
+    ! grep -Fq "ICON_THEME_RELOAD_REQUIRED:" <<<"$folder_repeat_output" \
+        || { printf 'Unchanged overlay requested a redundant icon reload\n' >&2; exit 1; }
+
+    # The theme name remains stable across a mode flip, but its inheritance
+    # changes. That exact transition used to leave Dolphin's toolbar pixmaps
+    # cached until the application was restarted.
+    if [[ -d ${PAPIRUS%-Dark}/64x64/places ]]; then
+        folder_light_output=$(TEST_FOLDER_MODE=light run_folder --sync-folder-color true)
+        grep -Fqx "Inherits=Papirus,hicolor" "$OVERLAY/index.theme" \
+            || { printf 'Light mode did not derive the overlay from Papirus\n' >&2; exit 1; }
+        grep -Fq "ICON_THEME_RELOAD_REQUIRED:" <<<"$folder_light_output" \
+            || { printf 'Dark-to-light overlay change did not request an icon reload\n' >&2; exit 1; }
+
+        folder_dark_output=$(run_folder --sync-folder-color true)
+        grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY/index.theme" \
+            || { printf 'Dark mode did not restore the Papirus-Dark inheritance\n' >&2; exit 1; }
+        grep -Fq "ICON_THEME_RELOAD_REQUIRED:" <<<"$folder_dark_output" \
+            || { printf 'Light-to-dark overlay change did not request an icon reload\n' >&2; exit 1; }
+    fi
+
     # turning it back off removes the generated theme
-    run_folder --sync-folder-color false
+    folder_remove_output=$(run_folder --sync-folder-color false)
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
+    grep -Fq "ICON_THEME_RELOAD_REQUIRED:" <<<"$folder_remove_output" \
+        || { printf 'Removing the active overlay did not request an icon reload\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
     # --- Dark mode derives the overlay from the base's dark variant -----------
@@ -392,12 +422,12 @@ if [[ -n $PAPIRUS ]]; then
     # near-black palette.
     if [[ -d ${PAPIRUS%-Dark}/64x64/places ]]; then
         OVERLAY_LIGHTBASE="$XDG_DATA_HOME/icons/Papirus-DankFolders"
-        run_folder --sync-folder-color true --folder-base-theme Papirus
+        run_folder --sync-folder-color true --folder-base-theme Papirus >/dev/null
         [[ -d $OVERLAY_LIGHTBASE ]] \
             || { printf 'Overlay not named after the configured base\n' >&2; exit 1; }
         grep -Fqx "Inherits=Papirus-Dark,hicolor" "$OVERLAY_LIGHTBASE/index.theme" \
             || { printf 'Dark mode did not derive the overlay from Papirus-Dark\n' >&2; exit 1; }
-        run_folder --sync-folder-color false --folder-base-theme Papirus
+        run_folder --sync-folder-color false --folder-base-theme Papirus >/dev/null
         [[ ! -d $OVERLAY_LIGHTBASE ]] \
             || { printf 'Light-base overlay survived the toggle being turned off\n' >&2; exit 1; }
     fi
