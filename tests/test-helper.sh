@@ -72,15 +72,93 @@ before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 after=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 [[ $before == "$after" ]] || { printf 'Second run was not idempotent\n' >&2; exit 1; }
 
+# Dotfile managers place symlinks at the paths the helper updates. Exercise the
+# three structured writers plus generated GTK CSS and session files, using the
+# relative link shape produced by GNU Stow/lnk.
+DOTFILES="$HOME/dotfiles"
+mkdir -p "$DOTFILES/gtk-3.0" "$DOTFILES/gtk-4.0" "$DOTFILES/environment.d"
+mv "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "$DOTFILES/gtk-3.0/settings.ini"
+ln -s ../../dotfiles/gtk-3.0/settings.ini "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+mv "$HOME/.gtkrc-2.0" "$DOTFILES/gtkrc-2.0"
+ln -s dotfiles/gtkrc-2.0 "$HOME/.gtkrc-2.0"
+mv "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf" "$DOTFILES/xsettingsd.conf"
+ln -s ../../dotfiles/xsettingsd.conf "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf"
+printf 'button { padding: 2px; }\n' > "$DOTFILES/gtk-4.0/gtk.css"
+rm -f "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+ln -s ../../dotfiles/gtk-4.0/gtk.css "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+mv "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" \
+    "$DOTFILES/environment.d/90-dms-theme-sync.conf"
+ln -s ../../dotfiles/environment.d/90-dms-theme-sync.conf \
+    "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+
+"$ROOT/scripts/apply-theme.sh" \
+    --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+    --font-size 11 --mono-size 12 --document-size 13 \
+    --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+    --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+    --qt-platform-theme qtct --qt-style Fusion \
+    --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
+    --sync-kde true --sync-xsettingsd true --no-runtime >/dev/null
+
+for managed_link in \
+    "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
+    "$HOME/.gtkrc-2.0" \
+    "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf" \
+    "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" \
+    "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"; do
+    [[ -L $managed_link ]] \
+        || { printf 'Managed symlink was replaced: %s\n' "$managed_link" >&2; exit 1; }
+done
+assert_line "$DOTFILES/gtk-3.0/settings.ini" "gtk-font-name=Archivo 11"
+assert_line "$DOTFILES/gtkrc-2.0" 'gtk-theme-name="Matcha-light-sea"'
+assert_line "$DOTFILES/xsettingsd.conf" 'Net/IconThemeName "Papirus-Dark"'
+assert_line "$DOTFILES/gtk-4.0/gtk.css" '@import url("dank-colors.css");'
+assert_line "$DOTFILES/environment.d/90-dms-theme-sync.conf" 'QT_QPA_PLATFORMTHEME=qt5ct'
+
+printf 'before-symlink-restore\n' >> "$DOTFILES/gtk-3.0/settings.ini"
+symlink_backup=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 10 --label symlinks --no-runtime)
+symlink_snapshot=${symlink_backup#BACKUP_CREATED:}
+awk -F '\t' -v p="$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
+    '$3 == p && $4 == "present" { found=1 } END { exit !found }' \
+    "$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/$symlink_snapshot/manifest.tsv" \
+    || { printf 'Symlink target was not recorded in snapshot manifest\n' >&2; exit 1; }
+printf 'mutated-after-symlink-backup\n' > "$DOTFILES/gtk-3.0/settings.ini"
+"$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$symlink_snapshot" --no-runtime >/dev/null
+[[ -L $XDG_CONFIG_HOME/gtk-3.0/settings.ini ]] \
+    || { printf 'Snapshot restore replaced a managed symlink\n' >&2; exit 1; }
+grep -Fq 'before-symlink-restore' "$DOTFILES/gtk-3.0/settings.ini" \
+    || { printf 'Snapshot restore did not recover the symlink target content\n' >&2; exit 1; }
+
+# Restore regular files so the snapshot tests below continue to exercise their
+# original scope. Snapshotting arbitrary external dotfile repositories is not
+# part of this helper's backup contract.
+rm -f "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "$HOME/.gtkrc-2.0" \
+    "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf" \
+    "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" \
+    "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+mv "$DOTFILES/gtk-3.0/settings.ini" "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+mv "$DOTFILES/gtkrc-2.0" "$HOME/.gtkrc-2.0"
+mv "$DOTFILES/xsettingsd.conf" "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf"
+mv "$DOTFILES/gtk-4.0/gtk.css" "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+mv "$DOTFILES/environment.d/90-dms-theme-sync.conf" \
+    "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+
 printf 'pre-backup-marker\n' >> "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 rm -f "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+FLATPAK_OVERRIDE="$XDG_DATA_HOME/flatpak/overrides/global"
+mkdir -p "$(dirname "$FLATPAK_OVERRIDE")"
+printf '[Environment]\nGTK_THEME=legacy-theme\n' > "$FLATPAK_OVERRIDE"
 backup_output=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 3 --label test --no-runtime)
 snapshot=${backup_output#BACKUP_CREATED:}
 printf 'mutated\n' > "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 printf 'created-after-backup\n' > "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
+printf '[Environment]\nGTK_THEME=mutated-theme\n' > "$FLATPAK_OVERRIDE"
 
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$snapshot" --no-runtime >/dev/null
 grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
+grep -Fq 'GTK_THEME=legacy-theme' "$FLATPAK_OVERRIDE" \
+    || { printf 'Restore did not recover the Flatpak override\n' >&2; exit 1; }
 [[ ! -e $XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf ]] || {
     printf 'Restore did not remove a file that was absent in the snapshot\n' >&2
     exit 1
@@ -498,7 +576,7 @@ else
     printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
 fi
 
-# --- Reconcile: dangling GTK symlinks are pruned, live foreign writers named --
+# --- Reconcile: dangling GTK symlinks are preserved, live foreign writers named
 # nwg-look points gtk.css / gtk-dark.css at the selected theme; uninstall it and
 # libadwaita trips over the dead link on every launch.
 ln -sfn "$TMP/does-not-exist/gtk-dark.css" "$XDG_CONFIG_HOME/gtk-4.0/gtk-dark.css"
@@ -520,10 +598,10 @@ run_reconcile() {
 }
 
 reconcile_out=$(run_reconcile)
-[[ ! -e $XDG_CONFIG_HOME/gtk-4.0/gtk-dark.css ]] \
-    || { printf 'Dangling gtk-dark.css symlink was not pruned\n' >&2; exit 1; }
-grep -q 'removed dangling symlink' <<<"$reconcile_out" \
-    || { printf 'Prune was not reported\n' >&2; exit 1; }
+[[ -L $XDG_CONFIG_HOME/gtk-4.0/gtk-dark.css ]] \
+    || { printf 'Dangling gtk-dark.css symlink was removed\n' >&2; exit 1; }
+grep -q 'dangling symlink.*preserved for its owner to repair' <<<"$reconcile_out" \
+    || { printf 'Preserved dangling symlink was not reported\n' >&2; exit 1; }
 # a commented-out line and a *.bak copy are not live writers
 grep -q 'sets the GTK theme behind us' <<<"$reconcile_out" \
     && { printf 'Commented-out / backup script reported as a live writer\n' >&2; exit 1; }
@@ -553,6 +631,32 @@ if command -v flatpak >/dev/null 2>&1; then
     # the icon theme name must reach the sandbox, or Flatpak apps keep the old one
     grep -q 'ICON_THEME=Papirus-Dark' <<<"$(flatpak_dry --sync-flatpak true)" \
         || { printf 'Icon theme missing from the flatpak override\n' >&2; exit 1; }
+    grep -q -- '--unset-env=GTK_THEME' <<<"$(flatpak_dry --sync-flatpak true)" \
+        || { printf 'Legacy GTK_THEME is not cleared from the flatpak override\n' >&2; exit 1; }
+    grep -q -- '--env=GTK_THEME=' <<<"$(flatpak_dry --sync-flatpak true)" \
+        && { printf 'GTK_THEME is still forced inside flatpak sandboxes\n' >&2; exit 1; }
+    grep -q -- '--nofilesystem=xdg-config/gtk-4.0' <<<"$(flatpak_dry --sync-flatpak true)" \
+        || { printf 'The broad GTK4 configuration grant is not removed\n' >&2; exit 1; }
+    grep -q -- '--filesystem=xdg-config/gtk-4.0/gtk.css:ro' <<<"$(flatpak_dry --sync-flatpak true)" \
+        || { printf 'GTK4 CSS is not exposed to the flatpak sandbox\n' >&2; exit 1; }
+    grep -q -- '--filesystem=xdg-config/gtk-4.0:ro' <<<"$(flatpak_dry --sync-flatpak true)" \
+        && { printf 'GTK4 settings.ini is still broadly exposed to flatpak sandboxes\n' >&2; exit 1; }
+
+    # With the toggle off, migrate only an override that matches the old
+    # plugin signature. A fake flatpak keeps this test isolated from the real
+    # user installation while exercising the detection branch.
+    fake_bin="$TMP/fake-flatpak-bin"
+    mkdir -p "$fake_bin"
+    # shellcheck disable=SC2016
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'if [ "$1" = override ] && [ "$2" = --user ] && [ "$3" = --show ]; then' \
+        '  printf "[Context]\\nfilesystems=xdg-config/gtk-3.0:ro;xdg-config/gtk-4.0:ro;\\n\\n[Environment]\\nGTK_THEME=adw-gtk3-dark\\nICON_THEME=Papirus-Dark\\n"' \
+        'fi' > "$fake_bin/flatpak"
+    chmod +x "$fake_bin/flatpak"
+    legacy_out=$(PATH="$fake_bin:$PATH" flatpak_dry --sync-flatpak false)
+    grep -q -- '--unset-env=GTK_THEME' <<<"$legacy_out" \
+        || { printf 'Legacy plugin-owned GTK_THEME was not migrated with the toggle off\n' >&2; exit 1; }
 else
     printf 'flatpak overrides: skipped (flatpak not installed)\n'
 fi

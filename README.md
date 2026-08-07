@@ -69,6 +69,11 @@ DMS Theme Sync follows four rules:
    are reported with the relevant tool or file instead of being overwritten.
 4. **Take a snapshot first.** Every normal apply can be rolled back.
 
+Configuration files may be managed by GNU Stow, lnk, chezmoi, or another
+dotfile manager. When a managed path is a symbolic link, the plugin writes
+through to its writable target and preserves the link itself. A dangling or
+unwritable link is reported and left untouched.
+
 ## Dolphin: the problem in miniature
 
 Dolphin is one of the clearest examples of the Linux theming problem. Its
@@ -128,7 +133,7 @@ verify that another writer did not immediately undo it.
 | **KDE** | `kdeglobals`, `kcminputrc`, and synchronized KColorScheme data |
 | **Fontconfig** | `sans-serif`, `serif`, and `monospace` aliases |
 | **X11/XWayland** | XSettings and XCursor defaults |
-| **Flatpak** | Optional user overrides for GTK, icons, cursor, and read-only theme directories |
+| **Flatpak** | Optional GTK configuration mounts plus icon and cursor overrides; appearance mode follows the portal |
 | **Icons** | Optional Papirus folder overlay matched to the current Matugen accent |
 | **Terminals** | Optional font includes for kitty, Alacritty, and Ghostty |
 | **Session environment** | Live systemd user environment plus persistent compositor/session configuration |
@@ -168,7 +173,7 @@ Two details help changes reach running applications:
 
 After applying, reconciliation checks the result. Among other things, it:
 
-- removes dangling GTK theme symlinks;
+- reports dangling GTK theme symlinks without removing user-managed links;
 - reasserts and reads back relevant GSettings values;
 - verifies generic fonts with `fc-match`;
 - checks that named themes and Qt style plugins actually exist;
@@ -293,9 +298,19 @@ reported rather than replaced with an invalid fallback.
 ### Flatpak
 
 Sandboxed applications do not see every host theme file. **Synchronize
-Flatpak** creates user-level overrides for `GTK_THEME`, `ICON_THEME`, and
-`XCURSOR_THEME` and grants read-only access to the relevant theme directories.
-It is off by default and leaves system-wide overrides alone.
+Flatpak** grants read-only access to the relevant GTK and theme directories and
+creates user-level overrides for `ICON_THEME` and `XCURSOR_THEME`. Light/dark
+mode continues to come from the desktop portal. The plugin deliberately unsets
+`GTK_THEME`: GTK treats it as a debugging override, and using a GTK 3 theme
+there can break the spacing and controls of GTK 4/libadwaita applications.
+GTK 4 receives only the host CSS files (including the Matugen color import),
+not `settings.ini`; libadwaita therefore keeps its own widget metrics and style
+manager while still receiving the generated palette.
+
+Upgrading also removes the legacy global `GTK_THEME` value written by older
+plugin versions. If Flatpak synchronization is already off, the migration runs
+only when the remaining override has the plugin's GTK/icon signature; unrelated
+user overrides are left intact.
 
 ### Folder accent
 
@@ -360,10 +375,16 @@ startup commands need a new session to inherit persistent changes.
 
 Backups are enabled by default. Before each apply, the plugin snapshots:
 
-- every file it may edit;
+- its managed configuration files recorded in the snapshot manifest;
+- the content behind writable dotmanager symlinks, while preserving the link;
+- the user-wide Flatpak override changed by the sandbox integration;
 - whether plugin-created files previously existed;
 - relevant GSettings values;
 - the cursor and Qt session environment.
+
+The plugin creates the snapshot **before** applying changes. If backup creation
+fails, synchronization stops without editing the theme. A successful apply logs
+both the snapshot ID and the exact `dms ipc` restore command.
 
 Snapshots live at:
 
@@ -387,6 +408,16 @@ scripts/theme-snapshot.sh restore --snapshot latest
 ```
 
 Replace `SNAPSHOT_ID` with an ID returned by `list` or shown in the dialog.
+For example:
+
+```bash
+dms ipc call dmsThemeSync restore 20260806-220050
+```
+
+Restoration recovers the captured files, symlink-target contents, Flatpak
+override, GSettings, and session variables. It also disables automatic sync so
+the recovered state remains in place. It does not uninstall theme packages or
+restart already-running applications.
 
 ## Files and settings the plugin manages
 

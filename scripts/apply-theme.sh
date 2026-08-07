@@ -98,7 +98,8 @@ esac
 # the tests can exercise the "no Kvantum" branch on a machine that has it.
 KVANTUM_LIB_DIRS=${DMS_THEME_SYNC_LIB_DIRS:-"/usr/lib /usr/lib64"}
 kvantum_style_plugin_installed() {
-    # shellcheck disable=SC2086 — the search path is a deliberate word list.
+    # The search path is a deliberate word list.
+    # shellcheck disable=SC2086
     find $KVANTUM_LIB_DIRS -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
 }
 
@@ -111,7 +112,8 @@ kvantum_style_plugin_installed() {
 QT6CT_COMMON_DIRS=${DMS_THEME_SYNC_QT6CT_DIRS:-"/usr/lib /usr/lib64"}
 qt6ct_kde_installed() {
     local d f
-    # shellcheck disable=SC2086 — deliberate word list, same as above.
+    # Deliberate word list, same as above.
+    # shellcheck disable=SC2086
     for d in $QT6CT_COMMON_DIRS; do
         for f in "$d"/libqt6ct-common.so*; do
             [[ -f $f ]] && grep -aq 'libKF6ColorScheme' "$f" 2>/dev/null && return 0
@@ -378,6 +380,22 @@ if [[ $ICON_THEME == "System Default" ]]; then
 fi
 if [[ $CURSOR_THEME == "System Default" ]]; then
     CURSOR_THEME=""
+fi
+
+if [[ $BACKUP_ENABLED == true ]]; then
+    if $DRY_RUN; then
+        log "DRY-RUN: create pre-apply snapshot"
+    else
+        snapshot_args=(backup --retention "$BACKUP_RETENTION" --label pre-apply)
+        [[ $NO_RUNTIME == true ]] && snapshot_args+=(--no-runtime)
+        if ! snapshot_output=$("$(dirname "$0")/theme-snapshot.sh" "${snapshot_args[@]}"); then
+            printf 'Failed to create pre-apply backup; synchronization aborted\n' >&2
+            exit 1
+        fi
+        snapshot_id=${snapshot_output#BACKUP_CREATED:}
+        log "backup: created snapshot $snapshot_id before applying changes"
+        log "backup: restore with dms ipc call dmsThemeSync restore $snapshot_id"
+    fi
 fi
 
 # --- Folder accent overlay ---------------------------------------------------
@@ -721,19 +739,58 @@ elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
     log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
 fi
 
-if [[ $BACKUP_ENABLED == true ]]; then
-    if $DRY_RUN; then
-        log "DRY-RUN: create pre-apply snapshot"
-    else
-        snapshot_args=(backup --retention "$BACKUP_RETENTION" --label pre-apply)
-        [[ $NO_RUNTIME == true ]] && snapshot_args+=(--no-runtime)
-        if ! snapshot_output=$("$(dirname "$0")/theme-snapshot.sh" "${snapshot_args[@]}"); then
-            printf 'Failed to create pre-apply backup; synchronization aborted\n' >&2
-            exit 1
-        fi
-        log "$snapshot_output"
+# Commit a generated file without replacing a user-managed symbolic link.
+# Dotfile managers such as GNU Stow and lnk deliberately place links at the
+# paths applications read.  A plain `mv staged destination` unlinks that entry
+# and silently turns it into a regular file.  Resolve the final target instead,
+# write atomically beside it, and leave every link in the chain intact.
+commit_staged_file() {
+    local staged=$1 destination=$2 target target_dir target_tmp
+
+    if [[ ! -L $destination ]]; then
+        mv -f -- "$staged" "$destination"
+        return
     fi
-fi
+
+    target=$(realpath -m -- "$destination" 2>/dev/null) || {
+        log "symlink: could not resolve $destination; preserving it unchanged"
+        rm -f -- "$staged"
+        return 1
+    }
+    case "$target" in
+        "$HOME"/*|"$XDG_CONFIG_HOME"/*|"$XDG_DATA_HOME"/*) ;;
+        *)
+            log "symlink: target is outside user-managed roots for $destination -> $(readlink "$destination"); preserving it unchanged"
+            rm -f -- "$staged"
+            return 1
+            ;;
+    esac
+    target_dir=$(dirname "$target")
+    if [[ ! -d $target_dir || ! -w $target_dir ]]; then
+        log "symlink: target directory is not writable for $destination -> $(readlink "$destination"); preserving it unchanged"
+        rm -f -- "$staged"
+        return 1
+    fi
+    if [[ -e $target && ! -w $target ]]; then
+        log "symlink: target is not writable for $destination -> $(readlink "$destination"); preserving it unchanged"
+        rm -f -- "$staged"
+        return 1
+    fi
+
+    target_tmp="$target_dir/.${target##*/}.dms-theme-sync.$$"
+    if ! cp -- "$staged" "$target_tmp"; then
+        log "symlink: could not stage the target for $destination; preserving it unchanged"
+        rm -f -- "$staged" "$target_tmp"
+        return 1
+    fi
+    [[ ! -e $target ]] || chmod --reference="$target" "$target_tmp" 2>/dev/null || true
+    if ! mv -f -- "$target_tmp" "$target"; then
+        log "symlink: could not update the target for $destination; preserving it unchanged"
+        rm -f -- "$staged" "$target_tmp"
+        return 1
+    fi
+    rm -f -- "$staged"
+}
 
 update_ini() {
     local file=$1 section=$2 key=$3 value=$4 dir tmp
@@ -765,7 +822,7 @@ update_ini() {
     ' "$file" 2>/dev/null > "$tmp" || {
         printf '[%s]\n%s=%s\n' "$section" "$key" "$value" > "$tmp"
     }
-    mv "$tmp" "$file"
+    commit_staged_file "$tmp" "$file"
 }
 
 update_equals_key() {
@@ -786,7 +843,7 @@ update_equals_key() {
         { print }
         END { if (!written) print key "=" value }
     ' "$file" 2>/dev/null > "$tmp" || printf '%s=%s\n' "$key" "$value" > "$tmp"
-    mv "$tmp" "$file"
+    commit_staged_file "$tmp" "$file"
 }
 
 update_space_key() {
@@ -807,7 +864,7 @@ update_space_key() {
         { print }
         END { if (!written) print key " " value }
     ' "$file" 2>/dev/null > "$tmp" || printf '%s %s\n' "$key" "$value" > "$tmp"
-    mv "$tmp" "$file"
+    commit_staged_file "$tmp" "$file"
 }
 
 set_gsetting_string() {
@@ -847,7 +904,7 @@ for gtk_version in 3.0 4.0; do
 done
 
 ensure_matugen_css_import() {
-    local gtk_dir=$1 colors_file css_file tmp backup
+    local gtk_dir=$1 colors_file css_file tmp
     colors_file="$gtk_dir/dank-colors.css"
     css_file="$gtk_dir/gtk.css"
     [[ -f $colors_file ]] || return
@@ -866,11 +923,7 @@ ensure_matugen_css_import() {
     fi
 
     tmp="$css_file.tmp.$$"
-    backup="$css_file.dms-theme-sync-backup"
-    if [[ -L $css_file ]]; then
-        [[ -e $backup || -L $backup ]] || cp -a "$css_file" "$backup"
-        printf '@import url("dank-colors.css");\n' > "$tmp"
-    elif [[ -f $css_file ]] && grep -q 'Generated with Matugen' "$css_file"; then
+    if [[ -f $css_file ]] && grep -q 'Generated with Matugen' "$css_file"; then
         printf '@import url("dank-colors.css");\n' > "$tmp"
     elif [[ -s $css_file ]]; then
         printf '@import url("dank-colors.css");\n' > "$tmp"
@@ -878,8 +931,7 @@ ensure_matugen_css_import() {
     else
         printf '@import url("dank-colors.css");\n' > "$tmp"
     fi
-    rm -f "$css_file"
-    mv "$tmp" "$css_file"
+    commit_staged_file "$tmp" "$css_file"
 }
 
 if [[ $APPLY_MATUGEN_COLORS == true ]]; then
@@ -968,7 +1020,7 @@ derive_uniform_scheme() {
             }
         }
     ' "$DANK_SCHEME" > "$tmp"
-    mv "$tmp" "$UNIFORM_SCHEME"
+    commit_staged_file "$tmp" "$UNIFORM_SCHEME"
 }
 
 # Move 2 above: equalise the View alternate inside DMS's own scheme files, for
@@ -995,7 +1047,7 @@ uniform_dms_schemes() {
                     print line
                 }
             }
-        ' "$f" > "$tmp" && mv "$tmp" "$f"
+        ' "$f" > "$tmp" && commit_staged_file "$tmp" "$f"
     done
 }
 
@@ -1054,7 +1106,7 @@ refresh_kdeglobals_colors() {
             keep { print }
         ' "$scheme_file"
     } > "$tmp"
-    mv "$tmp" "$kdeglobals"
+    commit_staged_file "$tmp" "$kdeglobals"
 }
 
 if [[ $SYNC_KDE == true ]]; then
@@ -1116,7 +1168,7 @@ else
         '  <match target="pattern"><test name="family"><string>serif</string></test>' \
         '    <edit name="family" mode="prepend" binding="strong"><string>'"$document_xml"'</string></edit></match>' \
         '</fontconfig>' > "$tmp"
-    mv "$tmp" "$FONTCONFIG_FILE"
+    commit_staged_file "$tmp" "$FONTCONFIG_FILE"
     if [[ $NO_RUNTIME != true ]] && command -v fc-cache >/dev/null 2>&1; then
         fc-cache -f >/dev/null 2>&1 || true
     fi
@@ -1125,32 +1177,35 @@ fi
 # --- Flatpak ------------------------------------------------------------------
 #
 # Sandboxed apps see none of the files written above. Dark/light already reaches
-# them through the portal (org.freedesktop.appearance), but the theme names and
-# the host's gtk.css do not: they need an explicit env override plus read-only
-# access to the theme directories.
-#
-# This is also the only place where Electron apps can be reached in a sensible
-# way. Native Electron mostly ignores the system theme, and the usual workaround
-# — exporting GTK_THEME globally — would override settings.ini for *every* GTK
-# app on the machine. Not worth it. Inside the Flatpak sandbox the same variable
-# is scoped to the sandbox, so it is safe there and nowhere else.
+# them through the portal (org.freedesktop.appearance). The host's GTK config,
+# icons, cursor, and theme assets need read-only mounts or explicit overrides.
+# GTK_THEME is deliberately absent: GTK documents it as a debugging override,
+# and forcing a GTK3 theme through it can replace GTK4/libadwaita's widget
+# metrics, producing missing padding, overlap, and GTK3-like controls.
 #
 # `flatpak override` is declarative, so re-running it is idempotent.
 sync_flatpak_overrides() {
     command -v flatpak >/dev/null 2>&1 || return 0
-    local -a args=(override --user)
-    [[ -n $GTK_THEME ]]    && args+=("--env=GTK_THEME=$GTK_THEME")
+    local css_file
+    local -a args=(override --user --unset-env=GTK_THEME)
     [[ -n $ICON_THEME ]]   && args+=("--env=ICON_THEME=$ICON_THEME")
     [[ -n $CURSOR_THEME ]] && args+=("--env=XCURSOR_THEME=$CURSOR_THEME" "--env=XCURSOR_SIZE=$CURSOR_SIZE")
-    (( ${#args[@]} > 2 )) || return 0
     args+=(
         "--filesystem=xdg-config/gtk-3.0:ro"
-        "--filesystem=xdg-config/gtk-4.0:ro"
+        # Remove the broad grant written by older versions. It exposed
+        # settings.ini and therefore fed GTK4 a GTK3 theme name and the legacy
+        # prefer-dark switch. Export only CSS: libadwaita keeps its own metrics
+        # while still receiving the Matugen colour definitions and imports.
+        "--nofilesystem=xdg-config/gtk-4.0"
         "--filesystem=xdg-data/themes:ro"
         "--filesystem=xdg-data/icons:ro"
         "--filesystem=~/.themes:ro"
         "--filesystem=~/.icons:ro"
     )
+    for css_file in "$XDG_CONFIG_HOME"/gtk-4.0/*.css; do
+        [[ -f $css_file ]] || continue
+        args+=("--filesystem=xdg-config/gtk-4.0/${css_file##*/}:ro")
+    done
     if $DRY_RUN; then
         run flatpak "${args[@]}"      # `run` prints the command; do not swallow it
     else
@@ -1158,8 +1213,33 @@ sync_flatpak_overrides() {
     fi
 }
 
-if [[ $SYNC_FLATPAK == true ]] && { $DRY_RUN || [[ $NO_RUNTIME != true ]]; }; then
-    sync_flatpak_overrides
+# Versions through 0.8.x wrote a global GTK_THEME override. If the user turns
+# synchronization off after upgrading, remove that harmful value only when the
+# rest of the global override has the plugin's distinctive signature. Other
+# Flatpak overrides remain untouched.
+clear_legacy_flatpak_gtk_theme() {
+    command -v flatpak >/dev/null 2>&1 || return 0
+    local shown
+    shown=$(flatpak override --user --show 2>/dev/null) || return 0
+    grep -q '^GTK_THEME=.' <<<"$shown" || return 0
+    grep -q '^ICON_THEME=.' <<<"$shown" || return 0
+    grep -q 'xdg-config/gtk-3.0:ro' <<<"$shown" || return 0
+    grep -q 'xdg-config/gtk-4.0:ro' <<<"$shown" || return 0
+
+    if $DRY_RUN; then
+        run flatpak override --user --unset-env=GTK_THEME
+    else
+        flatpak override --user --unset-env=GTK_THEME >/dev/null 2>&1 \
+            || log "flatpak: could not remove the legacy GTK_THEME override"
+    fi
+}
+
+if $DRY_RUN || [[ $NO_RUNTIME != true ]]; then
+    if [[ $SYNC_FLATPAK == true ]]; then
+        sync_flatpak_overrides
+    else
+        clear_legacy_flatpak_gtk_theme
+    fi
 fi
 
 # --- Kvantum ------------------------------------------------------------------
@@ -1196,7 +1276,7 @@ sync_kvantum_theme() {
     local f
     for f in kvconfig svg; do
         sed "${sed_args[@]}" "$tpl_dir/$name.$f.in" > "$out_dir/$name.$f.tmp.$$" || return 1
-        mv "$out_dir/$name.$f.tmp.$$" "$out_dir/$name.$f"
+        commit_staged_file "$out_dir/$name.$f.tmp.$$" "$out_dir/$name.$f"
     done
 
     # Any leftover placeholder means a role DMS did not give us: Kvantum would
@@ -1317,7 +1397,7 @@ write_terminal_font_includes() {
         printf 'font_family %s\n' "$MONO_FONT"
         printf 'font_size %s\n' "$MONO_SIZE"
     } > "$tmp"
-    mv "$tmp" "$TERMINAL_DIR/kitty.conf"
+    commit_staged_file "$tmp" "$TERMINAL_DIR/kitty.conf"
 
     # ghostty: `key = value`, unquoted value keeps spaces. Referenced with
     # `config-file = <path>`.
@@ -1329,7 +1409,7 @@ write_terminal_font_includes() {
         printf 'font-family = %s\n' "$MONO_FONT"
         printf 'font-size = %s\n' "$MONO_SIZE"
     } > "$tmp"
-    mv "$tmp" "$TERMINAL_DIR/ghostty.conf"
+    commit_staged_file "$tmp" "$TERMINAL_DIR/ghostty.conf"
 
     # alacritty: TOML. The family string needs backslash and double-quote escaped.
     # Referenced from alacritty.toml with `[general]` `import = ["<path>"]`.
@@ -1346,7 +1426,7 @@ write_terminal_font_includes() {
         printf '%s\n' '[font.normal]'
         printf 'family = "%s"\n' "$mono_toml"
     } > "$tmp"
-    mv "$tmp" "$TERMINAL_DIR/alacritty.toml"
+    commit_staged_file "$tmp" "$TERMINAL_DIR/alacritty.toml"
 }
 
 if [[ $SYNC_TERMINAL_FONTS == true ]]; then
@@ -1417,7 +1497,7 @@ write_environment_d() {
         # by the user in /etc/environment or another environment.d file wins.
         [[ -n $QT_PLATFORM_QT5 ]] && printf 'QT_QPA_PLATFORMTHEME=%s\nQT_QPA_PLATFORMTHEME_QT6=%s\n' "$QT_PLATFORM_QT5" "$QT_PLATFORM_QT6"
     } > "$tmp"
-    mv "$tmp" "$ENV_FILE"
+    commit_staged_file "$tmp" "$ENV_FILE"
 }
 
 # Hyprland reads env vars from its config, not environment.d. Mirror the Niri
@@ -1448,7 +1528,7 @@ write_hyprland_env_include() {
                 printf 'env = QT_QPA_PLATFORMTHEME_QT6,%s\n' "$QT_PLATFORM_QT6"
             fi
         } > "$tmp"
-        mv "$tmp" "$HYPR_INCLUDE"
+        commit_staged_file "$tmp" "$HYPR_INCLUDE"
         grep -q 'dms-theme-sync.conf' "$HYPR_CONFIG" \
             || printf '\nsource = dms-theme-sync.conf\n' >> "$HYPR_CONFIG"
     fi
@@ -1471,7 +1551,7 @@ write_hyprland_env_include() {
                 printf 'hl.env("QT_QPA_PLATFORMTHEME_QT6", "%s")\n' "$QT_PLATFORM_QT6"
             fi
         } > "$tmp"
-        mv "$tmp" "$HYPR_LUA_INCLUDE"
+        commit_staged_file "$tmp" "$HYPR_LUA_INCLUDE"
         grep -q 'require("dms-theme-sync")' "$HYPR_LUA_CONFIG" \
             || printf '\nrequire("dms-theme-sync")\n' >> "$HYPR_LUA_CONFIG"
     fi
@@ -1507,7 +1587,7 @@ write_labwc_env_block() {
         fi
         printf '%s\n' "$LABWC_END"
     } >> "$tmp"
-    mv "$tmp" "$LABWC_ENV"
+    commit_staged_file "$tmp" "$LABWC_ENV"
 }
 
 # Niri reads env vars from its environment {} block, not environment.d. On Niri
@@ -1541,7 +1621,7 @@ write_niri_env_include() {
         fi
         printf '%s\n' '}'
     } > "$tmp"
-    mv "$tmp" "$NIRI_INCLUDE"
+    commit_staged_file "$tmp" "$NIRI_INCLUDE"
 
     [[ -f $NIRI_CONFIG_KDL ]] || return 0
 
@@ -1638,16 +1718,14 @@ fi
 RECONCILE_ISSUES=0
 note() { RECONCILE_ISSUES=$((RECONCILE_ISSUES + 1)); log "reconcile: $*"; }
 
-# 1. Dangling symlinks under the GTK config dirs. nwg-look points gtk.css and
-#    gtk-dark.css at whatever theme was selected; uninstall the theme and the
-#    link dangles. libadwaita then fails to load its assets.
-prune_broken_links() {
+# 1. Dangling symlinks under the GTK config dirs. They may belong to a dotfile
+#    manager, so report them without deleting the user's managed entry.
+report_broken_links() {
     local d f
     for d in "${XDG_CONFIG_HOME:-$HOME/.config}"/gtk-{3,4}.0; do
         [[ -d $d ]] || continue
         while IFS= read -r -d '' f; do
-            note "removed dangling symlink ${f#$HOME/} -> $(readlink "$f")"
-            rm -f "$f"
+            note "dangling symlink ${f#"$HOME"/} -> $(readlink "$f"); preserved for its owner to repair"
         done < <(find "$d" -maxdepth 1 -xtype l -print0 2>/dev/null)
     done
 }
@@ -1825,7 +1903,7 @@ detect_foreign_writers() {
 
 if ! $DRY_RUN; then
     # Filesystem-only checks: safe without a session, so they run in tests too.
-    prune_broken_links
+    report_broken_links
     verify_theme_assets
     verify_uniform_list_bg
     [[ $SYNC_KDE == true && $APPLY_MATUGEN_COLORS == true ]] && verify_kdeglobals_colors

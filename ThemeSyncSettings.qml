@@ -42,6 +42,7 @@ PluginSettings {
     property string gtkThemeDarkValue: "auto"
     property string documentFontValue: ""
     property string selectedSnapshot: ""
+    property string snapshotActionStatus: ""
     property int regularFontSizeValue: 11
     property int monoFontSizeValue: 12
     property int documentFontSizeValue: 11
@@ -1319,7 +1320,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncFlatpak"
         label: "Synchronize Flatpak applications"
-        description: "Sandboxed apps never see the files written above. Dark/light already reaches them through the portal, but the theme names and the host's gtk.css do not. When on, the plugin sets GTK_THEME, ICON_THEME and XCURSOR_THEME as user-wide flatpak overrides and grants read-only access to the theme directories. This is also the only sane way to reach Electron apps: exporting GTK_THEME globally would override settings.ini for every GTK app on the machine, while inside the sandbox the variable is scoped to the sandbox."
+        description: "Sandboxed apps do not see every host theme file. Dark/light reaches them through the desktop portal. When on, the plugin exposes GTK 3 configuration and only the GTK 4 CSS color files—not GTK 4 settings.ini—plus theme directories, icons and the cursor. It removes the old GTK_THEME override: forcing that debugging variable can make GTK 4/libadwaita applications render with GTK 3 metrics, causing missing padding and overlapping controls."
         defaultValue: false
     }
 
@@ -1345,8 +1346,16 @@ PluginSettings {
     ToggleSetting {
         settingKey: "backupEnabled"
         label: "Back up before applying"
-        description: "Snapshot the affected files, GSettings and runtime environment before every synchronization, so a previous state can be restored."
+        description: "Before changing theme state, snapshot the managed configuration files, writable targets behind dotmanager symlinks, the Flatpak user override, GSettings and the runtime environment. If the snapshot fails, synchronization is aborted."
         defaultValue: true
+    }
+
+    StyledText {
+        width: parent.width
+        text: "Each successful apply reports the snapshot ID and an exact restore command. Restoring returns the captured files and settings, then disables automatic synchronization so the recovered state is not overwritten immediately."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
     Column {
@@ -1422,7 +1431,10 @@ PluginSettings {
             DankButton {
                 text: "Apply now"
                 iconName: "sync"
-                onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "apply"])
+                onClicked: {
+                    root.snapshotActionStatus = "Apply scheduled. With backups enabled, no theme file changes until the pre-apply snapshot succeeds.";
+                    Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "apply"]);
+                }
             }
 
             StyledText {
@@ -1462,7 +1474,10 @@ PluginSettings {
                     text: "Restore"
                     iconName: "restore"
                     enabled: root.selectedSnapshot !== ""
-                    onClicked: Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "restore", root.selectedSnapshot])
+                    onClicked: {
+                        root.snapshotActionStatus = "Restore scheduled for " + root.selectedSnapshot + ". Automatic synchronization will be disabled.";
+                        Quickshell.execDetached(["dms", "ipc", "call", "dmsThemeSync", "restore", root.selectedSnapshot]);
+                    }
                 }
 
                 DankActionButton {
@@ -1510,6 +1525,7 @@ PluginSettings {
                     iconName: "push_pin"
                     enabled: root.selectedSnapshot !== "" && !snapshotActionProcess.running
                     onClicked: {
+                        root.snapshotActionStatus = snapshotNameField.text ? "Pinning selected snapshot…" : "Unpinning selected snapshot…";
                         snapshotActionProcess.command = ["bash", root.snapshotHelper(), "name", "--snapshot", root.selectedSnapshot, "--name", snapshotNameField.text];
                         snapshotActionProcess.running = true;
                     }
@@ -1522,6 +1538,7 @@ PluginSettings {
                     iconName: "backup"
                     enabled: !snapshotActionProcess.running
                     onClicked: {
+                        root.snapshotActionStatus = "Creating snapshot before any further changes…";
                         let cmd = ["bash", root.snapshotHelper(), "backup", "--retention", String(root.backupRetentionValue), "--label", "manual"];
                         if (snapshotNameField.text)
                             cmd = cmd.concat(["--name", snapshotNameField.text]);
@@ -1543,12 +1560,44 @@ PluginSettings {
                 id: snapshotActionProcess
 
                 running: false
-                onExited: root.refreshSnapshots()
+                onExited: function(exitCode) {
+                    const output = ((snapshotActionStdout.text || "") + (snapshotActionStderr.text || "")).trim();
+                    if (exitCode === 0) {
+                        if (output.indexOf("BACKUP_CREATED:") === 0) {
+                            const id = output.substring("BACKUP_CREATED:".length).split("\n")[0];
+                            root.snapshotActionStatus = "Backup created: " + id + ". Restore it with: dms ipc call dmsThemeSync restore " + id;
+                        } else if (output.indexOf("SNAPSHOT_NAMED:") === 0) {
+                            root.snapshotActionStatus = "Snapshot name updated. Named snapshots marked 📌 are excluded from rotation.";
+                        } else {
+                            root.snapshotActionStatus = output || "Snapshot action completed.";
+                        }
+                    } else {
+                        root.snapshotActionStatus = "Snapshot action failed: " + (output || "unknown error");
+                    }
+                    root.refreshSnapshots();
+                }
+
+                stdout: StdioCollector {
+                    id: snapshotActionStdout
+                }
+
+                stderr: StdioCollector {
+                    id: snapshotActionStderr
+                }
             }
 
             StyledText {
                 width: parent.width
-                text: "Backups are stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nIPC: dms ipc call dmsThemeSync apply|backup|backupNamed <name>|nameSnapshot <id> <name>|restoreLatest|status"
+                visible: root.snapshotActionStatus !== ""
+                text: root.snapshotActionStatus
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceText
+                wrapMode: Text.WordWrap
+            }
+
+            StyledText {
+                width: parent.width
+                text: "Stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nList: scripts/theme-snapshot.sh list\nRestore selected: dms ipc call dmsThemeSync restore " + (root.selectedSnapshot || "SNAPSHOT_ID") + "\nRestore latest: dms ipc call dmsThemeSync restoreLatest"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceVariantText
