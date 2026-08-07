@@ -100,17 +100,21 @@ PluginComponent {
     // Writing the overlay straight into gsettings would look like an outside
     // change to DMS's own checkIconThemeDrift() and get the theme unmanaged.
     function reconcileIconTheme(output) {
+        const reloadRequired = output.indexOf("ICON_THEME_RELOAD_REQUIRED:") !== -1;
         if (syncFolderColor) {
             if (output.indexOf("folder-color: accent") === -1)
                 return;
-            if (SettingsData.iconTheme === folderOverlayTheme)
-                return;
-            if (pluginService)
-                pluginService.savePluginData(pluginId, "folderColorBaseTheme", folderBaseTheme);
-            SettingsData.setIconTheme(folderOverlayTheme);
+            if (SettingsData.iconTheme !== folderOverlayTheme) {
+                if (pluginService)
+                    pluginService.savePluginData(pluginId, "folderColorBaseTheme", folderBaseTheme);
+                SettingsData.setIconTheme(folderOverlayTheme);
+            }
         } else if (SettingsData.iconTheme.endsWith(overlaySuffix)) {
             SettingsData.setIconTheme(folderBaseTheme);
         }
+
+        if (reloadRequired)
+            kdeIconReloadTimer.restart();
     }
 
     function helperPath() {
@@ -237,6 +241,19 @@ PluginComponent {
         interval: 700
         repeat: false
         onTriggered: root.runApply()
+    }
+
+    // KIconLoader caches the resolved inheritance tree and pixmaps inside
+    // every KDE process. Our overlay intentionally keeps one stable name, so
+    // changing Papirus <-> Papirus-Dark underneath it is otherwise invisible
+    // until Dolphin restarts. KDE's own KIconLoader::emitChange() broadcasts
+    // this signal; a short delay lets SettingsData finish its config writes.
+    Timer {
+        id: kdeIconReloadTimer
+
+        interval: 250
+        repeat: false
+        onTriggered: Quickshell.execDetached(["dbus-send", "--session", "--type=signal", "/KIconLoader", "org.kde.KIconLoader.iconChanged", "int32:2"])
     }
 
     Process {
