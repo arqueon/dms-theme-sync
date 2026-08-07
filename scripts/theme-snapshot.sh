@@ -36,6 +36,13 @@ NAME=$(printf '%s' "$NAME" | tr -d '\n\t')
 # the whole contract — name what you cannot afford to lose, let the rest rotate.
 snapshot_name() { sed -n 's/^name=//p' "$BACKUP_ROOT/$1/metadata" 2>/dev/null | head -n 1; }
 
+is_user_managed_path() {
+    case "$1" in
+        "$HOME"/*|"$XDG_CONFIG_HOME"/*|"$XDG_DATA_HOME"/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 TARGETS=(
     "$HOME/.gtkrc-2.0"
     "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
@@ -60,6 +67,9 @@ TARGETS=(
     "$XDG_CONFIG_HOME/dms-theme-sync/kitty.conf"
     "$XDG_CONFIG_HOME/dms-theme-sync/alacritty.toml"
     "$XDG_CONFIG_HOME/dms-theme-sync/ghostty.conf"
+    # Flatpak's user-wide override is changed by the optional sandbox sync.
+    # Keep new entries at the end so old snapshot indices remain stable.
+    "$XDG_DATA_HOME/flatpak/overrides/global"
 )
 
 GSETTINGS=(
@@ -92,7 +102,7 @@ resolve_snapshot() {
 }
 
 backup_snapshot() {
-    local id final tmp i path state schema key value env_dump env_key env_value
+    local id final tmp i path state link_target_state link_target schema key value env_dump env_key env_value
     id=$(snapshot_id)
     final="$BACKUP_ROOT/$id"
     [[ ! -e $final ]] || { id="$id-$$"; final="$BACKUP_ROOT/$id"; }
@@ -104,13 +114,30 @@ backup_snapshot() {
     : > "$tmp/manifest.tsv"
     for i in "${!TARGETS[@]}"; do
         path=${TARGETS[$i]}
+        link_target_state=none
         if [[ -e $path || -L $path ]]; then
             cp -a -- "$path" "$tmp/files/$i" || { rm -rf "$tmp"; return 1; }
             state=present
+            # The helper writes through dotmanager symlinks. Preserve the link
+            # itself above and also the regular file it points at, so restoring
+            # really reverses the content change instead of only recreating an
+            # already-intact link.
+            if [[ -L $path ]]; then
+                link_target=$(realpath -m -- "$path" 2>/dev/null || true)
+                if [[ -n $link_target ]] && ! is_user_managed_path "$link_target"; then
+                    link_target_state=external
+                elif [[ -f $path ]]; then
+                    cp -aL -- "$path" "$tmp/files/$i.target" \
+                        || { rm -rf "$tmp"; return 1; }
+                    link_target_state=present
+                else
+                    link_target_state=absent
+                fi
+            fi
         else
             state=absent
         fi
-        printf '%s\t%s\t%s\n' "$i" "$state" "$path" >> "$tmp/manifest.tsv"
+        printf '%s\t%s\t%s\t%s\n' "$i" "$state" "$path" "$link_target_state" >> "$tmp/manifest.tsv"
     done
 
     : > "$tmp/gsettings.tsv"
@@ -157,13 +184,13 @@ backup_snapshot() {
 }
 
 restore_snapshot() {
-    local id dir index state recorded_path expected_path source schema key value env_key env_state env_value
+    local id dir index state recorded_path link_target_state expected_path source link_target schema key value env_key env_state env_value
     id=$(resolve_snapshot "$SNAPSHOT") || { printf 'Invalid snapshot id\n' >&2; return 2; }
     [[ -n $id ]] || { printf 'No backups available\n' >&2; return 1; }
     dir="$BACKUP_ROOT/$id"
     [[ -d $dir && -f $dir/manifest.tsv ]] || { printf 'Snapshot not found: %s\n' "$id" >&2; return 1; }
 
-    while IFS=$'\t' read -r index state recorded_path; do
+    while IFS=$'\t' read -r index state recorded_path link_target_state; do
         [[ $index =~ ^[0-9]+$ && $index -lt ${#TARGETS[@]} ]] || { printf 'Invalid backup manifest index\n' >&2; return 1; }
         expected_path=${TARGETS[$index]}
         [[ $recorded_path == "$expected_path" ]] || { printf 'Backup path mismatch for index %s\n' "$index" >&2; return 1; }
@@ -178,6 +205,30 @@ restore_snapshot() {
         else
             printf 'Invalid backup state: %s\n' "$state" >&2
             return 1
+        fi
+
+        # Manifests made before symlink-target snapshots have no fourth field;
+        # they keep their original restore behaviour.
+        if [[ $link_target_state == present || $link_target_state == absent ]]; then
+            [[ -L $expected_path ]] \
+                || { printf 'Expected restored symlink at %s\n' "$expected_path" >&2; return 1; }
+            link_target=$(realpath -m -- "$expected_path" 2>/dev/null) \
+                || { printf 'Could not resolve restored symlink: %s\n' "$expected_path" >&2; return 1; }
+            # These are per-user theme files. Never let a corrupted snapshot
+            # turn restoration into a write outside the user's managed roots.
+            is_user_managed_path "$link_target" \
+                || { printf 'Refusing symlink target outside user roots: %s\n' "$link_target" >&2; return 1; }
+            [[ ! -d $link_target ]] \
+                || { printf 'Refusing directory as symlink target: %s\n' "$link_target" >&2; return 1; }
+            if [[ $link_target_state == present ]]; then
+                [[ -f $dir/files/$index.target ]] \
+                    || { printf 'Missing symlink target payload: %s\n' "$index" >&2; return 1; }
+                mkdir -p "$(dirname "$link_target")"
+                rm -f -- "$link_target"
+                cp -a -- "$dir/files/$index.target" "$link_target" || return 1
+            else
+                rm -f -- "$link_target"
+            fi
         fi
     done < "$dir/manifest.tsv"
 
