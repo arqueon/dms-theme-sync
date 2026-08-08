@@ -913,6 +913,14 @@ ensure_matugen_css_import() {
         return
     fi
     mkdir -p "$gtk_dir"
+    if [[ -L $css_file && $css_file -ef $colors_file ]]; then
+        # DMS links GTK3's watched stylesheet directly to its generated
+        # Matugen palette. Writing an import through that link would replace
+        # the palette with a self-import; touching the shared file is enough
+        # to make running GTK applications re-read the updated colours.
+        touch "$colors_file"
+        return
+    fi
     if [[ -f $css_file ]] && grep -Fq '@import url("dank-colors.css");' "$css_file"; then
         # GTK watches the user gtk.css itself, not the files it @imports. When
         # DMS switches theme it rewrites only dank-colors.css, so every running
