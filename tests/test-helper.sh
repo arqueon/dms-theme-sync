@@ -86,6 +86,11 @@ ln -s ../../dotfiles/xsettingsd.conf "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.con
 printf 'button { padding: 2px; }\n' > "$DOTFILES/gtk-4.0/gtk.css"
 rm -f "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
 ln -s ../../dotfiles/gtk-4.0/gtk.css "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+# DMS itself links GTK3's watched stylesheet directly to the generated Matugen
+# palette. Theme Sync must refresh that file without replacing its contents
+# with an import of itself.
+rm -f "$XDG_CONFIG_HOME/gtk-3.0/gtk.css"
+ln -s dank-colors.css "$XDG_CONFIG_HOME/gtk-3.0/gtk.css"
 mv "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" \
     "$DOTFILES/environment.d/90-dms-theme-sync.conf"
 ln -s ../../dotfiles/environment.d/90-dms-theme-sync.conf \
@@ -103,6 +108,7 @@ ln -s ../../dotfiles/environment.d/90-dms-theme-sync.conf \
 
 for managed_link in \
     "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
+    "$XDG_CONFIG_HOME/gtk-3.0/gtk.css" \
     "$HOME/.gtkrc-2.0" \
     "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf" \
     "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" \
@@ -111,6 +117,10 @@ for managed_link in \
         || { printf 'Managed symlink was replaced: %s\n' "$managed_link" >&2; exit 1; }
 done
 assert_line "$DOTFILES/gtk-3.0/settings.ini" "gtk-font-name=Archivo 11"
+grep -Fq 'Generated with Matugen' "$XDG_CONFIG_HOME/gtk-3.0/dank-colors.css" \
+    || { printf 'GTK3 Matugen palette was overwritten through gtk.css symlink\n' >&2; exit 1; }
+! grep -Fqx '@import url("dank-colors.css");' "$XDG_CONFIG_HOME/gtk-3.0/dank-colors.css" \
+    || { printf 'GTK3 Matugen palette imports itself\n' >&2; exit 1; }
 assert_line "$DOTFILES/gtkrc-2.0" 'gtk-theme-name="Matcha-light-sea"'
 assert_line "$DOTFILES/xsettingsd.conf" 'Net/IconThemeName "Papirus-Dark"'
 assert_line "$DOTFILES/gtk-4.0/gtk.css" '@import url("dank-colors.css");'
@@ -134,6 +144,7 @@ grep -Fq 'before-symlink-restore' "$DOTFILES/gtk-3.0/settings.ini" \
 # original scope. Snapshotting arbitrary external dotfile repositories is not
 # part of this helper's backup contract.
 rm -f "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "$HOME/.gtkrc-2.0" \
+    "$XDG_CONFIG_HOME/gtk-3.0/gtk.css" \
     "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf" \
     "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" \
     "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
@@ -141,6 +152,7 @@ mv "$DOTFILES/gtk-3.0/settings.ini" "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 mv "$DOTFILES/gtkrc-2.0" "$HOME/.gtkrc-2.0"
 mv "$DOTFILES/xsettingsd.conf" "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.conf"
 mv "$DOTFILES/gtk-4.0/gtk.css" "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+printf '@import url("dank-colors.css");\n' > "$XDG_CONFIG_HOME/gtk-3.0/gtk.css"
 mv "$DOTFILES/environment.d/90-dms-theme-sync.conf" \
     "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
 
