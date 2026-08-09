@@ -103,6 +103,47 @@ kvantum_style_plugin_installed() {
     find $KVANTUM_LIB_DIRS -name 'libkvantum*.so' -print -quit 2>/dev/null | grep -q .
 }
 
+# Breeze is the one GTK/Qt pair whose Qt half is a native QStyle rather than a
+# Kvantum theme. Keep both generations together: selecting Breeze with only the
+# Qt6 plugin installed would make remaining Qt5 applications fall back to Fusion.
+# The paths are overridable so the route is regression-testable without packages.
+QT5_STYLE_DIRS=${DMS_THEME_SYNC_QT5_STYLE_DIRS:-"/usr/lib/qt/plugins/styles /usr/lib/qt5/plugins/styles"}
+QT6_STYLE_DIRS=${DMS_THEME_SYNC_QT6_STYLE_DIRS:-"/usr/lib/qt6/plugins/styles"}
+
+breeze_style_plugin_installed() {
+    local major=$1 dirs name
+    case "$major" in
+        5) dirs=$QT5_STYLE_DIRS; name=breeze5.so ;;
+        6) dirs=$QT6_STYLE_DIRS; name=breeze6.so ;;
+        *) return 1 ;;
+    esac
+    # Deliberate word list, matching the Kvantum plugin check above.
+    # shellcheck disable=SC2086
+    find $dirs -maxdepth 1 -type f -name "$name" -print -quit 2>/dev/null | grep -q .
+}
+
+native_style_candidate_for_gtk() {
+    case "${1,,}" in
+        breeze*) printf 'Breeze' ;;
+        *) return 1 ;;
+    esac
+}
+
+native_style_for_gtk() {
+    local style
+    style=$(native_style_candidate_for_gtk "$1") || return 1
+    breeze_style_plugin_installed 5 && breeze_style_plugin_installed 6 || return 1
+    printf '%s' "$style"
+}
+
+native_pair_missing_for_gtk() {
+    native_style_candidate_for_gtk "$1" >/dev/null || return 1
+    local missing=""
+    breeze_style_plugin_installed 5 || missing=qt5
+    breeze_style_plugin_installed 6 || missing=${missing:+$missing,}qt6
+    [[ -n $missing ]] && printf '%s' "$missing"
+}
+
 # qt6ct-kde is qt6ct built against KF6::ColorScheme, which is what lets it parse
 # the KColorScheme (.colors) file DMS exports — stock qt6ct expects its own
 # [ColorScheme] arrays and falls back to the default palette without a word.
@@ -141,8 +182,9 @@ list_kvantum_themes() {
 }
 
 # The GTK theme's Kvantum counterpart, when both halves of a same-author pair
-# are installed: WhiteSur-Dark -> WhiteSurDark, Orchis-Dark -> OrchisDark,
-# Materia-dark -> MateriaDark, Catppuccin-* -> catppuccin-<flavour>-<accent>.
+# are installed: Matcha-dark-sea -> Matcha-sea-dark, WhiteSur-Dark ->
+# WhiteSurDark, Orchis-Dark -> OrchisDark, Materia-dark -> MateriaDark, and
+# Catppuccin-* -> catppuccin-<flavour>-<accent>.
 # Matching is by family token because every author writes the variant suffix
 # differently; the colour mode then picks the light/dark member. adw-gtk3 is
 # special-cased: its Qt half is KvLibadwaita, which shares no substring.
@@ -307,6 +349,8 @@ GTK_THEME=$(resolve_gtk_theme "$GTK_REQUEST" "$MODE")
 # .colors palette without qt6ct-kde is silently ignored, and a style written
 # under gtk3 never gets read.
 #
+#   native        internal route: qtct + the GTK theme's native Qt style
+#                 (Breeze, when both breeze5 and breeze6 are installed)
 #   pair          qtct + kvantum, selecting the Kvantum half of the GTK theme's
 #                 same-author pair (WhiteSur, Orchis, Catppuccin, KvLibadwaita…)
 #   kvantum       qtct + kvantum, rendering DankMatugen from the DMS palette
@@ -315,11 +359,13 @@ GTK_THEME=$(resolve_gtk_theme "$GTK_REQUEST" "$MODE")
 #   gtk3          Qt follows the GTK theme; nothing reads qt5ct/qt6ct.conf
 #   auto          best available, in that order
 KVANTUM_PAIR_THEME=""
+NATIVE_PAIR_STYLE=""
 QT_SYNC_ROUTE=$QT_SYNC_MODE
 
 apply_qt_sync_route() {
     QT_SYNC_ROUTE=$1
     case "$1" in
+        native)       QT_PLATFORM_THEME=qtct; QT_STYLE=$2; NATIVE_PAIR_STYLE=$2 ;;
         pair)         QT_PLATFORM_THEME=qtct; QT_STYLE=kvantum; KVANTUM_PAIR_THEME=$2 ;;
         kvantum)      QT_PLATFORM_THEME=qtct; QT_STYLE=kvantum; SYNC_KVANTUM=true ;;
         kcolorscheme) QT_PLATFORM_THEME=qtct; QT_STYLE=Fusion ;;
@@ -328,11 +374,17 @@ apply_qt_sync_route() {
 }
 
 resolve_qt_sync_mode() {
-    local mode=$1 pair_gtk pair
+    local mode=$1 pair_gtk pair native native_missing
     # Under "preserve" there is no resolved GTK theme; pair against the live one.
     pair_gtk=${GTK_THEME:-$(current_gtk_theme)}
     case "$mode" in
         auto)
+            if native=$(native_style_for_gtk "$pair_gtk"); then
+                apply_qt_sync_route native "$native"; return
+            fi
+            native_missing=$(native_pair_missing_for_gtk "$pair_gtk" || true)
+            [[ -n $native_missing ]] \
+                && log "qt-sync: native Breeze pair incomplete (missing $native_missing; packages: breeze5 + breeze); trying the next route"
             if kvantum_style_plugin_installed; then
                 if pair=$(kvantum_theme_for_gtk "$pair_gtk"); then
                     apply_qt_sync_route pair "$pair"; return
@@ -347,10 +399,15 @@ resolve_qt_sync_mode() {
             apply_qt_sync_route gtk3
             ;;
         pair)
-            if pair=$(kvantum_theme_for_gtk "$pair_gtk"); then
+            if native=$(native_style_for_gtk "$pair_gtk"); then
+                apply_qt_sync_route native "$native"
+            elif pair=$(kvantum_theme_for_gtk "$pair_gtk"); then
                 apply_qt_sync_route pair "$pair"
             else
-                log "qt-sync: no Kvantum theme pairs with GTK theme '${pair_gtk:-unknown}'; rendering the DMS palette instead"
+                native_missing=$(native_pair_missing_for_gtk "$pair_gtk" || true)
+                [[ -n $native_missing ]] \
+                    && log "qt-sync: native Breeze pair incomplete (missing $native_missing; packages: breeze5 + breeze)"
+                log "qt-sync: no Kvantum theme pairs or complete native Qt pair with GTK theme '${pair_gtk:-unknown}'; rendering the DMS palette instead"
                 apply_qt_sync_route kvantum
             fi
             ;;
@@ -370,6 +427,8 @@ if [[ $PROBE_QT == true ]]; then
     printf 'kvantum=%s\n' "$(kvantum_style_plugin_installed && printf yes || printf no)"
     probe_gtk=${GTK_THEME:-$(current_gtk_theme)}
     printf 'gtk=%s\n' "$probe_gtk"
+    printf 'native-pair=%s\n' "$(native_style_for_gtk "$probe_gtk" || printf none)"
+    printf 'native-missing=%s\n' "$(native_pair_missing_for_gtk "$probe_gtk" || printf none)"
     printf 'pair=%s\n' "$(kvantum_theme_for_gtk "$probe_gtk" || printf none)"
     printf 'route=%s\n' "$QT_SYNC_ROUTE"
     exit 0
@@ -1924,4 +1983,4 @@ if ! $DRY_RUN; then
         || log "reconcile: $RECONCILE_ISSUES issue(s) above"
 fi
 
-log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG"
+log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${NATIVE_PAIR_STYLE:+ native-pair=$NATIVE_PAIR_STYLE}${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG"

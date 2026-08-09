@@ -33,7 +33,8 @@ PluginComponent {
     readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "preserve"
     readonly property string qtStyle: pluginData.qtStyle || "Fusion"
     // "manual" keeps the two knobs above authoritative; every other mode hands
-    // the helper a coherent route (pair, kvantum, kcolorscheme, gtk3, auto).
+    // the helper a coherent route (native/Kvantum pair, generated Kvantum,
+    // kcolorscheme, gtk3, auto).
     readonly property string qtSyncMode: pluginData.qtSyncMode || "manual"
     readonly property bool applyMatugenColors: pluginData.applyMatugenColors !== undefined ? pluginData.applyMatugenColors : true
     readonly property bool syncKde: pluginData.syncKde !== undefined ? pluginData.syncKde : true

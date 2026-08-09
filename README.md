@@ -256,8 +256,8 @@ synchronization route**:
 | Route | Result |
 | --- | --- |
 | **Manual** *(default)* | Preserve the separate platform-theme and widget-style choices. Use this when the session already owns them. |
-| **Automatic** | Re-evaluate the best route on every apply: same-author pair → generated DMS Kvantum theme → DMS palette through `qt6ct-kde` → follow GTK. |
-| **Kvantum paired with GTK** | Use the installed Kvantum half of the selected GTK theme, including supported WhiteSur, Orchis, Catppuccin, and adw-gtk3/KvLibadwaita pairs. |
+| **Automatic** | Re-evaluate the best route on every apply: complete native Qt pair → same-author Kvantum pair → generated DMS Kvantum theme → DMS palette through `qt6ct-kde` → follow GTK. |
+| **Theme paired with GTK** | Use the selected GTK theme's native Qt style (Breeze) or its installed Kvantum half, including Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, and adw-gtk3/KvLibadwaita. |
 | **Kvantum from DMS** | Render and select a Kvantum theme from the live DMS palette. |
 | **DMS palette via qt6ct-kde** | Use `DankMatugen.colors` with Fusion widgets. |
 | **Follow GTK** | Use the `gtk3` platform theme so Qt colors follow the selected GTK theme. |
@@ -266,6 +266,16 @@ Every route except **Manual** chooses the platform theme and widget style as a
 working pair. The settings page uses the same detection functions as the apply
 helper, so it only offers routes and assets the current system can actually
 load.
+
+### Breeze as a native Qt pair
+
+Breeze does not need a Kvantum imitation. Its GTK half is `breeze-gtk`, while
+Qt loads the native `Breeze` QStyle from `breeze` (Qt 6) and `breeze5` (Qt 5).
+Automatic and paired modes select this route only when both style plugins are
+installed. A partial install is reported and the resolver continues to the next
+safe route instead of leaving one Qt generation to fall back silently to
+Fusion. `--probe-qt` exposes `native-pair` and `native-missing` for the settings
+page and diagnostics.
 
 ### Why stock qt6ct is not enough
 
@@ -460,12 +470,13 @@ components used by the desktop:
 | `gsettings` / `dconf` | GNOME settings and portal hints |
 | `qt5ct` and `qt6ct-kde` | Qt configuration and native DMS KColorScheme support |
 | `qt6-tools` / `qtdiag` | Detect loadable Qt platform themes and styles |
+| `breeze`, `breeze5`, and `breeze-gtk` | Complete native Breeze pair for Qt 6, Qt 5, and GTK |
 | `kvantum` | SVG-drawn Qt widgets and same-author theme pairs |
 | `xsettingsd` | Legacy X11/XWayland applications |
 | `papirus-icon-theme` | Generated folder-color overlay |
 | `papirus-folders-catppuccin` | Exact Catppuccin folder variants |
 | Selected GTK theme and engine | Structural GTK appearance; GTK 2 themes may need Murrine |
-| Matching Kvantum theme packages | WhiteSur, Orchis, Catppuccin, or KvLibadwaita pairing |
+| Matching Kvantum theme packages | Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, or KvLibadwaita pairing |
 
 ## Limits
 
