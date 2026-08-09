@@ -30,6 +30,8 @@ PluginSettings {
     property string probeKvantum: ""
     property string probeGtk: ""
     property string probePair: ""
+    property string probeNativePair: ""
+    property string probeNativeMissing: ""
     property string qtSyncModeValue: "manual"
     property string qtPlatformThemeValue: "preserve"
     property string qtStyleValue: "Fusion"
@@ -74,7 +76,7 @@ PluginSettings {
         "label": "Automatic — best available route",
         "value": "auto"
     }, {
-        "label": "Kvantum theme paired with the GTK theme",
+        "label": "Theme paired with GTK (native Qt or Kvantum)",
         "value": "pair"
     }, {
         "label": "Kvantum rendered from the DMS palette",
@@ -189,6 +191,10 @@ PluginSettings {
                 probeGtk = value;
             else if (key === "pair")
                 probePair = value;
+            else if (key === "native-pair")
+                probeNativePair = value;
+            else if (key === "native-missing")
+                probeNativeMissing = value;
         }
     }
 
@@ -428,7 +434,7 @@ PluginSettings {
         id: qtPlatformThemesProcess
 
         running: true
-        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Platforms requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+        command: ["sh", "-c", "for q in \"$(command -v qtdiag6 2>/dev/null)\" /usr/lib/qt6/bin/qtdiag \"$(command -v qtdiag 2>/dev/null)\" /usr/lib/qt5/bin/qtdiag; do [ -x \"$q\" ] || continue; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Platforms requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'; done | awk 'NF&&!seen[tolower($0)]++'"]
 
         stdout: StdioCollector {
             onStreamFinished: root.availableQtPlatformThemes = root.parseQtPlatformThemes(text)
@@ -440,7 +446,7 @@ PluginSettings {
         id: qtStylesProcess
 
         running: true
-        command: ["sh", "-c", "q=$(command -v qtdiag6 || command -v qtdiag) || exit 0; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Styles requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'"]
+        command: ["sh", "-c", "for q in \"$(command -v qtdiag6 2>/dev/null)\" /usr/lib/qt6/bin/qtdiag \"$(command -v qtdiag 2>/dev/null)\" /usr/lib/qt5/bin/qtdiag; do [ -x \"$q\" ] || continue; QT_QPA_PLATFORM=offscreen \"$q\" 2>/dev/null | awk '/Styles requested/{f=1;next} f&&/available/{sub(/.*: */,\"\");print;exit}' | tr ',' '\\n'; done | awk 'NF&&!seen[tolower($0)]++'"]
 
         stdout: StdioCollector {
             onStreamFinished: root.availableQtStyles = root.parseQtStyles(text)
@@ -959,6 +965,10 @@ PluginSettings {
             const parts = [];
             parts.push(root.probeQt6ct === "kde" ? "qt6ct-kde ✓ (reads the DMS palette directly)" : "stock qt6ct (cannot read the DMS .colors palette — qt6ct-kde fixes that)");
             parts.push(root.probeKvantum === "yes" ? "Kvantum ✓" : "Kvantum not installed");
+            if (root.probeNativePair && root.probeNativePair !== "none")
+                parts.push("native Qt pair for " + root.probeGtk + ": " + root.probeNativePair);
+            else if (root.probeNativeMissing && root.probeNativeMissing !== "none")
+                parts.push("native Qt pair for " + root.probeGtk + " is incomplete (missing " + root.probeNativeMissing + ")");
             if (root.probePair && root.probePair !== "none")
                 parts.push("Kvantum pair for " + root.probeGtk + ": " + root.probePair);
             else if (root.probeKvantum === "yes")
@@ -988,7 +998,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: a Kvantum theme paired with the GTK theme (same author, both halves one design) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
+            text: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: the GTK theme's native Qt style (Breeze, when both Qt 5 and Qt 6 halves are installed) → a Kvantum theme paired with GTK (same author, both halves one design; for example Matcha, Qogir or WhiteSur) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1313,7 +1323,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncKvantum"
         label: "Generate a Kvantum theme from the DMS palette"
-        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the DMS-palette-Kvantum step; a paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the DMS-palette-Kvantum step; a native Qt pair or paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
         defaultValue: false
     }
 

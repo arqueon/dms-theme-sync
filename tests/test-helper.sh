@@ -318,6 +318,10 @@ QT6KDE="$TMP/qt6kde"; mkdir -p "$QT6KDE"
 printf 'libKF6ColorScheme.so.6' > "$QT6KDE/libqt6ct-common.so.0.11"
 QT6VAN="$TMP/qt6van"; mkdir -p "$QT6VAN"
 printf 'no kde here' > "$QT6VAN/libqt6ct-common.so.0.11"
+QT5STYLES="$TMP/qt5styles"; mkdir -p "$QT5STYLES"; : > "$QT5STYLES/breeze5.so"
+QT6STYLES="$TMP/qt6styles"; mkdir -p "$QT6STYLES"; : > "$QT6STYLES/breeze6.so"
+NOQT5STYLES="$TMP/noqt5styles"; mkdir -p "$NOQT5STYLES"
+NOQTSTYLES="$TMP/noqtstyles"; mkdir -p "$NOQTSTYLES"
 
 # A same-author pair: WhiteSur GTK (both modes) and WhiteSur Kvantum halves.
 mkdir -p "$XDG_DATA_HOME/themes/WhiteSur-Dark" "$XDG_DATA_HOME/themes/WhiteSur" \
@@ -352,25 +356,75 @@ DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
     run_route --mode light --gtk-theme-light WhiteSur --qt-sync-mode auto >/dev/null
 assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=WhiteSur"
 
+# Matcha encodes the variant order differently on each side:
+# GTK Matcha-dark-sea / Matcha-sea, Kvantum Matcha-sea-dark / Matcha-sea.
+# Keep this audited pair explicit so token scoring cannot regress silently.
+mkdir -p "$XDG_DATA_HOME/themes/Matcha-dark-sea" "$XDG_DATA_HOME/themes/Matcha-sea" \
+    "$XDG_CONFIG_HOME/Kvantum/Matcha-sea-dark" "$XDG_CONFIG_HOME/Kvantum/Matcha-sea"
+: > "$XDG_CONFIG_HOME/Kvantum/Matcha-sea-dark/Matcha-sea-dark.kvconfig"
+: > "$XDG_CONFIG_HOME/Kvantum/Matcha-sea/Matcha-sea.kvconfig"
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode dark --gtk-theme-dark Matcha-dark-sea --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=Matcha-sea-dark"
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+    run_route --mode light --gtk-theme-light Matcha-sea --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig" "theme=Matcha-sea"
+# Keep the GTK fixtures for the later no-pair case, but remove the installed
+# Kvantum halves so that case is genuinely isolated.
+rm -rf "$XDG_CONFIG_HOME/Kvantum/Matcha-sea-dark" \
+    "$XDG_CONFIG_HOME/Kvantum/Matcha-sea"
+
+# Breeze is a native Qt style pair, not a Kvantum theme. Automatic mode should
+# use it only when both the Qt5 and Qt6 style plugins are installed, so neither
+# generation silently falls back to Fusion.
+mkdir -p "$XDG_DATA_HOME/themes/Breeze-Dark" "$XDG_DATA_HOME/themes/Breeze"
+DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+DMS_THEME_SYNC_QT5_STYLE_DIRS="$QT5STYLES" DMS_THEME_SYNC_QT6_STYLE_DIRS="$QT6STYLES" \
+    run_route --mode dark --gtk-theme-dark Breeze-Dark --qt-sync-mode auto >/dev/null
+assert_line "$XDG_CONFIG_HOME/qt5ct/qt5ct.conf" "style=Breeze"
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=Breeze"
+
+breeze_probe=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    DMS_THEME_SYNC_QT5_STYLE_DIRS="$QT5STYLES" DMS_THEME_SYNC_QT6_STYLE_DIRS="$QT6STYLES" \
+    run_route --mode dark --gtk-theme-dark Breeze-Dark --qt-sync-mode auto --probe-qt)
+grep -Fxq 'native-pair=Breeze' <<<"$breeze_probe" \
+    || { printf 'Breeze native pair missing from probe:\n%s\n' "$breeze_probe" >&2; exit 1; }
+grep -Fxq 'route=native' <<<"$breeze_probe" \
+    || { printf 'Breeze native route not selected:\n%s\n' "$breeze_probe" >&2; exit 1; }
+
+# A partial pair is not safe: Qt6 Breeze without breeze5 would strand Qt5 apps.
+breeze_probe=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+    DMS_THEME_SYNC_QT5_STYLE_DIRS="$NOQT5STYLES" DMS_THEME_SYNC_QT6_STYLE_DIRS="$QT6STYLES" \
+    run_route --mode dark --gtk-theme-dark Breeze-Dark --qt-sync-mode auto --probe-qt)
+grep -Fxq 'native-pair=none' <<<"$breeze_probe" \
+    || { printf 'Partial Breeze pair was accepted:\n%s\n' "$breeze_probe" >&2; exit 1; }
+grep -Fxq 'native-missing=qt5' <<<"$breeze_probe" \
+    || { printf 'Missing breeze5 was not diagnosed:\n%s\n' "$breeze_probe" >&2; exit 1; }
+grep -Fxq 'route=native' <<<"$breeze_probe" \
+    && { printf 'Partial Breeze pair selected the native route:\n%s\n' "$breeze_probe" >&2; exit 1; }
+
 # auto without Kvantum but with qt6ct-kde: the KColorScheme route (qtct + Fusion)
 DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6KDE" \
+DMS_THEME_SYNC_QT5_STYLE_DIRS="$NOQTSTYLES" DMS_THEME_SYNC_QT6_STYLE_DIRS="$NOQTSTYLES" \
     run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
 assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "style=Fusion"
 assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=qt5ct"
 
 # auto with neither: Qt follows GTK
 DMS_THEME_SYNC_LIB_DIRS="$NOKVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
+DMS_THEME_SYNC_QT5_STYLE_DIRS="$NOQTSTYLES" DMS_THEME_SYNC_QT6_STYLE_DIRS="$NOQTSTYLES" \
     run_route --mode dark --gtk-theme-dark auto --qt-sync-mode auto >/dev/null
 assert_line "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf" "QT_QPA_PLATFORMTHEME=gtk3"
 
 # explicit pair mode with no matching Kvantum theme: falls back to the
 # DankMatugen render, and says so
+mkdir -p "$XDG_DATA_HOME/themes/NoPair-Dark"
 kv_roles="primary=#112233;on_surface=#e0e0e0;surface=#101010;surface_variant=#202020"
 kv_roles+=";surface_container_low=#151515;surface_container_highest=#252525"
 kv_roles+=";surface_bright=#303030;surface_dim=#0a0a0a;inverse_on_surface=#101010"
 kv_roles+=";inverse_primary=#334455;primary_fixed_dim=#223344;tertiary_fixed_dim=#445566"
 route_out=$(DMS_THEME_SYNC_LIB_DIRS="$KVLIB" DMS_THEME_SYNC_QT6CT_DIRS="$QT6VAN" \
-    run_route --mode dark --gtk-theme-dark Matcha-dark-sea --qt-sync-mode pair \
+    run_route --mode dark --gtk-theme-dark NoPair-Dark --qt-sync-mode pair \
     --sync-kvantum true --kvantum-colors "$kv_roles")
 grep -q 'no Kvantum theme pairs' <<<"$route_out" \
     || { printf 'Pair fallback not reported:\n%s\n' "$route_out" >&2; exit 1; }
