@@ -72,6 +72,79 @@ before=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 after=$(find "$HOME" -type f -exec sha256sum {} + | LC_ALL=C sort)
 [[ $before == "$after" ]] || { printf 'Second run was not idempotent\n' >&2; exit 1; }
 
+# An application-theme reload must broadcast KDE's palette, font, and cursor
+# changes, invalidate every public KIconLoader group (not only MainToolbar),
+# and wake qt5ct/qt6ct's watchers for non-KDE Qt applications. Style changes
+# are a restart boundary: broadcasting one produced partial live windows in
+# Dolphin, so the apply helper reports them instead.
+# Stub D-Bus so the contract is deterministic.
+RELOAD_BIN="$TMP/reload-bin"
+RELOAD_LOG="$TMP/icon-reload.log"
+mkdir -p "$RELOAD_BIN"
+cat > "$RELOAD_BIN/dbus-send" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DMS_THEME_RELOAD_TEST_LOG:?}"
+EOF
+chmod +x "$RELOAD_BIN/dbus-send"
+
+qt5_config="$XDG_CONFIG_HOME/qt5ct/qt5ct.conf"
+qt6_config="$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+qt6_target="$TMP/managed-qt6ct.conf"
+mv "$qt6_config" "$qt6_target"
+ln -s "$qt6_target" "$qt6_config"
+touch -d @1000000000 "$qt5_config" "$qt6_target"
+
+PATH="$RELOAD_BIN:$PATH" DMS_THEME_RELOAD_TEST_LOG="$RELOAD_LOG" \
+    "$ROOT/scripts/reload-application-theme.sh"
+
+mapfile -t reload_calls < "$RELOAD_LOG"
+[[ ${#reload_calls[@]} -eq 9 ]] \
+    || { printf 'Expected 9 KDE theme notifications, got %s\n' "${#reload_calls[@]}" >&2; exit 1; }
+for change_type in 0 1 5; do
+    grep -Fqx -- "--session --type=signal /KGlobalSettings org.kde.KGlobalSettings.notifyChange int32:$change_type int32:0" "$RELOAD_LOG" \
+        || { printf 'Missing KGlobalSettings change type %s notification\n' "$change_type" >&2; exit 1; }
+done
+! grep -Fq 'org.kde.KGlobalSettings.notifyChange int32:2 ' "$RELOAD_LOG" \
+    || { printf 'StyleChanged must not be broadcast as a safe live reload\n' >&2; exit 1; }
+for group in 0 1 2 3 4 5; do
+    grep -Fqx -- "--session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:$group" "$RELOAD_LOG" \
+        || { printf 'Missing KIconLoader group %s notification\n' "$group" >&2; exit 1; }
+done
+[[ -L $qt6_config ]] || { printf 'Qt watcher pulse replaced a managed symlink\n' >&2; exit 1; }
+[[ $(stat -c %Y "$qt5_config") -gt 1000000000 ]] \
+    || { printf 'qt5ct watcher was not notified\n' >&2; exit 1; }
+[[ $(stat -c %Y "$qt6_target") -gt 1000000000 ]] \
+    || { printf 'qt6ct watcher was not notified through its symlink\n' >&2; exit 1; }
+rm "$qt6_config"
+mv "$qt6_target" "$qt6_config"
+
+# A real QStyle transition is recorded for the service/UI, while a palette
+# refresh under an unchanged style stays quiet.
+sed -i 's/^style=Fusion$/style=kvantum/' "$qt5_config" "$qt6_config"
+qt_style_change_output=$("$ROOT/scripts/apply-theme.sh" \
+    --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+    --font-size 11 --mono-size 12 --document-size 13 \
+    --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+    --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+    --qt-platform-theme qtct --qt-style Fusion \
+    --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
+    --sync-kde true --sync-xsettingsd true --no-runtime)
+grep -Fq 'QT_RESTART_REQUIRED:style:qt5:kvantum->Fusion,qt6:kvantum->Fusion' \
+    <<<"$qt_style_change_output" \
+    || { printf 'Qt style transition did not request a restart\n' >&2; exit 1; }
+qt_palette_only_output=$("$ROOT/scripts/apply-theme.sh" \
+    --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+    --font-size 11 --mono-size 12 --document-size 13 \
+    --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+    --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+    --qt-platform-theme qtct --qt-style Fusion \
+    --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
+    --sync-kde true --sync-xsettingsd true --no-runtime)
+! grep -Fq 'QT_RESTART_REQUIRED:style:' <<<"$qt_palette_only_output" \
+    || { printf 'Unchanged Qt style requested a restart\n' >&2; exit 1; }
+
 # Dotfile managers place symlinks at the paths the helper updates. Exercise the
 # three structured writers plus generated GTK CSS and session files, using the
 # relative link shape produced by GNU Stow/lnk.

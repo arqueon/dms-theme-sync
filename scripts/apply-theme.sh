@@ -884,6 +884,19 @@ update_ini() {
     commit_staged_file "$tmp" "$file"
 }
 
+read_ini_value() {
+    local file=$1 section=$2 key=$3
+    [[ -f $file ]] || return 1
+    awk -v section="$section" -v key="$key" '
+        $0 == "[" section "]" { in_section=1; next }
+        /^\[[^]]+\]$/ { in_section=0 }
+        in_section && index($0, key "=") == 1 {
+            print substr($0, length(key) + 2)
+            exit
+        }
+    ' "$file"
+}
+
 update_equals_key() {
     local file=$1 key=$2 value=$3 dir tmp
     dir=$(dirname "$file")
@@ -973,19 +986,15 @@ ensure_matugen_css_import() {
     fi
     mkdir -p "$gtk_dir"
     if [[ -L $css_file && $css_file -ef $colors_file ]]; then
-        # DMS links GTK3's watched stylesheet directly to its generated
-        # Matugen palette. Writing an import through that link would replace
-        # the palette with a self-import; touching the shared file is enough
-        # to make running GTK applications re-read the updated colours.
-        touch "$colors_file"
+        # DMS links GTK3's user stylesheet directly to its generated Matugen
+        # palette. Writing an import through that link would replace the palette
+        # with a self-import, so preserve the link and its content.
         return
     fi
     if [[ -f $css_file ]] && grep -Fq '@import url("dank-colors.css");' "$css_file"; then
-        # GTK watches the user gtk.css itself, not the files it @imports. When
-        # DMS switches theme it rewrites only dank-colors.css, so every running
-        # GTK app keeps painting the old palette until something bumps gtk.css.
-        # Touching it makes GTK re-parse, and the re-parse re-reads the import.
-        touch "$css_file"
+        # GTK 3 and 4 load the user CSS into a process-local provider once;
+        # neither monitors this file. The import is already correct for newly
+        # launched applications, and touching it would not reload running ones.
         return
     fi
 
@@ -1138,8 +1147,15 @@ $DRY_RUN || rm -f "$LEGACY_UNIFORM_SCHEME"
 # count and converts — but only if the value IS legacy: writing the OpenType 400
 # here makes Qt6 clamp it to 900/Black, and every Qt and KDE app renders bold.
 # Verified with QFont::fromString: "...,400,0,0,0,0,0" -> weight 900, bold.
+qt_style_changes=()
 for qt_version in 5 6; do
     qt_file="$XDG_CONFIG_HOME/qt${qt_version}ct/qt${qt_version}ct.conf"
+    if [[ $QT_STYLE != preserve && -e $qt_file ]]; then
+        previous_qt_style=$(read_ini_value "$qt_file" Appearance style || true)
+        if [[ ${previous_qt_style,,} != "${QT_STYLE,,}" ]]; then
+            qt_style_changes+=("qt${qt_version}:${previous_qt_style:-unset}->$QT_STYLE")
+        fi
+    fi
     [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
     update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0\""
@@ -1149,6 +1165,9 @@ for qt_version in 5 6; do
         update_ini "$qt_file" Appearance color_scheme_path "$SCHEME_SOURCE"
     fi
 done
+if (( ${#qt_style_changes[@]} )); then
+    (IFS=,; log "QT_RESTART_REQUIRED:style:${qt_style_changes[*]}")
+fi
 
 # KDE apps read their colours straight from kdeglobals' [Colors:*] sections, a
 # full copy of the scheme that only plasma-apply-colorscheme refreshes — and DMS

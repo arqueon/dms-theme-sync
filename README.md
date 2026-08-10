@@ -28,6 +28,7 @@ and includes a standalone **configuration dialog**.
 - [Dolphin: the problem in miniature](#dolphin-the-problem-in-miniature)
 - [What it synchronizes](#what-it-synchronizes)
 - [How synchronization works](#how-synchronization-works)
+- [Hot reload for running applications](#hot-reload-for-running-applications)
 - [Install](#install)
 - [Configure](#configure)
 - [Qt synchronization](#qt-synchronization)
@@ -52,9 +53,9 @@ application to interpret that choice consistently:
 - **Several tools may write the same setting.** Appearance utilities, wallpaper
   scripts, compositors, and desktop portals can overwrite one another without
   sharing state.
-- **Applications do not all reload alike.** GTK watches some files but not the
-  files they import; Qt and KDE applications commonly keep their startup
-  palette until they restart.
+- **Applications do not all reload alike.** KDE and qtct expose supported
+  change notifications, GTK receives desktop setting changes through its
+  backend, and any toolkit or application may still retain private caches.
 - **Sandboxes and session variables form separate boundaries.** Flatpak
   applications cannot see every host theme file, and compositor environment
   changes do not automatically reach already-running processes.
@@ -117,8 +118,12 @@ showing the base color or the window color underneath. Plugin-created shadows
 carry a marker and are removed when no longer needed; an unmarked theme copy
 made by the user is never edited.
 
-Running Qt/KDE applications must be restarted before they read the corrected
-palette. This is a focused fix, but it illustrates the plugin's larger purpose:
+After applying the correction, the plugin broadcasts the supported KDE and Qt
+palette, font, cursor, and icon notifications. Windows that honor those
+notifications can refresh in place; changing the Qt widget style or
+platform-theme route, or an application keeping its own private palette cache,
+still requires recreating the view or restarting the application. This focused
+fix illustrates the plugin's larger purpose:
 understand which layer owns the visible result, change only that layer, and
 verify that another writer did not immediately undo it.
 
@@ -163,13 +168,14 @@ sizes, icons, cursor, and plugin options. A wallpaper change, a stock theme
 change, or a downloaded/custom DMS theme therefore triggers a new apply
 automatically. No wallpaper-manager hook is required.
 
-Two details help changes reach running applications:
+Two details keep generated color data current:
 
 - DMS does not always regenerate its GTK export for custom/downloaded themes,
   so the plugin asks DMS to refresh that export through DMS's own theme API.
-- GTK watches the user's `gtk.css`, not every file imported by it. The plugin
-  touches `gtk.css` after the palette changes so open GTK applications re-read
-  the Matugen import.
+- the plugin keeps the Matugen import in GTK 3 and GTK 4's user CSS, including
+  the symlink case where `gtk.css` is already the generated palette itself.
+  GTK loads that user provider once per process, so this benefits new launches;
+  it is not presented as a hot-reload channel.
 
 After applying, reconciliation checks the result. Among other things, it:
 
@@ -190,6 +196,40 @@ of a user-maintained configuration is reported instead.
 > **qt6ct** Matugen templates enabled. The plugin consumes
 > `dank-colors.css` and `DankMatugen.colors`; it deliberately does not launch a
 > second Matugen process.
+
+## Hot reload for running applications
+
+After every successful apply or restore, the plugin runs
+`scripts/reload-application-theme.sh`. The helper uses only notification paths
+that the receiving toolkit actually implements:
+
+| Stack | Live notification | Practical coverage |
+| --- | --- | --- |
+| **KDE Frameworks** | `KGlobalSettings` palette, font, and cursor changes, followed by all six `KIconLoader` groups | Views, toolbars, panels, dialogs, and small/desktop icons can discard shared KDE caches. |
+| **Qt 5/6 through qt5ct/qt6ct** | Touch the existing `qt5ct.conf` and `qt6ct.conf`; their platform-theme watchers emit a Qt `ThemeChange` | Palette, fonts, style hints, and icons can refresh without changing the selected platform-theme route. Symlinks are followed, not replaced. |
+| **GTK on Wayland** | Real desktop-setting changes arrive through the settings portal | Theme name, font, icon-theme name, cursor, and light/dark preference update when their value actually changes. |
+| **GTK on X11/XWayland** | `xsettingsd` reloads the synchronized XSettings values | The same settings can update in running applications that consume XSettings. |
+
+There is intentionally no fake GTK “reload everything” signal. GTK 3 and GTK
+4 load `$XDG_CONFIG_HOME/gtk-3.0/gtk.css` or `gtk-4.0/gtk.css` into a static
+process-local provider and do not monitor the file. Consequently, a Matugen
+palette rewrite under the same CSS and theme names still requires restarting
+that GTK application. GTK icon themes periodically recheck their search
+directories when another lookup occurs, but already-rendered widgets may keep
+their pixmap.
+
+No external notification can invalidate an application's private cache. For
+example, Krusader has caches outside `KIconLoader`; the shared parts refresh,
+while its directory-view cache can survive until the view or process is
+recreated. A live Matcha → Fusion → Breeze test also showed the boundary at the
+widget level: Krusader repainted most shared controls, while one Dolphin window
+adopted Fusion and then remained pixel-identical through Breeze and the Matcha
+restore. The process had loaded both style plugins; the window simply did not
+rebuild again. The helper therefore does not broadcast `StyleChanged` as a safe
+hot reload. `apply-theme.sh` reports `QT_RESTART_REQUIRED:style` when it writes
+a different Qt widget style, and a manual apply tells the user to restart open
+Qt applications. Changing the Qt platform-theme plugin remains a process-startup
+boundary too.
 
 ## Install
 
@@ -256,16 +296,19 @@ synchronization route**:
 | Route | Result |
 | --- | --- |
 | **Manual** *(default)* | Preserve the separate platform-theme and widget-style choices. Use this when the session already owns them. |
-| **Automatic** | Re-evaluate the best route on every apply: complete native Qt pair → same-author Kvantum pair → generated DMS Kvantum theme → DMS palette through `qt6ct-kde` → follow GTK. |
-| **Theme paired with GTK** | Use the selected GTK theme's native Qt style (Breeze) or its installed Kvantum half, including Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, and adw-gtk3/KvLibadwaita. |
+| **Automatic — visual fidelity with GTK** | Re-evaluate the best route on every apply: complete native Qt pair → same-author Kvantum pair → generated DMS Kvantum theme → DMS palette through `qt6ct-kde` → follow GTK. |
+| **GTK–Qt twin theme** | Use the selected GTK theme's native Qt style (Breeze) or its installed Kvantum half, including Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, and adw-gtk3/KvLibadwaita. |
 | **Kvantum from DMS** | Render and select a Kvantum theme from the live DMS palette. |
-| **DMS palette via qt6ct-kde** | Use `DankMatugen.colors` with Fusion widgets. |
+| **Dynamic wallpaper colors — Fusion** | Use `DankMatugen.colors` through `qt6ct-kde`; choose this when live wallpaper colors matter more than preserving a fixed Matcha/Qogir design. |
 | **Follow GTK** | Use the `gtk3` platform theme so Qt colors follow the selected GTK theme. |
 
 Every route except **Manual** chooses the platform theme and widget style as a
 working pair. The settings page uses the same detection functions as the apply
 helper, so it only offers routes and assets the current system can actually
-load.
+load. Palette-only updates under an unchanged Fusion or Breeze style have the
+best chance of reaching live windows. Changing the widget style writes the new
+configuration immediately but requires restarting open Qt applications for a
+complete, consistent result.
 
 ### Breeze as a native Qt pair
 
@@ -483,8 +526,11 @@ components used by the desktop:
 - GTK 4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's
   generated GTK 4 CSS remains the color source; fonts, icons, cursor, and the
   light/dark preference can still be synchronized.
-- Qt and KDE applications generally read their palette at startup. Restart
-  them after changing routes or enabling uniform list backgrounds.
+- GTK 3/4 do not monitor their user `gtk.css`; restart running GTK applications
+  after a same-name Matugen CSS palette change.
+- The KDE/Qt palette, font, cursor, and icon reload is best effort. Restart
+  applications after changing the widget style or platform-theme route, or
+  when an application keeps a private cache.
 - Persistent environment changes may require logging out and back in.
 - Flatpak synchronization is opt-in, and not every Electron or Java
   application follows the same host-theme conventions.
