@@ -101,7 +101,6 @@ PluginComponent {
     // Writing the overlay straight into gsettings would look like an outside
     // change to DMS's own checkIconThemeDrift() and get the theme unmanaged.
     function reconcileIconTheme(output) {
-        const reloadRequired = output.indexOf("ICON_THEME_RELOAD_REQUIRED:") !== -1;
         if (syncFolderColor) {
             if (output.indexOf("folder-color: accent") === -1)
                 return;
@@ -113,9 +112,6 @@ PluginComponent {
         } else if (SettingsData.iconTheme.endsWith(overlaySuffix)) {
             SettingsData.setIconTheme(folderBaseTheme);
         }
-
-        if (reloadRequired)
-            kdeIconReloadTimer.restart();
     }
 
     function helperPath() {
@@ -124,6 +120,10 @@ PluginComponent {
 
     function snapshotHelperPath() {
         return Paths.strip(Qt.resolvedUrl("scripts/theme-snapshot.sh").toString());
+    }
+
+    function themeReloadHelperPath() {
+        return Paths.strip(Qt.resolvedUrl("scripts/reload-application-theme.sh").toString());
     }
 
     function buildCommand(dryRun) {
@@ -244,17 +244,16 @@ PluginComponent {
         onTriggered: root.runApply()
     }
 
-    // KIconLoader caches the resolved inheritance tree and pixmaps inside
-    // every KDE process. Our overlay intentionally keeps one stable name, so
-    // changing Papirus <-> Papirus-Dark underneath it is otherwise invisible
-    // until Dolphin restarts. KDE's own KIconLoader::emitChange() broadcasts
-    // this signal; a short delay lets SettingsData finish its config writes.
+    // KDE and Qt applications keep process-local appearance state. After a
+    // successful apply (or restore), broadcast KDE's global and icon-group
+    // notifications and nudge qt5ct/qt6ct's ThemeChange watchers. A short
+    // delay lets SettingsData finish its writes.
     Timer {
-        id: kdeIconReloadTimer
+        id: applicationThemeReloadTimer
 
         interval: 250
         repeat: false
-        onTriggered: Quickshell.execDetached(["dbus-send", "--session", "--type=signal", "/KIconLoader", "org.kde.KIconLoader.iconChanged", "int32:2"])
+        onTriggered: Quickshell.execDetached([root.themeReloadHelperPath()])
     }
 
     Process {
@@ -264,11 +263,15 @@ PluginComponent {
         onExited: function(exitCode) {
             root.lastExitCode = exitCode;
             const output = ((stdoutCollector.text || "") + (stderrCollector.text || "")).trim();
+            const qtStyleRestartRequired = output.indexOf("QT_RESTART_REQUIRED:style:") !== -1;
             root.lastOutput = output || (exitCode === 0 ? "Theme synchronized" : "Theme synchronization failed");
             root.applying = false;
             if (exitCode === 0 && root.currentAction === "apply") {
                 root.appliedSignature = root.runningSignature;
                 root.reconcileIconTheme(output);
+                applicationThemeReloadTimer.restart();
+            } else if (exitCode === 0 && root.currentAction === "restore") {
+                applicationThemeReloadTimer.restart();
             }
 
             if (root.manualRequest) {
@@ -277,6 +280,8 @@ PluginComponent {
                         ToastService.showInfo("DMS Theme Sync", "Backup created");
                     else if (root.currentAction === "restore")
                         ToastService.showInfo("DMS Theme Sync", "Backup restored; automatic sync disabled");
+                    else if (qtStyleRestartRequired)
+                        ToastService.showInfo("DMS Theme Sync", "Themes synchronized; restart open Qt applications to finish the widget-style change");
                     else
                         ToastService.showInfo("DMS Theme Sync", "Application themes synchronized");
                 } else {

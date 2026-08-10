@@ -73,16 +73,16 @@ PluginSettings {
         "label": "Manual — use the Qt applications options below",
         "value": "manual"
     }, {
-        "label": "Automatic — best available route",
+        "label": "Automatic — visual fidelity with GTK",
         "value": "auto"
     }, {
-        "label": "Theme paired with GTK (native Qt or Kvantum)",
+        "label": "GTK–Qt twin theme (native Qt or Kvantum)",
         "value": "pair"
     }, {
         "label": "Kvantum rendered from the DMS palette",
         "value": "kvantum"
     }, {
-        "label": "DMS palette via qt6ct-kde (KColorScheme)",
+        "label": "Dynamic wallpaper colors — Fusion (qt6ct-kde)",
         "value": "kcolorscheme"
     }, {
         "label": "Follow the GTK theme (gtk3)",
@@ -939,7 +939,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "applyMatugenColors"
         label: "Apply DMS Matugen colors"
-        description: "Import DMS dynamic colors over the selected GTK theme and use DankMatugen.colors for Qt"
+        description: "Import DMS dynamic colors over the selected GTK theme and expose DankMatugen.colors to compatible Qt routes. A fixed same-author Kvantum pair such as Matcha keeps its own colors by design."
         defaultValue: true
     }
 
@@ -998,7 +998,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "How Qt applications are made to match GTK. 'Automatic' picks the best route this machine supports, re-evaluated on every apply: the GTK theme's native Qt style (Breeze, when both Qt 5 and Qt 6 halves are installed) → a Kvantum theme paired with GTK (same author, both halves one design; for example Matcha, Qogir or WhiteSur) → Kvantum rendered from the DMS palette (needs the toggle below) → the DMS palette through qt6ct-kde (KColorScheme) → Qt follows the GTK theme (gtk3). Every route except 'Manual' overrides the platform theme and widget style in the Qt applications section — pick 'Manual' to drive those two by hand, exactly as before this option existed."
+            text: "Choose the objective for Qt. 'Automatic' prioritizes visual fidelity with GTK, re-evaluated on every apply: native Breeze → a same-author Kvantum pair such as Matcha → Kvantum rendered from DMS → Fusion with the DMS palette → follow GTK. Select 'Dynamic wallpaper colors — Fusion' when wallpaper colors matter more than preserving Matcha's fixed Qt design. Every route except 'Manual' overrides the platform theme and widget style below. Changing that widget style is a process boundary: configuration is applied immediately, but open Qt applications may need a restart to rebuild the whole window."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1028,7 +1028,7 @@ PluginSettings {
     StyledText {
         width: parent.width
         visible: root.qtSyncModeValue !== "manual"
-        text: "The synchronization route above is not 'Manual', so it decides the platform theme and widget style — the two options below are written but then overridden on every apply."
+        text: "The synchronization route above is not 'Manual', so it decides the platform theme and widget style — the two options below are written but then overridden on every apply. Palette, fonts and icons can refresh in place; a different widget style is completed on the next application start."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.warning !== undefined ? Theme.warning : Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -1097,7 +1097,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all."
+            text: "Styles Qt can actually load here, as reported by qtdiag. Written to qt5ct.conf and qt6ct.conf, which only the qt5ct/qt6ct platform theme reads. 'Auto' picks Kvantum when it is installed and the platform theme reads those files, and otherwise writes no style at all. Changing this value updates configuration now but requires restarting open Qt applications for a complete, consistent result."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
