@@ -1342,6 +1342,13 @@ PluginSettings {
         enabled: root.iconThemeSupportsFolderColor
     }
 
+    ToggleSetting {
+        settingKey: "syncCursorColor"
+        label: "Sync cursor color (requires Bibata-Material-* cursors)"
+        description: "Selects the installed Bibata-Material-* cursor variant nearest to the Material You accent on every apply, matched by hue like the folder color. The variants are built once with material-bibata-cursor (28 accents, installed to ~/.icons); the plugin never builds cursors itself, it only chooses among the ones present and hands the choice to DMS's own cursor setting. A neutral accent picks a neutral variant (Grey, Slate, Cloud…). Turning this off returns the cursor to the theme you had before."
+        defaultValue: false
+    }
+
     SectionHeader {
         text: "Synchronization and backups"
     }

@@ -140,6 +140,7 @@ verify that another writer did not immediately undo it.
 | **X11/XWayland** | XSettings and XCursor defaults |
 | **Flatpak** | Optional GTK configuration mounts plus icon and cursor overrides; appearance mode follows the portal |
 | **Icons** | Optional Papirus folder overlay matched to the current Matugen accent |
+| **Cursor** | Optional Bibata-Material variant matched to the current Matugen accent |
 | **Terminals** | Optional font includes for kitty, Alacritty, and Ghostty |
 | **Session environment** | Live systemd user environment plus persistent compositor/session configuration |
 
@@ -376,6 +377,20 @@ When the GTK theme is Catppuccin and
 is installed, the plugin selects the matching flavor and accent instead of a
 plain nearest-color approximation.
 
+### Cursor accent
+
+The cursor-color option applies the same idea to the pointer. Build the
+[material-bibata-cursor](https://github.com/SakibShahariar/material-bibata-cursor)
+packs once (28 `Bibata-Material-*` variants, each recolored around one
+Material accent, installed to `~/.icons`); on every apply the plugin maps the
+Matugen accent onto the nearest installed variant by CIE hue and hands the
+choice to DMS's own cursor setting, which propagates it everywhere the cursor
+theme is already synchronized (GTK, Qt, KDE, XResources, compositor, Flatpak).
+A neutral accent selects a neutral variant (Grey, Slate, Cloud…) instead of
+landing on an arbitrary hue. The plugin never builds cursors itself and only
+chooses among variants that are actually installed; turning the option off
+returns the cursor to the theme recorded before the first switch.
+
 ### Terminal fonts
 
 Terminal emulators use their own configuration syntax, so toolkit
@@ -518,6 +533,7 @@ components used by the desktop:
 | `xsettingsd` | Legacy X11/XWayland applications |
 | `papirus-icon-theme` | Generated folder-color overlay |
 | `papirus-folders-catppuccin` | Exact Catppuccin folder variants |
+| [material-bibata-cursor](https://github.com/SakibShahariar/material-bibata-cursor) builds | Accent-matched cursor variants (`Bibata-Material-*`) |
 | Selected GTK theme and engine | Structural GTK appearance; GTK 2 themes may need Murrine |
 | Matching Kvantum theme packages | Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, or KvLibadwaita pairing |
 

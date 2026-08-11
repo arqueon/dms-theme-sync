@@ -24,6 +24,7 @@ SYNC_XSETTINGSD=true
 SYNC_TERMINAL_FONTS=false
 SYNC_FOLDER_COLOR=false
 FOLDER_BASE_THEME=""
+SYNC_CURSOR_COLOR=false
 SYNC_FLATPAK=false
 SYNC_KVANTUM=false
 UNIFORM_LIST_BG=false
@@ -57,6 +58,7 @@ while (( $# )); do
         --sync-xsettingsd) SYNC_XSETTINGSD=${2:?}; shift 2 ;;
         --sync-terminal-fonts) SYNC_TERMINAL_FONTS=${2:?}; shift 2 ;;
         --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
+        --sync-cursor-color) SYNC_CURSOR_COLOR=${2:?}; shift 2 ;;
         --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
         --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
         --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
@@ -748,9 +750,15 @@ fi
 
 # Sweep overlays left behind by a previous base theme. Without this, switching
 # Papirus-Dark -> Tela strands `Papirus-Dark-DankFolders` in the theme picker.
+# Also collect the staging and rollback directories the atomic overlay swap
+# leaves behind if the process dies between mkdir and the final rename.
 if ! $DRY_RUN; then
     for stale in "$icons_home"/*"$OVERLAY_SUFFIX"; do
         [[ -d $stale && $stale != "$overlay_dir" ]] && rm -rf "$stale"
+    done
+    for stale in "$icons_home"/.*"$OVERLAY_SUFFIX".tmp.* \
+                 "$icons_home"/*"$OVERLAY_SUFFIX".previous.*; do
+        [[ -d $stale ]] && rm -rf "$stale"
     done
 fi
 
@@ -796,6 +804,100 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
 elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
     rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
     log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
+fi
+
+# --- Cursor accent variant ----------------------------------------------------
+#
+# material-bibata-cursor (github.com/SakibShahariar/material-bibata-cursor)
+# builds Bibata cursor packs named Bibata-Material-<Name>, each recoloured
+# around one Material accent. Like the folder overlay, the helper only
+# *chooses*: it maps the Matugen accent onto the nearest installed variant by
+# CIE hue and reports the choice. DMS owns the cursor setting — the QML side
+# turns the report into SettingsData.setCursorTheme(), and the resulting apply
+# propagates the new name to every surface the plugin already writes.
+#
+# The palette below mirrors the project's themes.json (key: primary accent).
+# Variants installed but absent here are ignored; variants listed but not
+# installed are never chosen. Only the neutral rows (chroma < 12) may satisfy
+# a neutral accent, so a grey wallpaper never lands on Teal by hue accident.
+MATERIAL_CURSOR_PREFIX="Bibata-Material-"
+material_cursor_palette() {
+    cat <<'EOF'
+Ice-Blue #a8cbe2
+Sky-Blue #8dcdff
+Deep-Blue #00b4d8
+Soft-Blue #b2c5ff
+Mint #65dac4
+Seafoam #85dfcf
+Teal #008080
+Peach #ffb59a
+Apricot #ffc9a8
+Sunset #ffb785
+Blush #ffb4a8
+Salmon #fa8072
+Pink-Pastel #ffb0cb
+Pink-Rose #ffbade
+Lilac #ccbeff
+Violet #b2c5ff
+Sage #c7f69a
+Lime #d5f6b8
+Moss #98971a
+Sand #d7c4b6
+Beige #f5e6ca
+Brown #965d34
+Cloud #abb2bf
+Grey #c7ccd6
+Slate #708090
+Noir #454545
+Midnight #232b1e
+Charcoal #36454f
+EOF
+}
+
+cursor_theme_dir() {
+    local dir
+    dir=$(icon_theme_dir "$1") || return 1
+    [[ -d $dir/cursors ]] || return 1
+    printf '%s' "$dir"
+}
+
+nearest_material_cursor() {
+    local accent=$1 ah ac name hex h c d best="" bestd=999 bestc=-1
+    read -r ah ac <<<"$(hue_chroma "$accent")"
+    if awk -v c="$ac" 'BEGIN{exit !(c < 12)}'; then
+        for name in Grey Slate Cloud Noir Charcoal Midnight; do
+            cursor_theme_dir "$MATERIAL_CURSOR_PREFIX$name" >/dev/null \
+                && { printf '%s%s' "$MATERIAL_CURSOR_PREFIX" "$name"; return 0; }
+        done
+        return 1
+    fi
+    while read -r name hex; do
+        [[ -n $name ]] || continue
+        cursor_theme_dir "$MATERIAL_CURSOR_PREFIX$name" >/dev/null || continue
+        read -r h c <<<"$(hue_chroma "$hex")"
+        awk -v c="$c" 'BEGIN{exit !(c < 12)}' && continue
+        d=$(awk -v a="$ah" -v b="$h" 'BEGIN{d=(b-a+180)%360-180; if(d<0)d=-d; print d}')
+        # Hue decides; on a near-tie prefer the more chromatic variant, the same
+        # trade the folder overlay makes for amber accents.
+        if awk -v d="$d" -v bd="$bestd" -v c="$c" -v bc="$bestc" \
+            'BEGIN{exit !(d < bd-5 || (d <= bd+5 && c > bc))}'; then
+            best=$name; bestd=$d; bestc=$c
+        fi
+    done < <(material_cursor_palette)
+    [[ -n $best ]] && printf '%s%s' "$MATERIAL_CURSOR_PREFIX" "$best"
+}
+
+if [[ $SYNC_CURSOR_COLOR == true ]]; then
+    cursor_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
+        | grep -oE '#[0-9a-fA-F]{6}' || true)
+    if [[ -z $cursor_accent ]]; then
+        log "cursor-color: no Matugen accent found; skipping"
+    elif cursor_variant=$(nearest_material_cursor "$cursor_accent"); then
+        log "cursor-color: accent $cursor_accent -> $cursor_variant"
+    else
+        log "cursor-color: no recognized ${MATERIAL_CURSOR_PREFIX}* cursor variants installed; skipping (build them with material-bibata-cursor)"
+    fi
 fi
 
 # Commit a generated file without replacing a user-managed symbolic link.

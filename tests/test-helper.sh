@@ -715,6 +715,57 @@ else
     printf 'folder overlay: skipped (no Papirus-Dark installed)\n'
 fi
 
+# --- Cursor accent: nearest installed Bibata-Material-* variant by hue --------
+#
+# The helper only reports a choice; DMS applies it. So the whole contract here
+# is the log line: which variant, and the exact skip reasons.
+mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
+printf '@define-color accent_bg_color #e01b24;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+
+run_cursor() {
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode dark --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --qt-style Fusion \
+        --apply-matugen-colors true --sync-kde false --sync-xsettingsd false \
+        --backup-enabled false --backup-retention 10 --no-runtime "$@"
+}
+
+# no variants installed: report it, choose nothing
+cursor_out=$(run_cursor --sync-cursor-color true)
+grep -Fq 'cursor-color: no recognized Bibata-Material-* cursor variants installed' <<<"$cursor_out" \
+    || { printf 'Missing cursor variants were not diagnosed:\n%s\n' "$cursor_out" >&2; exit 1; }
+
+# a variant outside the palette table must never be chosen
+mkdir -p "$XDG_DATA_HOME/icons/Bibata-Material-Unknown/cursors"
+cursor_out=$(run_cursor --sync-cursor-color true)
+grep -Fq 'cursor-color: no recognized Bibata-Material-* cursor variants installed' <<<"$cursor_out" \
+    || { printf 'Unrecognized cursor variant was accepted:\n%s\n' "$cursor_out" >&2; exit 1; }
+
+# a red accent lands on Salmon, not on teal Mint and not on neutral Grey;
+# an icon theme without a cursors/ directory is not a cursor theme
+mkdir -p "$XDG_DATA_HOME/icons/Bibata-Material-Salmon/cursors" \
+         "$XDG_DATA_HOME/icons/Bibata-Material-Mint/cursors" \
+         "$XDG_DATA_HOME/icons/Bibata-Material-Grey/cursors" \
+         "$XDG_DATA_HOME/icons/Bibata-Material-Teal"
+cursor_out=$(run_cursor --sync-cursor-color true)
+grep -Fq 'cursor-color: accent #e01b24 -> Bibata-Material-Salmon' <<<"$cursor_out" \
+    || { printf 'Red accent did not choose Salmon:\n%s\n' "$cursor_out" >&2; exit 1; }
+
+# a neutral accent picks a neutral variant instead of the nearest hue
+printf '@define-color accent_bg_color #7a7a7a;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+cursor_out=$(run_cursor --sync-cursor-color true)
+grep -Fq 'cursor-color: accent #7a7a7a -> Bibata-Material-Grey' <<<"$cursor_out" \
+    || { printf 'Neutral accent did not choose Grey:\n%s\n' "$cursor_out" >&2; exit 1; }
+
+# toggle off: the helper stays silent so the QML side restores the saved base
+cursor_out=$(run_cursor --sync-cursor-color false)
+! grep -Fq 'cursor-color:' <<<"$cursor_out" \
+    || { printf 'Cursor choice reported with the toggle off:\n%s\n' "$cursor_out" >&2; exit 1; }
+rm -rf "$XDG_DATA_HOME/icons/Bibata-Material-"{Salmon,Mint,Grey,Teal,Unknown}
+
 # --- Reconcile: dangling GTK symlinks are preserved, live foreign writers named
 # nwg-look points gtk.css / gtk-dark.css at the selected theme; uninstall it and
 # libadwaita trips over the dead link on every launch.

@@ -49,6 +49,14 @@ PluginComponent {
     readonly property bool iconThemeSupportsFolderColor: folderBaseTheme.indexOf("Papirus") === 0
     readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
+    // Cursor accent variants only exist for material-bibata-cursor's
+    // Bibata-Material-* packs; the helper maps the Matugen accent onto the
+    // nearest installed one. As with the folder overlay, once a variant is
+    // applied it *is* SettingsData's cursor theme, so the theme to fall back
+    // to has to be remembered rather than inferred.
+    readonly property string materialCursorPrefix: "Bibata-Material-"
+    readonly property string cursorBaseTheme: cursorTheme.indexOf(materialCursorPrefix) === 0 ? (pluginData.cursorColorBaseTheme || "System Default") : cursorTheme
+    readonly property bool syncCursorColor: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
     // call: it resolves an "auto" style first, and gating here on
@@ -94,7 +102,7 @@ PluginComponent {
     }
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncCursorColor, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. DMS
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -114,6 +122,29 @@ PluginComponent {
         }
     }
 
+    // Same contract for the cursor: the helper chooses a Bibata-Material-*
+    // variant, DMS applies it through setCursorTheme() (which also updates
+    // XResources and the compositor cursor). The saved base is cleared after a
+    // restore so a variant the user later picks by hand is never overridden.
+    function reconcileCursorTheme(output) {
+        if (syncCursorColor) {
+            const match = output.match(/cursor-color: accent #[0-9a-fA-F]{6} -> (\S+)/);
+            if (!match)
+                return;
+            const variant = match[1];
+            if (cursorTheme === variant)
+                return;
+            if (pluginService)
+                pluginService.savePluginData(pluginId, "cursorColorBaseTheme", cursorBaseTheme);
+            SettingsData.setCursorTheme(variant);
+        } else if (cursorTheme.indexOf(materialCursorPrefix) === 0 && pluginData.cursorColorBaseTheme) {
+            const base = pluginData.cursorColorBaseTheme;
+            if (pluginService)
+                pluginService.savePluginData(pluginId, "cursorColorBaseTheme", "");
+            SettingsData.setCursorTheme(base);
+        }
+    }
+
     function helperPath() {
         return Paths.strip(Qt.resolvedUrl("scripts/apply-theme.sh").toString());
     }
@@ -127,7 +158,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -269,6 +300,7 @@ PluginComponent {
             if (exitCode === 0 && root.currentAction === "apply") {
                 root.appliedSignature = root.runningSignature;
                 root.reconcileIconTheme(output);
+                root.reconcileCursorTheme(output);
                 applicationThemeReloadTimer.restart();
             } else if (exitCode === 0 && root.currentAction === "restore") {
                 applicationThemeReloadTimer.restart();
