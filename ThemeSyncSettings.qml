@@ -13,6 +13,9 @@ PluginSettings {
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
+    property string iconThemeValue: SettingsData.iconTheme || "System Default"
+    property string requestedIconTheme: ""
+    property string iconThemeSelectionStatus: ""
     // Qt platform themes and widget styles, as reported by Qt itself. These used
     // to be hardcoded lists, which offered names this machine may not have and
     // hid the ones it does. The defaults below are the two synthetic entries plus
@@ -23,6 +26,12 @@ PluginSettings {
     // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
     // base theme rather than the applied one.
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
+    readonly property var installedPapirusThemes: installedIconThemes.filter(function(name) {
+        return name.indexOf("Papirus") === 0 && !name.endsWith("-DankFolders");
+    })
+    readonly property bool papirusInstalled: installedPapirusThemes.length > 0
+    readonly property string preferredPapirusTheme: installedPapirusThemes.indexOf("Papirus-Dark") !== -1 ? "Papirus-Dark" : (installedPapirusThemes.indexOf("Papirus") !== -1 ? "Papirus" : (installedPapirusThemes[0] || ""))
+    readonly property string folderColorCapabilityReason: iconThemeSupportsFolderColor ? "ready" : (papirusInstalled ? "Papirus is installed, but DMS currently uses " + (SettingsData.iconTheme || "System Default") + "." : "Papirus is not installed.")
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     // What the --probe-qt run found on this machine; drives the route
     // descriptions so the user picks between things that actually exist here.
@@ -56,7 +65,15 @@ PluginSettings {
             "label": "Dynamic (wallpaper)",
             "value": "dynamic"
         }];
-        const names = (typeof Theme !== "undefined" && Theme.getAvailableThemes) ? Theme.getAvailableThemes() : [];
+        // getAvailableThemes() can be empty while StockThemes is still being
+        // initialised.  A function call does not expose that dependency to the
+        // QML binding engine, so the expression would then stay empty for the
+        // lifetime of this settings component.  These are the same stable
+        // generic themes offered by DMS's native ThemeColorsTab.
+        let names = (typeof Theme !== "undefined" && Theme.getAvailableThemes) ? Theme.getAvailableThemes() : [];
+        if (!names || names.length === 0)
+            names = ["blue", "purple", "green", "orange", "red", "cyan", "pink", "amber", "coral", "monochrome"];
+
         for (let i = 0; i < names.length; i++) {
             const colors = Theme.getThemeColors(names[i]);
             opts.push({
@@ -250,6 +267,17 @@ PluginSettings {
         return values;
     }
 
+    function selectIconTheme(value) {
+        if (!value || value === SettingsData.iconTheme)
+            return ;
+
+        requestedIconTheme = value;
+        iconThemeValue = value;
+        iconThemeSelectionStatus = "Applying " + value + "…";
+        SettingsData.setIconTheme(value);
+        iconThemeVerifyTimer.restart();
+    }
+
     function parseThemes(text) {
         const options = ["auto", "preserve"];
         const seen = ({
@@ -353,6 +381,31 @@ PluginSettings {
     // Load stored values once the component is ready. Process-driven option lists
     // are started declaratively below so they cannot be skipped if this throws.
     Component.onCompleted: reloadPluginValues()
+
+    Timer {
+        id: iconThemeVerifyTimer
+
+        interval: 1200
+        onTriggered: {
+            const canonical = SettingsData.iconTheme || "System Default";
+            if (canonical === root.requestedIconTheme) {
+                root.iconThemeValue = canonical;
+                root.iconThemeSelectionStatus = "";
+                return ;
+            }
+            root.iconThemeValue = canonical;
+            root.iconThemeSelectionStatus = "DMS kept " + canonical + " instead of " + root.requestedIconTheme + ".";
+            ToastService.showError("Icon theme was not changed", root.iconThemeSelectionStatus);
+        }
+    }
+
+    Connections {
+        function onIconThemeChanged() {
+            root.iconThemeValue = SettingsData.iconTheme || "System Default";
+        }
+
+        target: SettingsData
+    }
 
     Connections {
         function onPluginDataChanged(changedPluginId) {
@@ -767,13 +820,20 @@ PluginSettings {
         DankDropdown {
             width: parent.width
             enableFuzzySearch: true
-            currentValue: SettingsData.iconTheme
+            currentValue: root.iconThemeValue
             options: root.installedIconThemes
             onValueChanged: function(value) {
-                if (value && value !== SettingsData.iconTheme)
-                    SettingsData.setIconTheme(value);
-
+                root.selectIconTheme(value);
             }
+        }
+
+        StyledText {
+            width: parent.width
+            visible: root.iconThemeSelectionStatus !== ""
+            text: root.iconThemeSelectionStatus
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.error
+            wrapMode: Text.WordWrap
         }
 
     }
@@ -1342,6 +1402,28 @@ PluginSettings {
         enabled: root.iconThemeSupportsFolderColor
     }
 
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: !root.iconThemeSupportsFolderColor
+
+        StyledText {
+            width: parent.width
+            text: root.folderColorCapabilityReason
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankButton {
+            visible: root.papirusInstalled
+            text: "Use " + root.preferredPapirusTheme
+            iconName: "folder"
+            onClicked: root.selectIconTheme(root.preferredPapirusTheme)
+        }
+
+    }
+
     ToggleSetting {
         settingKey: "syncCursorColor"
         label: "Sync cursor color (requires Bibata-Material-* cursors)"
@@ -1601,6 +1683,7 @@ PluginSettings {
                 stderr: StdioCollector {
                     id: snapshotActionStderr
                 }
+
             }
 
             StyledText {

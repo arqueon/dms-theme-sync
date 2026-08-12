@@ -372,6 +372,14 @@ The folder-color option creates a small user-level overlay that inherits from
 Papirus and replaces only folder icons. It chooses the nearest hue to the
 Matugen accent without copying the complete icon theme.
 
+The settings page distinguishes three states: Papirus installed, Papirus
+selected as DMS's canonical icon theme, and the generated overlay active. If
+Papirus is installed while DMS still uses another theme, the option explains
+why it is blocked and offers an explicit **Use Papirus-Dark** button. Icon-theme
+selection is verified after writing to `SettingsData`; a rejected or reverted
+choice is reported instead of silently snapping back. IPC `status` exposes the
+discovered themes, folder base, capability, and blocking reason.
+
 When the GTK theme is Catppuccin and
 [`papirus-folders-catppuccin`](https://github.com/catppuccin/papirus-folders)
 is installed, the plugin selects the matching flavor and accent instead of a

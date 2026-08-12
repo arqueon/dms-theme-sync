@@ -25,6 +25,7 @@ PluginComponent {
     readonly property int monoSize: Number(pluginData.monoFontSize || 12)
     readonly property int documentSize: Number(pluginData.documentFontSize || 11)
     readonly property string iconTheme: SettingsData.iconTheme || "System Default"
+    property var discoveredIconThemes: []
     readonly property string cursorTheme: (SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"
     readonly property int cursorSize: Number((SettingsData.cursorSettings && SettingsData.cursorSettings.size) || 24)
     readonly property string colorMode: Theme.isLightMode ? "light" : "dark"
@@ -47,6 +48,11 @@ PluginComponent {
     // derive from has to be remembered rather than inferred.
     readonly property string folderBaseTheme: iconTheme.endsWith(overlaySuffix) ? (pluginData.folderColorBaseTheme || iconTheme.slice(0, -overlaySuffix.length)) : iconTheme
     readonly property bool iconThemeSupportsFolderColor: folderBaseTheme.indexOf("Papirus") === 0
+    readonly property bool papirusInstalled: discoveredIconThemes.some(function(name) {
+        return name.indexOf("Papirus") === 0;
+    })
+    readonly property string folderColorCapability: iconThemeSupportsFolderColor ? "ready" : "blocked"
+    readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but DMS uses " + iconTheme : "Papirus not installed")
     readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
     // Cursor accent variants only exist for material-bibata-cursor's
@@ -102,6 +108,19 @@ PluginComponent {
     }
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
+
+    Process {
+        running: true
+        command: ["sh", "-c", "for base in \"$HOME/.icons\" \"$HOME/.local/share/icons\" /usr/local/share/icons /usr/share/icons; do [ -d \"$base\" ] || continue; for dir in \"$base\"/*; do [ -f \"$dir/index.theme\" ] || continue; grep -q '^Directories=' \"$dir/index.theme\" || continue; basename \"$dir\"; done; done | grep -vxE 'default|hicolor|locolor' | LC_ALL=C sort -fu"]
+
+        stdout: StdioCollector {
+            onStreamFinished: root.discoveredIconThemes = (text || "").split("\n").map(function(name) {
+                return name.trim();
+            }).filter(function(name) {
+                return name !== "";
+            })
+        }
+    }
     readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncCursorColor, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. DMS
@@ -377,6 +396,10 @@ PluginComponent {
                 "font": root.regularFont,
                 "monoFont": root.monoFont,
                 "iconTheme": root.iconTheme,
+                "discoveredIconThemes": root.discoveredIconThemes,
+                "folderBaseTheme": root.folderBaseTheme,
+                "folderColorCapability": root.folderColorCapability,
+                "folderColorReason": root.folderColorReason,
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
                 "gtkTheme": root.colorMode === "light" ? root.gtkThemeLight : root.gtkThemeDark,
