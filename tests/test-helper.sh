@@ -299,7 +299,7 @@ run_niri() {
         --apply-matugen-colors true \
         --backup-enabled false --backup-retention 10 \
         --sync-kde true --sync-xsettingsd true --no-runtime \
-        --compositor niri >/dev/null
+        --compositor niri "$@" >/dev/null
 }
 run_niri
 
@@ -332,6 +332,65 @@ run_niri
 [[ -L $NIRI_DIR/config.kdl ]] || { printf 'Symlinked config.kdl was replaced by a regular file\n' >&2; exit 1; }
 grep -Fqx 'include "dms-theme-sync.kdl"' "$repo_dir/config.kdl" \
     || { printf 'Include not written through the symlink\n' >&2; exit 1; }
+
+# --- Niri focused-border dimming: opt-in, follows dms/colors.kdl --------------
+mkdir -p "$NIRI_DIR/dms"
+cat > "$NIRI_DIR/dms/colors.kdl" <<'EOF'
+layout {
+    focus-ring {
+        active-color   "#9ee600"
+        inactive-color "#a6ab99"
+    }
+
+    border {
+        active-color   "#9ee600"
+        inactive-color "#a6ab99"
+    }
+}
+
+recent-windows {
+    highlight {
+        active-color   "#6d9f00"
+        urgent-color   "#ffc3bb"
+    }
+}
+EOF
+
+# default off: the include carries no colour override
+run_niri
+grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
+    && { printf 'Border override written without opt-in\n' >&2; exit 1; }
+
+# on: border and focus-ring take the darker container tone — and nothing else.
+# The inactive/urgent colours must stay DMS's, so they never appear here.
+run_niri --dim-niri-border true
+[[ $(grep -c 'active-color "#6d9f00"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+    || { printf 'Border override missing or incomplete:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+grep -Eq 'inactive-color|urgent-color' "$NIRI_DIR/dms-theme-sync.kdl" \
+    && { printf 'Border override leaked beyond the active colours\n' >&2; exit 1; }
+
+# off again: the next apply drops the block and DMS colours return
+run_niri
+grep -q 'layout' "$NIRI_DIR/dms-theme-sync.kdl" \
+    && { printf 'Border override survived the toggle being turned off\n' >&2; exit 1; }
+
+# generated palette missing or unparseable: honest skip, include still written
+mv "$NIRI_DIR/dms/colors.kdl" "$NIRI_DIR/dms/colors.kdl.away"
+dim_out=$("$ROOT/scripts/apply-theme.sh" \
+    --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+    --font-size 11 --mono-size 12 --document-size 13 \
+    --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+    --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+    --qt-platform-theme qtct --qt-style Fusion \
+    --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
+    --sync-kde true --sync-xsettingsd true --no-runtime \
+    --compositor niri --dim-niri-border true 2>&1)
+printf '%s\n' "$dim_out" | grep -q 'niri-border: no primary_container tone' \
+    || { printf 'Missing palette not reported:\n%s\n' "$dim_out" >&2; exit 1; }
+grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
+    && { printf 'Border override written from a missing palette\n' >&2; exit 1; }
+mv "$NIRI_DIR/dms/colors.kdl.away" "$NIRI_DIR/dms/colors.kdl"
 
 # --- Terminal font includes: off by default, generated only when opted in ---
 TERMINAL_DIR="$XDG_CONFIG_HOME/dms-theme-sync"
@@ -719,6 +778,11 @@ fi
 #
 # The helper only reports a choice; DMS applies it. So the whole contract here
 # is the log line: which variant, and the exact skip reasons.
+#
+# $HOME is sandboxed but /usr/share/icons is not, and on a machine with the
+# Bibata-Material-* packs installed system-wide every assertion below would
+# see them. Restrict the icon search to the sandboxed directories.
+export DMS_THEME_SYNC_ICON_DIRS="$XDG_DATA_HOME/icons $HOME/.icons"
 mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
 printf '@define-color accent_bg_color #e01b24;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
 
@@ -765,6 +829,7 @@ cursor_out=$(run_cursor --sync-cursor-color false)
 ! grep -Fq 'cursor-color:' <<<"$cursor_out" \
     || { printf 'Cursor choice reported with the toggle off:\n%s\n' "$cursor_out" >&2; exit 1; }
 rm -rf "$XDG_DATA_HOME/icons/Bibata-Material-"{Salmon,Mint,Grey,Teal,Unknown}
+unset DMS_THEME_SYNC_ICON_DIRS
 
 # --- Reconcile: dangling GTK symlinks are preserved, live foreign writers named
 # nwg-look points gtk.css / gtk-dark.css at the selected theme; uninstall it and

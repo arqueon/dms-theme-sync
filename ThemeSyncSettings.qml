@@ -1431,6 +1431,13 @@ PluginSettings {
         defaultValue: false
     }
 
+    ToggleSetting {
+        settingKey: "dimNiriBorder"
+        label: "Dim the focused-window border (Niri)"
+        description: "Matugen's primary can be bright enough that a wide focused-window border washes out against light window content. When on, only the border and focus-ring active colours are overridden with the darker tone Matugen already derives from the same accent (primary_container, the recent-windows highlight colour) — icons, text and every other accent keep the bright primary. The override lives in the plugin's own niri include, loaded after DMS's colours; turning it off returns the border to DMS on the next apply. Only has an effect on Niri."
+        defaultValue: false
+    }
+
     SectionHeader {
         text: "Synchronization and backups"
     }

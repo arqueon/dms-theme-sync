@@ -63,6 +63,12 @@ PluginComponent {
     readonly property string materialCursorPrefix: "Bibata-Material-"
     readonly property string cursorBaseTheme: cursorTheme.indexOf(materialCursorPrefix) === 0 ? (pluginData.cursorColorBaseTheme || "System Default") : cursorTheme
     readonly property bool syncCursorColor: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
+    // Overrides only the focused border/focus-ring colour with the darker
+    // primary_container tone, through the plugin's own niri include. No DMS
+    // setting is involved, so unlike folder/cursor there is nothing to
+    // reconcile: the helper writes or stops writing the block and niri
+    // reloads its config on its own.
+    readonly property bool dimNiriBorder: pluginData.dimNiriBorder !== undefined ? pluginData.dimNiriBorder : false
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
     // call: it resolves an "auto" style first, and gating here on
@@ -121,7 +127,7 @@ PluginComponent {
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncCursorColor, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. DMS
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -177,7 +183,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -402,6 +408,7 @@ PluginComponent {
                 "folderColorReason": root.folderColorReason,
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
+                "dimNiriBorder": root.dimNiriBorder,
                 "gtkTheme": root.colorMode === "light" ? root.gtkThemeLight : root.gtkThemeDark,
                 "qtPlatformTheme": root.qtPlatformTheme,
                 "qtSyncMode": root.qtSyncMode,

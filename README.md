@@ -399,6 +399,25 @@ landing on an arbitrary hue. The plugin never builds cursors itself and only
 chooses among variants that are actually installed; turning the option off
 returns the cursor to the theme recorded before the first switch.
 
+### Focused-border contrast (Niri)
+
+Matugen's primary is chosen to carry icons, text and selections; in dark mode
+it can be bright enough that Niri's focused-window border washes out against
+light window content. **Dim the focused-window border** overrides only the
+`border` and `focus-ring` active colors with the darker tone Matugen already
+derives from the same accent — `primary_container` (dark), the color DMS's own
+template assigns to the recent-windows highlight — so the border still follows
+every wallpaper change, just two tones deeper. Everything else (inactive and
+urgent borders, icons, text, selections) keeps DMS's colors.
+
+No color math is invented and no DMS file is touched: the two values are read
+back from the `dms/colors.kdl` DMS generates, and the override rides the
+plugin's own `dms-theme-sync.kdl`, which `config.kdl` loads after DMS's
+include — later includes win in Niri, property by property. Turning the option
+off stops writing the block and the next apply returns the border to DMS. The
+combined configuration is validated with `niri validate` and rolled back if it
+does not parse. The option has no effect on other compositors.
+
 ### Terminal fonts
 
 Terminal emulators use their own configuration syntax, so toolkit
