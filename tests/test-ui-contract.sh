@@ -13,5 +13,8 @@ grep -Fq 'text: "Use " + root.preferredPapirusTheme' "$settings"
 grep -Fq '"discoveredIconThemes": root.discoveredIconThemes' "$service"
 grep -Fq '"folderColorCapability": root.folderColorCapability' "$service"
 grep -Fq '"folderColorReason": root.folderColorReason' "$service"
+grep -Fq 'function parseFlatpakDiagnostic(text)' "$settings"
+grep -Fq 'text: root.flatpakDiagnosticBusy ? "Checking…" : "Check per-app Flatpak overrides"' "$settings"
+grep -Fq 'nothing was changed.' "$settings"
 
 printf 'ui capability contract: ok\n'

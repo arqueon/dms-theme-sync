@@ -54,6 +54,8 @@ PluginSettings {
     property string documentFontValue: ""
     property string selectedSnapshot: ""
     property string snapshotActionStatus: ""
+    property string flatpakDiagnosticStatus: "Not checked"
+    property bool flatpakDiagnosticBusy: false
     property int regularFontSizeValue: 11
     property int monoFontSizeValue: 12
     property int documentFontSizeValue: 11
@@ -217,6 +219,35 @@ PluginSettings {
 
     function snapshotHelper() {
         return Paths.strip(Qt.resolvedUrl("scripts/theme-snapshot.sh").toString());
+    }
+
+    function flatpakDiagnosticHelper() {
+        return Paths.strip(Qt.resolvedUrl("scripts/check-flatpak-overrides.sh").toString());
+    }
+
+    function parseFlatpakDiagnostic(text) {
+        const lines = String(text || "").trim().split("\n");
+        let status = "error";
+        let count = 0;
+        const apps = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].indexOf("STATUS=") === 0)
+                status = lines[i].slice(7);
+            else if (lines[i].indexOf("COUNT=") === 0)
+                count = parseInt(lines[i].slice(6)) || 0;
+            else if (lines[i].indexOf("APP=") === 0)
+                apps.push(lines[i].slice(4).split("\t")[0]);
+        }
+        if (status === "clean")
+            flatpakDiagnosticStatus = "No application-specific GTK_THEME overrides found.";
+        else if (status === "unavailable")
+            flatpakDiagnosticStatus = "Flatpak is not installed.";
+        else if (status === "issues")
+            flatpakDiagnosticStatus = count + " application-specific GTK_THEME override"
+                + (count === 1 ? "" : "s") + ": " + apps.join(", ")
+                + ". Review them in Flatseal or with flatpak override; nothing was changed.";
+        else
+            flatpakDiagnosticStatus = "The Flatpak override diagnostic could not complete.";
     }
 
     function formatSnapshot(id) {
@@ -534,6 +565,19 @@ PluginSettings {
 
         stdout: StdioCollector {
             onStreamFinished: root.parseSnapshots(text)
+        }
+
+    }
+
+    Process {
+        id: flatpakDiagnosticProcess
+
+        running: false
+        command: ["bash", root.flatpakDiagnosticHelper()]
+        onRunningChanged: root.flatpakDiagnosticBusy = running
+
+        stdout: StdioCollector {
+            onStreamFinished: root.parseFlatpakDiagnostic(text)
         }
 
     }
@@ -1392,6 +1436,32 @@ PluginSettings {
         label: "Synchronize Flatpak applications"
         description: "Sandboxed apps do not see every host theme file. Dark/light reaches them through the desktop portal. When on, the plugin exposes GTK 3 configuration and only the GTK 4 CSS color files—not GTK 4 settings.ini—plus theme directories, icons and the cursor. It removes the old GTK_THEME override: forcing that debugging variable can make GTK 4/libadwaita applications render with GTK 3 metrics, causing missing padding and overlapping controls."
         defaultValue: false
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+
+        StyledText {
+            width: parent.width
+            text: root.flatpakDiagnosticStatus
+            font.pixelSize: Theme.fontSizeSmall
+            color: root.flatpakDiagnosticStatus.indexOf("override") !== -1
+                && root.flatpakDiagnosticStatus.indexOf("No application") !== 0
+                ? Theme.warning : Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankButton {
+            text: root.flatpakDiagnosticBusy ? "Checking…" : "Check per-app Flatpak overrides"
+            iconName: "manage_search"
+            enabled: !root.flatpakDiagnosticBusy
+            onClicked: {
+                root.flatpakDiagnosticStatus = "Checking without changing Flatpak state…";
+                flatpakDiagnosticProcess.running = true;
+            }
+        }
+
     }
 
     ToggleSetting {

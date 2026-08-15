@@ -366,6 +366,11 @@ plugin versions. If Flatpak synchronization is already off, the migration runs
 only when the remaining override has the plugin's GTK/icon signature; unrelated
 user overrides are left intact.
 
+The settings page also has a read-only per-application diagnostic. It lists
+Flatpak applications that still carry their own non-empty `GTK_THEME` override,
+but never removes or rewrites those rules automatically. Review any finding in
+Flatseal or with `flatpak override --user --show APP_ID`.
+
 ### Folder accent
 
 The folder-color option creates a small user-level overlay that inherits from
