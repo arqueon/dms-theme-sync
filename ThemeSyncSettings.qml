@@ -710,7 +710,10 @@ PluginSettings {
                 anchors.verticalCenter: parent.verticalCenter
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (0%)"
-                onClicked: SettingsData.setMatugenContrast(0)
+                onClicked: {
+                    matugenContrastSlider.value = 0;
+                    SettingsData.setMatugenContrast(0);
+                }
             }
 
         }
@@ -724,6 +727,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: matugenContrastSlider
+
             width: parent.width
             minimum: -100
             maximum: 100
@@ -939,7 +944,10 @@ PluginSettings {
                 anchors.verticalCenter: parent.verticalCenter
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (24 px)"
-                onClicked: SettingsData.setCursorSize(24)
+                onClicked: {
+                    cursorSizeSlider.value = 24;
+                    SettingsData.setCursorSize(24);
+                }
             }
 
         }
@@ -953,6 +961,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: cursorSizeSlider
+
             width: parent.width
             minimum: 12
             maximum: 64
@@ -1253,6 +1263,7 @@ PluginSettings {
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (11 pt)"
                 onClicked: {
+                    regularFontSizeSlider.value = 11;
                     root.regularFontSizeValue = 11;
                     root.saveValue("regularFontSize", 11);
                 }
@@ -1269,6 +1280,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: regularFontSizeSlider
+
             width: parent.width
             minimum: 7
             maximum: 24
@@ -1310,6 +1323,7 @@ PluginSettings {
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (12 pt)"
                 onClicked: {
+                    monoFontSizeSlider.value = 12;
                     root.monoFontSizeValue = 12;
                     root.saveValue("monoFontSize", 12);
                 }
@@ -1326,6 +1340,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: monoFontSizeSlider
+
             width: parent.width
             minimum: 7
             maximum: 24
@@ -1367,6 +1383,7 @@ PluginSettings {
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (11 pt)"
                 onClicked: {
+                    documentFontSizeSlider.value = 11;
                     root.documentFontSizeValue = 11;
                     root.saveValue("documentFontSize", 11);
                 }
@@ -1383,6 +1400,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: documentFontSizeSlider
+
             width: parent.width
             minimum: 7
             maximum: 24
@@ -1559,6 +1578,7 @@ PluginSettings {
                 iconName: "restart_alt"
                 tooltipText: "Reset to default (10)"
                 onClicked: {
+                    backupRetentionSlider.value = 10;
                     root.backupRetentionValue = 10;
                     root.saveValue("backupRetention", 10);
                 }
@@ -1575,6 +1595,8 @@ PluginSettings {
         }
 
         DankSlider {
+            id: backupRetentionSlider
+
             width: parent.width
             minimum: 1
             maximum: 30
