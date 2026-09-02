@@ -15,6 +15,7 @@ PluginSettings {
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
     property string iconThemeValue: SettingsData.iconTheme || "System Default"
     property string requestedIconTheme: ""
+    property bool requestedIconThemeLight: false
     property string iconThemeSelectionStatus: ""
     // Qt platform themes and widget styles, as reported by Qt itself. These used
     // to be hardcoded lists, which offered names this machine may not have and
@@ -25,13 +26,19 @@ PluginSettings {
     // Only Papirus ships the folder colour variants the accent sync needs. Once
     // the overlay is applied, SettingsData.iconTheme is the overlay, so test the
     // base theme rather than the applied one.
+    readonly property bool iconThemePerMode: typeof SettingsData.iconThemePerMode !== "undefined" ? SettingsData.iconThemePerMode : false
+    readonly property string iconThemeDark: typeof SettingsData.iconThemeDark !== "undefined" ? SettingsData.iconThemeDark : (SettingsData.iconTheme || "System Default")
+    readonly property string iconThemeLight: typeof SettingsData.iconThemeLight !== "undefined" ? SettingsData.iconThemeLight : (SettingsData.iconTheme || "System Default")
     readonly property bool iconThemeSupportsFolderColor: (SettingsData.iconTheme || "").replace(/-DankFolders$/, "").indexOf("Papirus") === 0
+    readonly property bool iconThemeDarkSupportsFolderColor: iconThemeDark.replace(/-DankFolders$/, "").indexOf("Papirus") === 0
+    readonly property bool iconThemeLightSupportsFolderColor: iconThemeLight.replace(/-DankFolders$/, "").indexOf("Papirus") === 0
     readonly property var installedPapirusThemes: installedIconThemes.filter(function(name) {
         return name.indexOf("Papirus") === 0 && !name.endsWith("-DankFolders");
     })
     readonly property bool papirusInstalled: installedPapirusThemes.length > 0
     readonly property string preferredPapirusTheme: installedPapirusThemes.indexOf("Papirus-Dark") !== -1 ? "Papirus-Dark" : (installedPapirusThemes.indexOf("Papirus") !== -1 ? "Papirus" : (installedPapirusThemes[0] || ""))
-    readonly property string folderColorCapabilityReason: iconThemeSupportsFolderColor ? "ready" : (papirusInstalled ? "Papirus is installed, but DMS currently uses " + (SettingsData.iconTheme || "System Default") + "." : "Papirus is not installed.")
+    readonly property bool anyIconModeSupportsFolderColor: iconThemePerMode ? (iconThemeDarkSupportsFolderColor || iconThemeLightSupportsFolderColor) : iconThemeSupportsFolderColor
+    readonly property string folderColorCapabilityReason: iconThemeSupportsFolderColor ? (iconThemePerMode ? "Ready in the current mode. Dark: " + iconThemeDark + "; light: " + iconThemeLight + "." : "ready") : (papirusInstalled ? "Papirus is installed, but the current " + (SessionData.isLightMode ? "light" : "dark") + " mode uses " + (SettingsData.iconTheme || "System Default") + "." : "Papirus is not installed.")
     property var installedCursorThemes: [(SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"]
     // What the --probe-qt run found on this machine; drives the route
     // descriptions so the user picks between things that actually exist here.
@@ -298,14 +305,20 @@ PluginSettings {
         return values;
     }
 
-    function selectIconTheme(value) {
-        if (!value || value === SettingsData.iconTheme)
+    function selectIconTheme(value, lightMode) {
+        const targetLight = lightMode === true;
+        const canonical = targetLight ? iconThemeLight : iconThemeDark;
+        if (!value || value === canonical)
             return ;
 
         requestedIconTheme = value;
+        requestedIconThemeLight = targetLight;
         iconThemeValue = value;
         iconThemeSelectionStatus = "Applying " + value + "…";
-        SettingsData.setIconTheme(value);
+        if (typeof SettingsData.setIconThemeForMode === "function")
+            SettingsData.setIconThemeForMode(value, targetLight);
+        else
+            SettingsData.setIconTheme(value);
         iconThemeVerifyTimer.restart();
     }
 
@@ -418,7 +431,7 @@ PluginSettings {
 
         interval: 1200
         onTriggered: {
-            const canonical = SettingsData.iconTheme || "System Default";
+            const canonical = root.requestedIconThemeLight ? root.iconThemeLight : root.iconThemeDark;
             if (canonical === root.requestedIconTheme) {
                 root.iconThemeValue = canonical;
                 root.iconThemeSelectionStatus = "";
@@ -860,19 +873,68 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Updates the canonical DMS icon theme"
+            text: root.iconThemePerMode ? "Updates DMS's separate light and dark icon themes" : "Updates the canonical DMS icon theme"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
         }
 
+        DankToggle {
+            width: parent.width
+            visible: typeof SettingsData.iconThemePerMode !== "undefined"
+            text: "Separate light and dark themes"
+            description: "Use a different icon theme for each appearance mode. Folder-color overlays are derived independently."
+            checked: root.iconThemePerMode
+            onToggled: function(isChecked) {
+                if (typeof SettingsData.setIconThemePerMode === "function")
+                    SettingsData.setIconThemePerMode(isChecked);
+            }
+        }
+
         DankDropdown {
             width: parent.width
+            visible: !root.iconThemePerMode
             enableFuzzySearch: true
-            currentValue: root.iconThemeValue
+            currentValue: root.iconThemeDark
             options: root.installedIconThemes
             onValueChanged: function(value) {
-                root.selectIconTheme(value);
+                root.selectIconTheme(value, false);
+            }
+        }
+
+        StyledText {
+            visible: root.iconThemePerMode
+            text: "Dark mode icon theme"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+        }
+
+        DankDropdown {
+            width: parent.width
+            visible: root.iconThemePerMode
+            enableFuzzySearch: true
+            currentValue: root.iconThemeDark
+            options: root.installedIconThemes
+            onValueChanged: function(value) {
+                root.selectIconTheme(value, false);
+            }
+        }
+
+        StyledText {
+            visible: root.iconThemePerMode
+            text: "Light mode icon theme"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+        }
+
+        DankDropdown {
+            width: parent.width
+            visible: root.iconThemePerMode
+            enableFuzzySearch: true
+            currentValue: root.iconThemeLight
+            options: root.installedIconThemes
+            onValueChanged: function(value) {
+                root.selectIconTheme(value, true);
             }
         }
 
@@ -1488,7 +1550,7 @@ PluginSettings {
         label: "Sync icon folder color (requires Papirus)"
         description: "Recolors the folder icons to follow the Material You accent. Only Papirus ships the ~80 folder color variants this needs, so the toggle does nothing with any other icon theme — yours is kept exactly as you set it. When on, the plugin generates a small overlay theme in ~/.local/share/icons that inherits Papirus and only overrides the folders (about 4 MB of symlinks, no root needed, and Papirus updates are inherited). The accent is matched by hue, not by nearest RGB, because Material You hands out pastel tints in dark mode."
         defaultValue: false
-        enabled: root.iconThemeSupportsFolderColor
+        enabled: root.anyIconModeSupportsFolderColor
     }
 
     Column {
@@ -1508,7 +1570,7 @@ PluginSettings {
             visible: root.papirusInstalled
             text: "Use " + root.preferredPapirusTheme
             iconName: "folder"
-            onClicked: root.selectIconTheme(root.preferredPapirusTheme)
+            onClicked: root.selectIconTheme(root.preferredPapirusTheme, SessionData.isLightMode)
         }
 
     }

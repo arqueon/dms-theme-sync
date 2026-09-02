@@ -385,6 +385,13 @@ selection is verified after writing to `SettingsData`; a rejected or reverted
 choice is reported instead of silently snapping back. IPC `status` exposes the
 discovered themes, folder base, capability, and blocking reason.
 
+On DMS versions with separate light and dark icon themes, Theme Sync mirrors
+that setting in its own panel and derives one overlay per mode (for example,
+`Papirus-DankFolders` and `Papirus-Dark-DankFolders`). Each base is remembered
+independently; disabling folder-color sync restores both DMS preferences, even
+when one of the modes is not currently visible. Older DMS versions continue to
+use the single effective icon-theme contract.
+
 When the GTK theme is Catppuccin and
 [`papirus-folders-catppuccin`](https://github.com/catppuccin/papirus-folders)
 is installed, the plugin selects the matching flavor and accent instead of a

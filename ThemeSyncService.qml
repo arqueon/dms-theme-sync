@@ -25,10 +25,14 @@ PluginComponent {
     readonly property int monoSize: Number(pluginData.monoFontSize || 12)
     readonly property int documentSize: Number(pluginData.documentFontSize || 11)
     readonly property string iconTheme: SettingsData.iconTheme || "System Default"
+    readonly property bool iconThemePerMode: typeof SettingsData.iconThemePerMode !== "undefined" ? SettingsData.iconThemePerMode : false
+    readonly property string iconThemeDark: typeof SettingsData.iconThemeDark !== "undefined" ? SettingsData.iconThemeDark : iconTheme
+    readonly property string iconThemeLight: typeof SettingsData.iconThemeLight !== "undefined" ? SettingsData.iconThemeLight : iconTheme
     property var discoveredIconThemes: []
     readonly property string cursorTheme: (SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"
     readonly property int cursorSize: Number((SettingsData.cursorSettings && SettingsData.cursorSettings.size) || 24)
     readonly property string colorMode: Theme.isLightMode ? "light" : "dark"
+    readonly property bool lightIconMode: colorMode === "light"
     readonly property string gtkThemeLight: pluginData.gtkThemeLight || "auto"
     readonly property string gtkThemeDark: pluginData.gtkThemeDark || "auto"
     readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "preserve"
@@ -46,14 +50,18 @@ PluginComponent {
     readonly property string overlaySuffix: "-DankFolders"
     // Once the overlay is applied it *is* SettingsData.iconTheme, so the base to
     // derive from has to be remembered rather than inferred.
-    readonly property string folderBaseTheme: iconTheme.endsWith(overlaySuffix) ? (pluginData.folderColorBaseTheme || iconTheme.slice(0, -overlaySuffix.length)) : iconTheme
+    readonly property string savedFolderBaseTheme: lightIconMode ? (pluginData.folderColorBaseThemeLight || pluginData.folderColorBaseTheme || "") : (pluginData.folderColorBaseThemeDark || pluginData.folderColorBaseTheme || "")
+    readonly property string folderBaseTheme: iconTheme.endsWith(overlaySuffix) ? (savedFolderBaseTheme || iconTheme.slice(0, -overlaySuffix.length)) : iconTheme
+    readonly property string folderBaseThemeDark: iconThemeDark.endsWith(overlaySuffix) ? (pluginData.folderColorBaseThemeDark || iconThemeDark.slice(0, -overlaySuffix.length)) : iconThemeDark
+    readonly property string folderBaseThemeLight: iconThemeLight.endsWith(overlaySuffix) ? (pluginData.folderColorBaseThemeLight || iconThemeLight.slice(0, -overlaySuffix.length)) : iconThemeLight
     readonly property bool iconThemeSupportsFolderColor: folderBaseTheme.indexOf("Papirus") === 0
     readonly property bool papirusInstalled: discoveredIconThemes.some(function(name) {
         return name.indexOf("Papirus") === 0;
     })
     readonly property string folderColorCapability: iconThemeSupportsFolderColor ? "ready" : "blocked"
     readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but DMS uses " + iconTheme : "Papirus not installed")
-    readonly property bool syncFolderColor: (pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false) && iconThemeSupportsFolderColor
+    readonly property bool syncFolderColorRequested: pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false
+    readonly property bool syncFolderColor: syncFolderColorRequested && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
     // Cursor accent variants only exist for material-bibata-cursor's
     // Bibata-Material-* packs; the helper maps the Matugen accent onto the
@@ -127,23 +135,41 @@ PluginComponent {
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColor, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. DMS
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
     // Writing the overlay straight into gsettings would look like an outside
     // change to DMS's own checkIconThemeDrift() and get the theme unmanaged.
+    function setIconThemeForMode(themeName, light) {
+        if (typeof SettingsData.setIconThemeForMode === "function")
+            SettingsData.setIconThemeForMode(themeName, light);
+        else if (light === lightIconMode)
+            SettingsData.setIconTheme(themeName);
+    }
+
     function reconcileIconTheme(output) {
-        if (syncFolderColor) {
+        if (syncFolderColorRequested) {
+            if (!syncFolderColor)
+                return;
             if (output.indexOf("folder-color: accent") === -1)
                 return;
             if (SettingsData.iconTheme !== folderOverlayTheme) {
                 if (pluginService)
-                    pluginService.savePluginData(pluginId, "folderColorBaseTheme", folderBaseTheme);
-                SettingsData.setIconTheme(folderOverlayTheme);
+                    pluginService.savePluginData(pluginId, lightIconMode ? "folderColorBaseThemeLight" : "folderColorBaseThemeDark", folderBaseTheme);
+                setIconThemeForMode(folderOverlayTheme, lightIconMode);
             }
-        } else if (SettingsData.iconTheme.endsWith(overlaySuffix)) {
-            SettingsData.setIconTheme(folderBaseTheme);
+            return;
+        }
+
+        if (iconThemeDark.endsWith(overlaySuffix))
+            setIconThemeForMode(folderBaseThemeDark, false);
+        if (iconThemeLight.endsWith(overlaySuffix))
+            setIconThemeForMode(folderBaseThemeLight, true);
+        if (pluginService) {
+            pluginService.savePluginData(pluginId, "folderColorBaseThemeDark", "");
+            pluginService.savePluginData(pluginId, "folderColorBaseThemeLight", "");
+            pluginService.savePluginData(pluginId, "folderColorBaseTheme", "");
         }
     }
 
@@ -402,8 +428,13 @@ PluginComponent {
                 "font": root.regularFont,
                 "monoFont": root.monoFont,
                 "iconTheme": root.iconTheme,
+                "iconThemePerMode": root.iconThemePerMode,
+                "iconThemeDark": root.iconThemeDark,
+                "iconThemeLight": root.iconThemeLight,
                 "discoveredIconThemes": root.discoveredIconThemes,
                 "folderBaseTheme": root.folderBaseTheme,
+                "folderBaseThemeDark": root.folderBaseThemeDark,
+                "folderBaseThemeLight": root.folderBaseThemeLight,
                 "folderColorCapability": root.folderColorCapability,
                 "folderColorReason": root.folderColorReason,
                 "cursorTheme": root.cursorTheme,
