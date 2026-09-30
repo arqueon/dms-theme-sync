@@ -265,6 +265,14 @@ Controls mirrored from DMS update the canonical DMS settings. The plugin stores
 only its own choices, including the per-mode GTK theme, font sizes, Qt route,
 optional integrations, auto-apply behavior, and backup policy.
 
+With DMS 1.7 beta, the settings page also offers the Standard (2021) and
+Expressive (2025) Material palettes. Expressive contrast starts at zero, as in
+DMS. Theme Sync follows the resulting live DMS colors for Kvantum; DMS remains
+responsible for generating its GTK and KColorScheme exports. If those templates
+are disabled in DMS Appearance → Apps, the settings page warns that GTK or Qt
+may retain an older exported palette. Layout, surface colors, radii and effects
+remain DMS-only settings rather than application-theme controls.
+
 The main IPC commands are:
 
 ```bash

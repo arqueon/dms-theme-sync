@@ -605,7 +605,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "Every DMS appearance control is mirrored here, so the whole theme can be configured in one place. The color theme, light/dark mode, Matugen palette, fonts, icons and cursor write directly to DMS; the plugin then propagates them to GTK2/3/4, Qt5/6, KDE, XSettings, Fontconfig and desktop portals."
+        text: "The controls below change DMS's theme, mode, palette, fonts, icons and cursor. Theme Sync then carries the supported choices into GTK, Qt, KDE and other applications. DMS keeps its own layout, surfaces, radii and effects in Appearance settings."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -700,6 +700,38 @@ PluginSettings {
     Column {
         width: parent.width
         spacing: Theme.spacingS
+        visible: typeof SettingsData.matugenSpec !== "undefined" && typeof SettingsData.setMatugenSpec === "function" && Theme.matugenAvailable
+
+        StyledText {
+            text: "Material palette"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Standard uses Material 2021; Expressive uses the new Material 2025 colors. DMS generates the palette and Theme Sync follows its result."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: SettingsData.matugenSpec === "2025" ? "Expressive (2025)" : "Standard (2021)"
+            options: ["Standard (2021)", "Expressive (2025)"]
+            onValueChanged: function(value) {
+                const spec = value === "Expressive (2025)" ? "2025" : "2021";
+                if (spec !== SettingsData.matugenSpec)
+                    SettingsData.setMatugenSpec(spec);
+            }
+        }
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
         visible: typeof Theme !== "undefined" && Theme.matugenAvailable
         opacity: visible ? 1 : 0.4
 
@@ -733,7 +765,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
+            text: SettingsData.matugenSpec === "2025" ? "Contrast of generated colors (0 standard to 100 maximum for Expressive)" : "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -743,13 +775,16 @@ PluginSettings {
             id: matugenContrastSlider
 
             width: parent.width
-            minimum: -100
+            minimum: SettingsData.matugenSpec === "2025" ? 0 : -100
             maximum: 100
             unit: "%"
             wheelEnabled: false
             value: Math.round((SettingsData.matugenContrast || 0) * 100)
             onSliderDragFinished: function(finalValue) {
-                SettingsData.setMatugenContrast(finalValue / 100);
+                const clamped = SettingsData.matugenSpec === "2025" ? Math.max(0, finalValue) : finalValue;
+                SettingsData.setMatugenContrast(clamped / 100);
+                if (clamped !== finalValue)
+                    matugenContrastSlider.value = clamped;
             }
         }
 
@@ -1117,6 +1152,16 @@ PluginSettings {
         label: "Apply DMS Matugen colors"
         description: "Import DMS dynamic colors over the selected GTK theme and expose DankMatugen.colors to compatible Qt routes. A fixed same-author Kvantum pair such as Matcha keeps its own colors by design."
         defaultValue: true
+    }
+
+    StyledText {
+        width: parent.width
+        visible: typeof SettingsData.runDmsMatugenTemplates !== "undefined"
+            && (!SettingsData.runDmsMatugenTemplates || !SettingsData.matugenTemplateGtk || !SettingsData.matugenTemplateKcolorscheme)
+        text: "DMS 1.7 has disabled a Matugen export used here. Re-enable Run DMS templates, GTK and KColorScheme in DMS Appearance → Apps to keep GTK and Qt colors current; existing exports may retain an older palette."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
     ToggleSetting {
