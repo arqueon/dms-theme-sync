@@ -1144,7 +1144,6 @@ set_gsetting_string org.gnome.desktop.interface document-font-name "$DOCUMENT_FO
 set_gsetting_string org.gnome.desktop.interface monospace-font-name "$MONO_FONT $MONO_SIZE"
 set_gsetting_string org.gnome.desktop.wm.preferences titlebar-font "$FONT Bold $FONT_SIZE"
 set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark ]] && printf prefer-dark || printf prefer-light)"
-set_gsetting_bool org.gnome.desktop.interface gtk-enable-animations true
 
 # --- Uniform list backgrounds -------------------------------------------------
 #

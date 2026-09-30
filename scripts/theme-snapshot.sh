@@ -95,7 +95,6 @@ GSETTINGS=(
     "org.gnome.desktop.interface font-name"
     "org.gnome.desktop.interface document-font-name"
     "org.gnome.desktop.interface monospace-font-name"
-    "org.gnome.desktop.interface gtk-enable-animations"
     "org.gnome.desktop.wm.preferences titlebar-font"
 )
 
@@ -249,6 +248,8 @@ restore_snapshot() {
     if [[ $NO_RUNTIME != true ]] && command -v gsettings >/dev/null 2>&1 && [[ -f $dir/gsettings.tsv ]]; then
         while IFS=$'\t' read -r schema key value; do
             [[ -n $schema && -n $key && -n $value ]] || continue
+            # Older snapshots may contain this preference; it is not theme-owned.
+            [[ $schema == org.gnome.desktop.interface && $key == gtk-enable-animations ]] && continue
             gsettings writable "$schema" "$key" 2>/dev/null | grep -qx true || continue
             gsettings set "$schema" "$key" "$value" 2>/dev/null || true
         done < "$dir/gsettings.tsv"
