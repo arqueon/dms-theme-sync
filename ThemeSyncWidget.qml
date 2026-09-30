@@ -29,15 +29,15 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Item {
-            implicitWidth: Theme.iconSize
-            implicitHeight: Theme.iconSize
+            implicitWidth: root.iconSize
+            implicitHeight: root.iconSize
             anchors.verticalCenter: parent.verticalCenter
 
             DankIcon {
                 anchors.centerIn: parent
                 name: "palette"
-                size: Theme.iconSizeSmall
-                color: pillArea.containsMouse ? Theme.primary : Theme.surfaceText
+                size: root.iconSize
+                color: pillArea.containsMouse ? Theme.primary : Theme.widgetIconColor
             }
 
             MouseArea {
@@ -55,15 +55,15 @@ PluginComponent {
 
     verticalBarPill: Component {
         Item {
-            implicitWidth: Theme.iconSize
-            implicitHeight: Theme.iconSize
+            implicitWidth: root.iconSize
+            implicitHeight: root.iconSize
             anchors.horizontalCenter: parent.horizontalCenter
 
             DankIcon {
                 anchors.centerIn: parent
                 name: "palette"
-                size: Theme.iconSizeSmall
-                color: pillAreaV.containsMouse ? Theme.primary : Theme.surfaceText
+                size: root.iconSize
+                color: pillAreaV.containsMouse ? Theme.primary : Theme.widgetIconColor
             }
 
             MouseArea {
