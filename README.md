@@ -483,11 +483,16 @@ startup commands need a new session to inherit persistent changes.
 Backups are enabled by default. Before each apply, the plugin snapshots:
 
 - its managed configuration files recorded in the snapshot manifest;
+- niri and Hyprland main configs and generated includes, the Kvantum selection and generated DankMatugen theme, and the generated KDE color schemes;
 - the content behind writable dotmanager symlinks, while preserving the link;
 - the user-wide Flatpak override changed by the sandbox integration;
 - whether plugin-created files previously existed;
 - relevant GSettings values;
 - the cursor and Qt session environment.
+
+A dynamically named Kvantum shadow made for a paired theme is outside the
+snapshot. Restoring a snapshot may leave that shadow in place; inspect
+`~/.config/Kvantum/` if a paired theme still looks different after restore.
 
 The plugin creates the snapshot **before** applying changes. If backup creation
 fails, synchronization stops without editing the theme. A successful apply logs

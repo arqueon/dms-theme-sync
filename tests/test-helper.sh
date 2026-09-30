@@ -234,16 +234,26 @@ rm -f "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
 FLATPAK_OVERRIDE="$XDG_DATA_HOME/flatpak/overrides/global"
 mkdir -p "$(dirname "$FLATPAK_OVERRIDE")"
 printf '[Environment]\nGTK_THEME=legacy-theme\n' > "$FLATPAK_OVERRIDE"
+mkdir -p "$XDG_CONFIG_HOME/hypr" "$XDG_CONFIG_HOME/niri" "$XDG_CONFIG_HOME/Kvantum"
+printf 'before-source\n' > "$XDG_CONFIG_HOME/hypr/hyprland.conf"
+printf 'before-include\n' > "$XDG_CONFIG_HOME/niri/config.kdl"
+printf '[General]\ntheme=Before\n' > "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig"
 backup_output=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 3 --label test --no-runtime)
 snapshot=${backup_output#BACKUP_CREATED:}
 printf 'mutated\n' > "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 printf 'created-after-backup\n' > "$XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf"
 printf '[Environment]\nGTK_THEME=mutated-theme\n' > "$FLATPAK_OVERRIDE"
+printf 'after-source\n' > "$XDG_CONFIG_HOME/hypr/hyprland.conf"
+printf 'after-include\n' > "$XDG_CONFIG_HOME/niri/config.kdl"
+printf '[General]\ntheme=After\n' > "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig"
 
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$snapshot" --no-runtime >/dev/null
 grep -Fq 'pre-backup-marker' "$XDG_CONFIG_HOME/gtk-3.0/settings.ini"
 grep -Fq 'GTK_THEME=legacy-theme' "$FLATPAK_OVERRIDE" \
     || { printf 'Restore did not recover the Flatpak override\n' >&2; exit 1; }
+grep -Fqx 'before-source' "$XDG_CONFIG_HOME/hypr/hyprland.conf"
+grep -Fqx 'before-include' "$XDG_CONFIG_HOME/niri/config.kdl"
+grep -Fqx 'theme=Before' "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig"
 [[ ! -e $XDG_CONFIG_HOME/environment.d/90-dms-theme-sync.conf ]] || {
     printf 'Restore did not remove a file that was absent in the snapshot\n' >&2
     exit 1

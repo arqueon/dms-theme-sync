@@ -1368,9 +1368,6 @@ else
         '    <edit name="family" mode="prepend" binding="strong"><string>'"$document_xml"'</string></edit></match>' \
         '</fontconfig>' > "$tmp"
     commit_staged_file "$tmp" "$FONTCONFIG_FILE"
-    if [[ $NO_RUNTIME != true ]] && command -v fc-cache >/dev/null 2>&1; then
-        fc-cache -f >/dev/null 2>&1 || true
-    fi
 fi
 
 # --- Flatpak ------------------------------------------------------------------

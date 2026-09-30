@@ -70,6 +70,20 @@ TARGETS=(
     # Flatpak's user-wide override is changed by the optional sandbox sync.
     # Keep new entries at the end so old snapshot indices remain stable.
     "$XDG_DATA_HOME/flatpak/overrides/global"
+    # Keep additions at the end: a snapshot's manifest maps each array index
+    # back to the path it captured, including snapshots made by older versions.
+    "$XDG_CONFIG_HOME/niri/config.kdl"
+    "$XDG_CONFIG_HOME/niri/dms-theme-sync.kdl"
+    "$XDG_CONFIG_HOME/niri/dms/environment.kdl"
+    "$XDG_CONFIG_HOME/hypr/hyprland.conf"
+    "$XDG_CONFIG_HOME/hypr/hyprland.lua"
+    "$XDG_CONFIG_HOME/Kvantum/kvantum.kvconfig"
+    "$XDG_CONFIG_HOME/Kvantum/DankMatugen"
+    "$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
+    "$XDG_DATA_HOME/color-schemes/DankMatugenDark.colors"
+    "$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
+    "$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
+    "$XDG_DATA_HOME/color-schemes/DankUniform.colors"
 )
 
 GSETTINGS=(

@@ -1603,7 +1603,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "backupEnabled"
         label: "Back up before applying"
-        description: "Before changing theme state, snapshot the managed configuration files, writable targets behind dotmanager symlinks, the Flatpak user override, GSettings and the runtime environment. If the snapshot fails, synchronization is aborted."
+        description: "Before changing theme state, snapshot managed files, compositor includes, the Kvantum selection and generated theme, color schemes, Flatpak overrides, GSettings and the runtime environment. A paired Kvantum theme shadow may also be changed; that dynamically named directory is not included in snapshots. If the snapshot fails, synchronization is aborted."
         defaultValue: true
     }
 
