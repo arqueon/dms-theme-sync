@@ -207,6 +207,44 @@ PluginComponent {
         return Paths.strip(Qt.resolvedUrl("scripts/reload-application-theme.sh").toString());
     }
 
+    property string xresourcesBackupCleanup: "Not run yet"
+    property int xresourcesBackupCleanupExitCode: -1
+
+    function pruneXresourcesBackups() {
+        if (xresourcesCleanupProcess.running)
+            return;
+        xresourcesCleanupProcess.command = [Paths.strip(Qt.resolvedUrl("scripts/prune-xresources-backups.sh").toString()), "--keep", String(backupRetention)];
+        xresourcesCleanupProcess.running = true;
+    }
+
+    // Cursor updates run asynchronously inside DMS. Periodic maintenance also
+    // catches direct DMS changes and runs when autoSync or snapshots are off.
+    Timer {
+        interval: 5000
+        running: true
+        repeat: false
+        onTriggered: root.pruneXresourcesBackups()
+    }
+
+    Timer {
+        interval: 60000
+        running: true
+        repeat: true
+        onTriggered: root.pruneXresourcesBackups()
+    }
+
+    Process {
+        id: xresourcesCleanupProcess
+        onExited: function(exitCode) {
+            root.xresourcesBackupCleanupExitCode = exitCode;
+            root.xresourcesBackupCleanup = ((xresourcesCleanupOutput.text || "") + (xresourcesCleanupError.text || "")).trim();
+            if (exitCode !== 0)
+                console.warn("Xresources backup cleanup:", root.xresourcesBackupCleanup);
+        }
+        stdout: StdioCollector { id: xresourcesCleanupOutput }
+        stderr: StdioCollector { id: xresourcesCleanupError }
+    }
+
     function buildCommand(dryRun) {
         const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
@@ -421,6 +459,8 @@ PluginComponent {
                 "autoSync": root.autoSync,
                 "backupEnabled": root.backupEnabled,
                 "backupRetention": root.backupRetention,
+                "xresourcesBackupCleanup": root.xresourcesBackupCleanup,
+                "xresourcesBackupCleanupExitCode": root.xresourcesBackupCleanupExitCode,
                 "currentAction": root.currentAction,
                 "lastExitCode": root.lastExitCode,
                 "mode": root.colorMode,

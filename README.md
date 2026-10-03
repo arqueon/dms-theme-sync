@@ -578,6 +578,23 @@ Named snapshots are pinned: they are neither counted nor deleted by normal
 rotation. Restoring disables auto-apply first so the recovered state is not
 immediately overwritten.
 
+DMS also creates `~/.Xresources.backup<TIMESTAMP>` before changing cursor
+resources. These are separate from Theme Sync snapshots. While the plugin is
+loaded, it retains the same configured number of these copies (default 10),
+checking shortly after startup and every minute. This maintenance also runs
+when auto-apply or snapshot creation is disabled, because cursor changes made
+in DMS can still create copies. A new copy can temporarily exceed the limit
+until the next pass. Disabling the plugin stops this maintenance.
+
+Only regular files directly in the home directory with the exact
+`.Xresources.backup` prefix and a numeric Unix timestamp of at least ten digits
+are rotated, newest timestamp first. The live `.Xresources`, symlinks, folders,
+manual names and named Theme Sync snapshots are untouched. To retain a cursor
+copy indefinitely, give it a nonnumeric suffix, such as `.backup-manual`.
+`status` reports `xresourcesBackupCleanup` and its exit code separately from
+application-theme synchronization. For a read-only preview, run
+`scripts/prune-xresources-backups.sh --keep 10 --dry-run` from the plugin folder.
+
 Use the dialog's backup selector, the IPC commands above, or the helper:
 
 ```bash

@@ -1,5 +1,10 @@
 # Change history
 
+## 0.12.6 — 2026-10-02
+
+- Limit DMS cursor `.Xresources.backup<TIMESTAMP>` copies to the configured backup retention (default 10), independently of named snapshots. Clean at startup and every minute while the plugin runs, including with automatic theme sync disabled.
+- Preserve the active resource file, symlinks, directories and manually named backups; expose cleanup results through IPC status.
+
 ## 0.12.5 — 2026-10-02
 
 - Explain Niri border color substitution accurately: the existing `dimNiriBorder` setting uses DMS's exported dark `primary_container` highlight. Expressive palettes may remain vivid; no fixed dimming amount is guaranteed. The color-selection behavior is unchanged.

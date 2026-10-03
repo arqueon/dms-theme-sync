@@ -32,3 +32,6 @@ jobs:
 
       - name: Test read-only Flatpak diagnostics
         run: tests/test-flatpak-overrides.sh
+
+      - name: Test Xresources backup retention
+        run: tests/test-xresources-backups.sh

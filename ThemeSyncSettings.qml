@@ -1718,7 +1718,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Oldest snapshots are removed after a successful backup"
+            text: "Keeps this many unnamed snapshots and, separately, the newest DMS .Xresources.backup files. Named snapshots stay pinned. Cursor-file copies are cleaned at plugin startup and every minute, even when automatic theme sync or snapshots are off. To preserve one outside rotation, rename it with a nonnumeric suffix."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
