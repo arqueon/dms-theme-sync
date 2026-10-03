@@ -12,6 +12,7 @@ PluginSettings {
     property var installedGtkThemes: ["auto", "preserve"]
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
+    readonly property bool expressivePalette: typeof SettingsData.matugenSpec !== "undefined" && SettingsData.matugenSpec === "2025"
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
     property string iconThemeValue: SettingsData.iconTheme || "System Default"
     property string requestedIconTheme: ""
@@ -71,7 +72,7 @@ PluginSettings {
     // exactly like the DMS Settings "Theme" tab.
     readonly property var dmsThemeOptions: {
         const opts = [{
-            "label": "Dynamic (wallpaper)",
+            "label": "Dynamic (DMS palette)",
             "value": "dynamic"
         }];
         // getAvailableThemes() can be empty while StockThemes is still being
@@ -677,7 +678,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Palette algorithm used for wallpaper-based colors"
+            text: "Algorithm used to generate the dynamic palette. The Expressive scheme is separate from the Material 2025 specification below; DMS controls the wallpaper, source color and target monitor."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -711,7 +712,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Standard uses Material 2021; Expressive uses the new Material 2025 colors. DMS generates the palette and Theme Sync follows its result."
+            text: "Standard uses Material 2021; Expressive uses Material 2025. This selects how DMS generates dynamic colors. Theme Sync follows the resulting palette; it does not copy DMS layout, shapes or animations into applications."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -719,7 +720,7 @@ PluginSettings {
 
         DankDropdown {
             width: parent.width
-            currentValue: SettingsData.matugenSpec === "2025" ? "Expressive (2025)" : "Standard (2021)"
+            currentValue: root.expressivePalette ? "Expressive (2025)" : "Standard (2021)"
             options: ["Standard (2021)", "Expressive (2025)"]
             onValueChanged: function(value) {
                 const spec = value === "Expressive (2025)" ? "2025" : "2021";
@@ -765,7 +766,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: SettingsData.matugenSpec === "2025" ? "Contrast of generated colors (0 standard to 100 maximum for Expressive)" : "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
+            text: root.expressivePalette ? "Contrast of generated colors (0 standard to 100 maximum for Expressive)" : "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -775,13 +776,13 @@ PluginSettings {
             id: matugenContrastSlider
 
             width: parent.width
-            minimum: SettingsData.matugenSpec === "2025" ? 0 : -100
+            minimum: root.expressivePalette ? 0 : -100
             maximum: 100
             unit: "%"
             wheelEnabled: false
             value: Math.round((SettingsData.matugenContrast || 0) * 100)
             onSliderDragFinished: function(finalValue) {
-                const clamped = SettingsData.matugenSpec === "2025" ? Math.max(0, finalValue) : finalValue;
+                const clamped = root.expressivePalette ? Math.max(0, finalValue) : finalValue;
                 SettingsData.setMatugenContrast(clamped / 100);
                 if (clamped !== finalValue)
                     matugenContrastSlider.value = clamped;
@@ -1148,6 +1149,7 @@ PluginSettings {
     // Not a Qt setting: it drives the GTK CSS import *and* the Qt palette, and
     // used to sit wedged between the two Qt dropdowns.
     ToggleSetting {
+        id: matugenColorsToggle
         settingKey: "applyMatugenColors"
         label: "Apply DMS Matugen colors"
         description: "Import DMS dynamic colors over the selected GTK theme and expose DankMatugen.colors to compatible Qt routes. A fixed same-author Kvantum pair such as Matcha keeps its own colors by design."
@@ -1156,9 +1158,9 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        visible: typeof SettingsData.runDmsMatugenTemplates !== "undefined"
-            && (!SettingsData.runDmsMatugenTemplates || !SettingsData.matugenTemplateGtk || !SettingsData.matugenTemplateKcolorscheme)
-        text: "DMS 1.7 has disabled a Matugen export used here. Re-enable Run DMS templates, GTK and KColorScheme in DMS Appearance → Apps to keep GTK and Qt colors current; existing exports may retain an older palette."
+        visible: matugenColorsToggle.value && typeof SettingsData.runDmsMatugenTemplates !== "undefined"
+            && (!SettingsData.runDmsMatugenTemplates || SettingsData.matugenTemplateGtk === false || SettingsData.matugenTemplateKcolorscheme === false)
+        text: "A DMS color export used here is disabled. In DMS Appearance → Apps, enable Run DMS templates and the exports you use: GTK for GTK colors, KColorScheme for Qt palette routes. Existing files can retain an older palette. Theme Sync leaves your template choices unchanged."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -1628,10 +1630,31 @@ PluginSettings {
     }
 
     ToggleSetting {
+        id: niriBorderToggle
         settingKey: "dimNiriBorder"
-        label: "Dim the focused-window border (Niri)"
-        description: "Matugen's primary can be bright enough that a wide focused-window border washes out against light window content. When on, only the border and focus-ring active colours are overridden with the darker tone Matugen already derives from the same accent (primary_container, the recent-windows highlight colour) — icons, text and every other accent keep the bright primary. The override lives in the plugin's own niri include, loaded after DMS's colours; turning it off returns the border to DMS on the next apply. Only has an effect on Niri."
+        label: "Niri border: use DMS highlight color"
+        description: "Uses the recent-windows highlight color for the focused border and focus ring. DMS exports this as primary_container from its dark palette, even in light mode. It often looks darker than the main accent, but this is a color substitution, not a brightness slider. Width, inactive and urgent colors stay unchanged. Turning it off removes the plugin override on the next apply; later user overrides still take precedence. Niri only."
         defaultValue: false
+    }
+
+    StyledText {
+        width: parent.width
+        visible: niriBorderToggle.value && root.expressivePalette
+        text: "With Expressive (2025), the highlight can stay vivid or close to the main accent. A subtle change is expected for some palettes; it does not by itself mean synchronization failed. DMS surface colors and the exported Niri highlight can also differ."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
+    }
+
+    StyledText {
+        width: parent.width
+        visible: niriBorderToggle.value && CompositorService.compositor === "niri"
+            && typeof SettingsData.runDmsMatugenTemplates !== "undefined"
+            && (!SettingsData.runDmsMatugenTemplates || SettingsData.matugenTemplateNiri === false)
+        text: "The DMS Niri color export is disabled. The border can reuse an older highlight or skip the override if no palette exists. Enable Run DMS templates and Niri in DMS Appearance → Apps to follow new colors."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
     SectionHeader {

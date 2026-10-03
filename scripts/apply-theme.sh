@@ -1901,14 +1901,12 @@ write_niri_env_include() {
 
 # --- Niri focused-border dimming ----------------------------------------------
 #
-# Matugen's primary is picked to carry icons, text and selections, and in dark
-# mode it can be bright enough that a wide focused-window border washes out
-# against light window content. Instead of inventing colour math, reuse the
-# darker tone Matugen already derives from the same hue: primary_container
-# (dark), which DMS's own Niri template assigns to the recent-windows
-# highlight. The override rides the plugin's include only — dms/colors.kdl is
-# never touched, and turning the toggle off simply stops writing the block, so
-# the next apply returns the border to DMS.
+# Reuse the highlight from DMS's Niri template (primary_container.dark).
+# Standard palettes often make it darker than primary; Expressive palettes
+# may keep it vivid, similar in brightness, or even brighter. This is a role
+# substitution, not fixed dimming. The dark role is used in either mode.
+# Only the plugin include changes; switching off removes its override on the
+# next apply. DMS's generated file and later user overrides remain authoritative.
 NIRI_BORDER_DIM_COLOR=""
 if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
     dim_color=$(niri_dms_active_color highlight)
@@ -1919,7 +1917,7 @@ if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
         log "niri-border: accent $bright_color already matches the container tone; skipping"
     else
         NIRI_BORDER_DIM_COLOR=$dim_color
-        log "niri-border: active border ${bright_color:-unknown} -> $dim_color"
+        log "niri-border: active border ${bright_color:-unknown} -> $dim_color (DMS highlight; brightness depends on palette)"
     fi
 fi
 

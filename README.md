@@ -31,6 +31,7 @@ and includes a standalone **configuration dialog**.
 - [Hot reload for running applications](#hot-reload-for-running-applications)
 - [Install](#install)
 - [Configure](#configure)
+- [DMS 1.7 compatibility](#dms-17-compatibility)
 - [Qt synchronization](#qt-synchronization)
 - [Optional integrations](#optional-integrations)
 - [Backups and restore](#backups-and-restore)
@@ -142,6 +143,7 @@ verify that another writer did not immediately undo it.
 | **Icons** | Optional Papirus folder overlay matched to the current Matugen accent |
 | **Cursor** | Optional Bibata-Material variant matched to the current Matugen accent |
 | **Terminals** | Optional font includes for kitty, Alacritty, and Ghostty |
+| **Niri borders** | Optional substitution of the focused border and focus-ring color with DMS's exported recent-windows highlight |
 | **Session environment** | Live systemd user environment plus persistent compositor/session configuration |
 
 The configuration dialog also mirrors DMS appearance controls—color theme,
@@ -193,10 +195,14 @@ Anything safe and deterministic is repaired. Anything that implies ownership
 of a user-maintained configuration is reported instead.
 
 > [!IMPORTANT]
-> DMS generates the dynamic colors. Keep DMS's **GTK**, **qt5ct**, and
-> **qt6ct** Matugen templates enabled. The plugin consumes
-> `dank-colors.css` and `DankMatugen.colors`; it deliberately does not launch a
-> second Matugen process.
+> DMS generates the dynamic colors. In DMS versions with template controls,
+> enable **Run DMS templates**, then **GTK** for `dank-colors.css`,
+> **KColorScheme** for `DankMatugen.colors`, and **Niri** if you use the
+> optional border color. The **qt5ct** and **qt6ct** exports are separate
+> template outputs; they do not replace KColorScheme. Theme Sync consumes
+> these exports without launching a second Matugen process. Disabled templates
+> can leave older files behind; a successful apply does not prove those files
+> were regenerated.
 
 ## Hot reload for running applications
 
@@ -265,13 +271,16 @@ Controls mirrored from DMS update the canonical DMS settings. The plugin stores
 only its own choices, including the per-mode GTK theme, font sizes, Qt route,
 optional integrations, auto-apply behavior, and backup policy.
 
-With DMS 1.7 beta, the settings page also offers the Standard (2021) and
-Expressive (2025) Material palettes. Expressive contrast starts at zero, as in
-DMS. Theme Sync follows the resulting live DMS colors for Kvantum; DMS remains
-responsible for generating its GTK and KColorScheme exports. If those templates
-are disabled in DMS Appearance → Apps, the settings page warns that GTK or Qt
-may retain an older exported palette. Layout, surface colors, radii and effects
-remain DMS-only settings rather than application-theme controls.
+The Material palette selector is available when DMS exposes the specification
+API. **Standard (2021)** and **Expressive (2025)** select the generation
+specification. This is independent of the **Matugen scheme**: a scheme named
+Expressive is not the same setting as the 2025 specification. The contrast range
+is −100 to 100 for Standard and 0 to 100 for Expressive, matching DMS.
+
+These controls affect generated palettes. Stock and downloaded themes can
+supply their own colors. A fixed GTK/Kvantum pair also keeps its authored
+palette; selecting Expressive does not recolor every application unconditionally.
+See [DMS 1.7 compatibility](#dms-17-compatibility) for the boundaries.
 
 The main IPC commands are:
 
@@ -290,6 +299,35 @@ dms ipc call dmsThemeSync restore SNAPSHOT_ID
 `status` returns formatted JSON. Environment changes affect newly launched
 applications; existing Qt/KDE applications may need a restart, and persistent
 session changes may require logging out and back in.
+
+## DMS 1.7 compatibility
+
+The integration below was reviewed against Theme Sync 0.12.4, the DMS 1.7
+pre-release APIs, and upstream changes through 2 October 2026. DMS's development
+branch can differ from the installed shell. Controls that depend on newer APIs
+are shown only when those APIs exist; the minimum supported DMS version remains
+1.5.0.
+
+| DMS capability | Theme Sync coverage and boundary |
+| --- | --- |
+| Standard / Expressive palettes and contrast | Mirrors DMS's specification, scheme and contrast controls. Consumes the resulting colors; does not implement another generator. |
+| Wallpaper, seed color and monitor used for extraction | DMS owns source selection. Theme Sync follows the resulting palette; its panel does not duplicate seed, extraction or monitor controls. |
+| Separate light/dark icon themes | Mirrors both choices and keeps separate Papirus overlay bases. An overlay is generated when its mode is applied. |
+| Per-template export switches | Warns about disabled GTK/KColorScheme exports when Matugen colors are enabled, and about a disabled Niri export when border substitution is enabled. Does not re-enable exports or remove old user CSS automatically. |
+| Shell surfaces and selection colors | The plugin UI uses DMS widgets and `Theme` colors. GTK/Qt exports and generated Kvantum have their own supported roles; shell surface tint, transparency and every selected-container role do not have a one-to-one application mapping. |
+| Shapes, spacing, effects and animations | Remain in DMS. Theme Sync does not export shell geometry or animation timing, and preserves the existing GTK animation accessibility preference. |
+| Qt engine and other new app templates | DMS owns its Qt engine export. Theme Sync currently resolves native pairs, Kvantum, qtct/KColorScheme and GTK routes; it has no dedicated Qt engine integration. Avoid assigning the same Qt settings to competing managers. |
+
+`status` includes the active Material specification, scheme, contrast, and
+DMS/GTK/KColorScheme/Niri template flags. A `null` capability means that DMS
+version does not expose the corresponding setting; it is not the same as
+`false`. These flags describe configuration, not export freshness.
+
+Remaining integration work is to detect stale or disabled exports at apply
+time without deleting user styling, evaluate a dedicated Qt engine route, and
+validate mappings for newer shell surface roles. These are not implemented
+features. [Change history](CHANGELOG.md) records the current documentation and
+diagnostic changes.
 
 ## Qt synchronization
 
@@ -421,22 +459,45 @@ returns the cursor to the theme recorded before the first switch.
 
 ### Focused-border contrast (Niri)
 
-Matugen's primary is chosen to carry icons, text and selections; in dark mode
-it can be bright enough that Niri's focused-window border washes out against
-light window content. **Dim the focused-window border** overrides only the
-`border` and `focus-ring` active colors with the darker tone Matugen already
-derives from the same accent — `primary_container` (dark), the color DMS's own
-template assigns to the recent-windows highlight — so the border still follows
-every wallpaper change, just two tones deeper. Everything else (inactive and
-urgent borders, icons, text, selections) keeps DMS's colors.
+**Niri border: use DMS highlight color** (previously **Dim the focused-window
+border**) replaces only the focused `border` and `focus-ring` active colors.
+It reads the recent-windows highlight from DMS's generated `dms/colors.kdl`.
+The DMS template maps this to **`primary_container.dark`**, including when the
+current appearance mode is light. The setting key remains `dimNiriBorder`, so
+existing preferences keep working.
 
-No color math is invented and no DMS file is touched: the two values are read
-back from the `dms/colors.kdl` DMS generates, and the override rides the
-plugin's own `dms-theme-sync.kdl`, which `config.kdl` loads after DMS's
-include — later includes win in Niri, property by property. Turning the option
-off stops writing the block and the next apply returns the border to DMS. The
-combined configuration is validated with `niri validate` and rolled back if it
-does not parse. The option has no effect on other compositors.
+This is a palette-role substitution, not a brightness slider or a fixed
+reduction. Standard palettes often produce a darker border. With Expressive
+(2025), the highlight may remain saturated, lie close to the main accent, or
+have a different brightness relationship. A small visual change can therefore
+be correct. For example, a vibrant Expressive palette can replace `#ff9061`
+with `#ff793b`: the second color is darker but still a strong orange. There is
+no guaranteed number of tone steps, and the plugin does not test contrast
+against the content of the focused window.
+
+DMS's own shell surfaces may use additional derived colors. Those surfaces
+are not the source of this option: it follows the **exported Niri highlight**.
+It leaves border width, inactive and urgent colors, tabs, icons and text alone.
+
+The override lives in `dms-theme-sync.kdl`, after DMS's color include and before
+user overrides on a fresh configuration. Existing include placement is
+respected; later includes and window rules can supersede the result. Disabling
+the option removes the plugin's color block on the next apply, returning control
+to the remaining Niri configuration. The combined configuration is validated
+with `niri validate`; invalid writes are rolled back. Other compositors are
+unaffected.
+
+Keep DMS's **Run DMS templates** and **Niri** export enabled to follow palette
+changes. If the generated file is missing or unreadable, the helper skips the
+color override and reports it. If the highlight already matches the border,
+there is no additional override. A disabled export with a surviving file can
+reuse an older color; the settings panel warns about that configuration.
+
+To inspect a suspected failure, compare the `border` and recent-windows
+`highlight` in `~/.config/niri/dms/colors.kdl` with the active colors in
+`~/.config/niri/dms-theme-sync.kdl`, then check the `niri-border:` line in
+`dms ipc call dmsThemeSync status`. `reconcile: clean` alone is not a visual
+contrast check or a confirmation that no later Niri rule overrides the color.
 
 ### Terminal fonts
 

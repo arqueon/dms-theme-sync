@@ -71,11 +71,10 @@ PluginComponent {
     readonly property string materialCursorPrefix: "Bibata-Material-"
     readonly property string cursorBaseTheme: cursorTheme.indexOf(materialCursorPrefix) === 0 ? (pluginData.cursorColorBaseTheme || "System Default") : cursorTheme
     readonly property bool syncCursorColor: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
-    // Overrides only the focused border/focus-ring colour with the darker
-    // primary_container tone, through the plugin's own niri include. No DMS
-    // setting is involved, so unlike folder/cursor there is nothing to
-    // reconcile: the helper writes or stops writing the block and niri
-    // reloads its config on its own.
+    // Reuses the exported dark primary_container for the focused border/focus
+    // ring, through the plugin's own Niri include. Expressive palettes do not
+    // guarantee a darker or muted result. The helper writes or removes the
+    // block, and Niri reloads its configuration without a DMS setting change.
     readonly property bool dimNiriBorder: pluginData.dimNiriBorder !== undefined ? pluginData.dimNiriBorder : false
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
@@ -440,6 +439,13 @@ PluginComponent {
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
                 "dimNiriBorder": root.dimNiriBorder,
+                "materialSpec": typeof SettingsData.matugenSpec !== "undefined" ? SettingsData.matugenSpec : null,
+                "matugenScheme": SettingsData.matugenScheme,
+                "matugenContrast": SettingsData.matugenContrast,
+                "dmsTemplatesEnabled": typeof SettingsData.runDmsMatugenTemplates !== "undefined" ? SettingsData.runDmsMatugenTemplates : null,
+                "gtkExportEnabled": typeof SettingsData.matugenTemplateGtk !== "undefined" ? SettingsData.matugenTemplateGtk : null,
+                "kColorSchemeExportEnabled": typeof SettingsData.matugenTemplateKcolorscheme !== "undefined" ? SettingsData.matugenTemplateKcolorscheme : null,
+                "niriExportEnabled": typeof SettingsData.matugenTemplateNiri !== "undefined" ? SettingsData.matugenTemplateNiri : null,
                 "gtkTheme": root.colorMode === "light" ? root.gtkThemeLight : root.gtkThemeDark,
                 "qtPlatformTheme": root.qtPlatformTheme,
                 "qtSyncMode": root.qtSyncMode,
