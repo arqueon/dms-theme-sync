@@ -1,4 +1,4 @@
-# DMS Theme Sync
+# Dux Theme Sync
 
 **One source of truth for a Linux desktop that otherwise has none.**
 
@@ -8,8 +8,8 @@ Flatpak, and the session environment all make independent decisions. A valid
 setting in one layer may be ignored in the next, and most failures end in a
 silent fallback rather than a useful error.
 
-[DMS Theme Sync](https://github.com/arqueon/dms-theme-sync) makes
-[Dank Material Shell](https://danklinux.com/docs/dankmaterialshell) the
+[Dux Theme Sync](https://github.com/arqueon/dms-theme-sync) makes
+[Dux Shell](https://duxlabs.dev/docs) the
 appearance authority and carries its decisions to as many of those layers as
 possible. It then reads the system back, repairs unambiguous drift, and reports
 what it could not safely fix.
@@ -20,7 +20,7 @@ more predictable.
 The plugin runs as a background **daemon**, provides an optional **bar widget**,
 and includes a standalone **configuration dialog**.
 
-<img width="809" height="930" alt="DMS Theme Sync configuration dialog" src="https://github.com/user-attachments/assets/14829950-5538-4334-8222-ec9ca35233c2" />
+<img width="809" height="930" alt="Dux Theme Sync configuration dialog" src="https://github.com/user-attachments/assets/14829950-5538-4334-8222-ec9ca35233c2" />
 
 ## Contents
 
@@ -31,7 +31,7 @@ and includes a standalone **configuration dialog**.
 - [Hot reload for running applications](#hot-reload-for-running-applications)
 - [Install](#install)
 - [Configure](#configure)
-- [DMS 1.7 compatibility](#dms-17-compatibility)
+- [Dux 2.0 compatibility](#dux-20-compatibility)
 - [Qt synchronization](#qt-synchronization)
 - [Optional integrations](#optional-integrations)
 - [Backups and restore](#backups-and-restore)
@@ -61,10 +61,10 @@ application to interpret that choice consistently:
   applications cannot see every host theme file, and compositor environment
   changes do not automatically reach already-running processes.
 
-DMS Theme Sync follows four rules:
+Dux Theme Sync follows four rules:
 
-1. **DMS decides; the plugin propagates.** Canonical DMS settings are changed
-   through DMS's own API, never behind its back.
+1. **Dux decides; the plugin propagates.** Canonical Dux settings are changed
+   through Dux's own API, never behind its back.
 2. **Write, then verify.** A successful file write is not treated as proof that
    the setting took effect.
 3. **Repair only what is unambiguous.** Conflicts that require a user decision
@@ -90,12 +90,12 @@ The common fixes are unreliable:
 2. Making `AlternateBase` equal to `Base` still leaves stripes under Kvantum
    themes with `transparent_dolphin_view=true`: normal rows show the window
    color while alternate rows are still painted.
-3. Deriving a scheme whose name still begins with `DankMatugen` lets DMS treat
+3. Deriving a scheme whose name still begins with `DankMatugen` lets Dux treat
    it as its own and reapply the original striped scheme during a palette
    refresh.
 4. A uniform `kdeglobals` is not enough either: KDE remembers a color scheme
    **per application** (picking one in Dolphin's Settings → Color Scheme writes
-   `ColorScheme=DankMatugen` into `dolphinrc`), and a pinned app reads DMS's
+   `ColorScheme=DankMatugen` into `dolphinrc`), and a pinned app reads Dux's
    scheme file directly. Each view captures its palette when it is created, so
    new tabs, split panes, and new windows stripe again even while older views
    sit uniform.
@@ -104,8 +104,8 @@ The plugin's **Uniform list backgrounds** option handles every supported Qt
 route:
 
 - it derives a separate `DankUniform.colors` scheme for the KColorScheme route;
-- it equalizes the View alternate inside DMS's own `DankMatugen*.colors`
-  exports, so apps pinned to them per-app stay uniform too (DMS regenerates
+- it equalizes the View alternate inside Dux's own `DankMatugen*.colors`
+  exports, so apps pinned to them per-app stay uniform too (Dux regenerates
   these on every wallpaper or mode change; the plugin re-patches them at the
   same cadence, and turning the toggle off lets the next regeneration restore
   the stripes);
@@ -130,12 +130,12 @@ verify that another writer did not immediately undo it.
 
 ## What it synchronizes
 
-| Area | What receives the DMS decision |
+| Area | What receives the Dux decision |
 | --- | --- |
 | **GTK** | GTK 2, GTK 3, GTK 4 settings, and the safe Matugen color import |
 | **GNOME** | GSettings for theme, color scheme, icons, cursor, cursor size, and fonts |
-| **Qt 5/6** | `qt5ct`/`qt6ct` style, icons, fonts, and the DMS KColorScheme palette |
-| **Kvantum** | A matching GTK/Kvantum pair when installed, or an optional theme rendered from the DMS palette |
+| **Qt 5/6** | `qt5ct`/`qt6ct` style, icons, fonts, and the Dux KColorScheme palette |
+| **Kvantum** | A matching GTK/Kvantum pair when installed, or an optional theme rendered from the Dux palette |
 | **KDE** | `kdeglobals`, `kcminputrc`, and synchronized KColorScheme data |
 | **Fontconfig** | `sans-serif`, `serif`, and `monospace` aliases |
 | **X11/XWayland** | XSettings and XCursor defaults |
@@ -143,10 +143,10 @@ verify that another writer did not immediately undo it.
 | **Icons** | Optional Papirus folder overlay matched to the current Matugen accent |
 | **Cursor** | Optional Bibata-Material variant matched to the current Matugen accent |
 | **Terminals** | Optional font includes for kitty, Alacritty, and Ghostty |
-| **Niri borders** | Optional substitution of the focused border and focus-ring color with DMS's exported recent-windows highlight |
+| **Niri borders** | Optional substitution of the focused border and focus-ring color with Dux's exported recent-windows highlight |
 | **Session environment** | Live systemd user environment plus persistent compositor/session configuration |
 
-The configuration dialog also mirrors DMS appearance controls—color theme,
+The configuration dialog also mirrors Dux appearance controls—color theme,
 light/dark mode, Matugen scheme and contrast, fonts, icons, cursor, and cursor
 size—so the canonical settings and the plugin-specific choices are available
 in one place.
@@ -155,7 +155,7 @@ in one place.
 
 ```mermaid
 flowchart LR
-  A[DMS appearance settings] --> B[Theme Sync daemon]
+  A[Dux appearance settings] --> B[Theme Sync daemon]
   B --> C[Restorable snapshot]
   C --> D[Apply to supported layers]
   D --> E[GTK and GSettings]
@@ -168,13 +168,13 @@ flowchart LR
 
 The daemon watches a signature containing the active colors, mode, fonts,
 sizes, icons, cursor, and plugin options. A wallpaper change, a stock theme
-change, or a downloaded/custom DMS theme therefore triggers a new apply
+change, or a downloaded/custom Dux theme therefore triggers a new apply
 automatically. No wallpaper-manager hook is required.
 
 Two details keep generated color data current:
 
-- DMS does not always regenerate its GTK export for custom/downloaded themes,
-  so the plugin asks DMS to refresh that export through DMS's own theme API.
+- Dux does not always regenerate its GTK export for custom/downloaded themes,
+  so the plugin asks Dux to refresh that export through Dux's own theme API.
 - the plugin keeps the Matugen import in GTK 3 and GTK 4's user CSS, including
   the symlink case where `gtk.css` is already the generated palette itself.
   GTK loads that user provider once per process, so this benefits new launches;
@@ -195,8 +195,8 @@ Anything safe and deterministic is repaired. Anything that implies ownership
 of a user-maintained configuration is reported instead.
 
 > [!IMPORTANT]
-> DMS generates the dynamic colors. In DMS versions with template controls,
-> enable **Run DMS templates**, then **GTK** for `dank-colors.css`,
+> Dux generates the dynamic colors. In Dux versions with template controls,
+> enable **Run DMS templates** (Wallpaper & colors → App theming), then **GTK** for `dank-colors.css`,
 > **KColorScheme** for `DankMatugen.colors`, and **Niri** if you use the
 > optional border color. The **qt5ct** and **qt6ct** exports are separate
 > template outputs; they do not replace KColorScheme. Theme Sync consumes
@@ -242,22 +242,22 @@ boundary too.
 
 Requirements:
 
-- Dank Material Shell **1.5.0 or newer**
+- Dux Shell **1.5.0 or newer** (Dux 2.0 recommended)
 - Bash
 
-The plugin is available from the DMS plugin registry. Open
-*DMS Settings → Plugins → Browse*, install **DMS Theme Sync**, and enable it.
+The plugin is available from the Dux plugin registry. Open
+*Dux Settings → Plugins → Browse*, install **Dux Theme Sync**, and enable it.
 
 For a manual installation:
 
 ```bash
 git clone https://github.com/arqueon/dms-theme-sync.git \
-  ~/.config/DankMaterialShell/plugins/dmsThemeSync
+  ~/.config/dms/plugins/dmsThemeSync   # pre-2.0: ~/.config/DankMaterialShell/plugins
 dms restart
 ```
 
-Then enable **DMS Theme Sync** in *DMS Settings → Plugins*. Optionally add its
-widget from *DMS Settings → Bar → Add Widget*.
+Then enable **Dux Theme Sync** in *Dux Settings → Plugins*. Optionally add its
+widget from *Dux Settings → Bar → Add Widget*.
 
 ## Configure
 
@@ -265,22 +265,22 @@ Open the dialog in any of these ways:
 
 - **Bar widget:** left-click opens the dialog; right-click applies immediately.
 - **IPC or key binding:** `dms ipc call dmsThemeSync configure`.
-- **DMS Settings:** *Plugins → DMS Theme Sync*.
+- **Dux Settings:** *Plugins → Dux Theme Sync*.
 
-Controls mirrored from DMS update the canonical DMS settings. The plugin stores
+Controls mirrored from Dux update the canonical Dux settings. The plugin stores
 only its own choices, including the per-mode GTK theme, font sizes, Qt route,
 optional integrations, auto-apply behavior, and backup policy.
 
-The Material palette selector is available when DMS exposes the specification
+The Material palette selector is available when Dux exposes the specification
 API. **Standard (2021)** and **Expressive (2025)** select the generation
 specification. This is independent of the **Matugen scheme**: a scheme named
 Expressive is not the same setting as the 2025 specification. The contrast range
-is −100 to 100 for Standard and 0 to 100 for Expressive, matching DMS.
+is −100 to 100 for Standard and 0 to 100 for Expressive, matching Dux.
 
 These controls affect generated palettes. Stock and downloaded themes can
 supply their own colors. A fixed GTK/Kvantum pair also keeps its authored
 palette; selecting Expressive does not recolor every application unconditionally.
-See [DMS 1.7 compatibility](#dms-17-compatibility) for the boundaries.
+See [Dux 2.0 compatibility](#dux-20-compatibility) for the boundaries.
 
 The main IPC commands are:
 
@@ -300,34 +300,36 @@ dms ipc call dmsThemeSync restore SNAPSHOT_ID
 applications; existing Qt/KDE applications may need a restart, and persistent
 session changes may require logging out and back in.
 
-## DMS 1.7 compatibility
+## Dux 2.0 compatibility
 
-The integration below was reviewed against Theme Sync 0.12.4, the DMS 1.7
-pre-release APIs, and upstream changes through 2 October 2026. DMS's development
-branch can differ from the installed shell. Controls that depend on newer APIs
-are shown only when those APIs exist; the minimum supported DMS version remains
-1.5.0.
+The integration below was reviewed against Theme Sync 0.13.0, Dux Shell 2.0.0
+and upstream changes through 22 October 2026. Dux's development branch can
+differ from the installed shell. Controls that depend on newer APIs are shown
+only when those APIs exist; the minimum supported Dux version remains 1.5.0.
 
-| DMS capability | Theme Sync coverage and boundary |
+| Dux capability | Theme Sync coverage and boundary |
 | --- | --- |
-| Standard / Expressive palettes and contrast | Mirrors DMS's specification, scheme and contrast controls. Consumes the resulting colors; does not implement another generator. |
-| Wallpaper, seed color and monitor used for extraction | DMS owns source selection. Theme Sync follows the resulting palette; its panel does not duplicate seed, extraction or monitor controls. |
+| Standard / Expressive / Bold palettes and contrast | Mirrors Dux's three Material specifications, scheme and contrast controls. Consumes the resulting colors; does not implement another generator. |
+| Wallpaper, source color, seed and smart mode | Dux owns extraction. Theme Sync mirrors the source-color choice, reports a pinned seed and clears it, and exposes smart mode; the monitor choice stays in Dux. |
 | Separate light/dark icon themes | Mirrors both choices and keeps separate Papirus overlay bases. An overlay is generated when its mode is applied. |
 | Per-template export switches | Warns about disabled GTK/KColorScheme exports when Matugen colors are enabled, and about a disabled Niri export when border substitution is enabled. Does not re-enable exports or remove old user CSS automatically. |
-| Shell surfaces and selection colors | The plugin UI uses DMS widgets and `Theme` colors. GTK/Qt exports and generated Kvantum have their own supported roles; shell surface tint, transparency and every selected-container role do not have a one-to-one application mapping. |
-| Shapes, spacing, effects and animations | Remain in DMS. Theme Sync does not export shell geometry or animation timing, and preserves the existing GTK animation accessibility preference. |
-| Qt engine and other new app templates | DMS owns its Qt engine export. Theme Sync currently resolves native pairs, Kvantum, qtct/KColorScheme and GTK routes; it has no dedicated Qt engine integration. Avoid assigning the same Qt settings to competing managers. |
+| Qt and KDE colour ownership | Dux 2.0's qt5ct/qt6ct templates only write `colors/matugen.conf`; they never point `qtXct.conf` at a palette, so Theme Sync keeps setting it. When Dux's Qt engine is the active platform theme, the plugin defers the Qt palette (handing a stale `DankUniform` back to Dux) and keeps style, fonts and icons. KDE colours always stay with the plugin: Dux re-applies its KColorScheme only on mode changes. Uniform list backgrounds keep plugin ownership in every case. |
+| Fonts and typography | Family, mono and document fonts are written to GTK, Qt, KDE, XSettings and Fontconfig. Dux's font weight is converted to Qt's legacy scale; the document font defaults to the regular font (Dux's `displayFontFamily` is a bundled headline face, not exported). Dux's UI scale is not applied to application sizes. |
+| Shapes, spacing, effects and animations | Corner style, strength and fixed radius are mirrored as Dux settings but never exported: GTK and Qt themes keep their own geometry. Spacing, effects and animation timing remain in Dux. |
+| Shell surfaces and selection colors | The plugin UI uses Dux widgets and `Theme` colors. GTK/Qt exports and generated Kvantum have their own supported roles; shell surface tint, transparency and every selected-container role do not have a one-to-one application mapping. |
+| Qt engine and other new app templates | Dux owns its Qt engine export. Theme Sync has no dedicated Qt engine route and defers the Qt palette while the Qt engine is the active platform theme. Avoid assigning the same Qt settings to competing managers. |
 
-`status` includes the active Material specification, scheme, contrast, and
-DMS/GTK/KColorScheme/Niri template flags. A `null` capability means that DMS
-version does not expose the corresponding setting; it is not the same as
+`status` includes the active Material specification, scheme, contrast, source
+mode, seed, smart mode, corner settings, terminal options, Qt/KDE colour owners
+and the Dux/GTK/KColorScheme/Niri template flags. A `null` capability means that
+Dux version does not expose the corresponding setting; it is not the same as
 `false`. These flags describe configuration, not export freshness.
 
-Remaining integration work is to detect stale or disabled exports at apply
-time without deleting user styling, evaluate a dedicated Qt engine route, and
-validate mappings for newer shell surface roles. These are not implemented
-features. [Change history](CHANGELOG.md) records the current documentation and
-diagnostic changes.
+Remaining integration work is to detect stale or disabled exports at apply time
+without deleting user styling, and to validate mappings for newer shell surface
+roles. A dedicated Qt engine route is deliberately not implemented: Dux owns it,
+and the plugin defers instead of competing. [Change history](CHANGELOG.md)
+records the current documentation and diagnostic changes.
 
 ## Qt synchronization
 
@@ -343,9 +345,9 @@ synchronization route**:
 | Route | Result |
 | --- | --- |
 | **Manual** *(default)* | Preserve the separate platform-theme and widget-style choices. Use this when the session already owns them. |
-| **Automatic — visual fidelity with GTK** | Re-evaluate the best route on every apply: complete native Qt pair → same-author Kvantum pair → generated DMS Kvantum theme → DMS palette through `qt6ct-kde` → follow GTK. |
+| **Automatic — visual fidelity with GTK** | Re-evaluate the best route on every apply: complete native Qt pair → same-author Kvantum pair → generated Dux Kvantum theme → Dux palette through `qt6ct-kde` → follow GTK. |
 | **GTK–Qt twin theme** | Use the selected GTK theme's native Qt style (Breeze) or its installed Kvantum half, including Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, and adw-gtk3/KvLibadwaita. |
-| **Kvantum from DMS** | Render and select a Kvantum theme from the live DMS palette. |
+| **Kvantum from Dux** | Render and select a Kvantum theme from the live Dux palette. |
 | **Dynamic wallpaper colors — Fusion** | Use `DankMatugen.colors` through `qt6ct-kde`; choose this when live wallpaper colors matter more than preserving a fixed Matcha/Qogir design. |
 | **Follow GTK** | Use the `gtk3` platform theme so Qt colors follow the selected GTK theme. |
 
@@ -369,7 +371,7 @@ page and diagnostics.
 
 ### Why stock qt6ct is not enough
 
-DMS exports `DankMatugen.colors` as a KDE KColorScheme with sections such as
+Dux exports `DankMatugen.colors` as a KDE KColorScheme with sections such as
 `[Colors:Window]` and `[Colors:View]`. Stock `qt6ct` expects its own
 `[ColorScheme]` array format and silently retains a default palette.
 [`qt6ct-kde`](https://aur.archlinux.org/packages/qt6ct-kde) adds native
@@ -380,13 +382,13 @@ Package names vary outside Arch-based distributions.
 
 Kvantum draws widgets from its own `.kvconfig` and SVG files; it does not use
 the qtXct palette for those colors. Selecting the `kvantum` style without a
-matching theme can therefore remove the DMS palette rather than improve it.
+matching theme can therefore remove the Dux palette rather than improve it.
 
 When enabled, the plugin either:
 
 - selects an installed Kvantum counterpart from the same design as the GTK
   theme; or
-- renders `DankMatugen.kvconfig` and `DankMatugen.svg` from the current DMS
+- renders `DankMatugen.kvconfig` and `DankMatugen.svg` from the current Dux
   Material roles.
 
 The templates are vendored under `assets/kvantum/`, so applying a theme does not
@@ -424,18 +426,18 @@ Papirus and replaces only folder icons. It chooses the nearest hue to the
 Matugen accent without copying the complete icon theme.
 
 The settings page distinguishes three states: Papirus installed, Papirus
-selected as DMS's canonical icon theme, and the generated overlay active. If
-Papirus is installed while DMS still uses another theme, the option explains
+selected as Dux's canonical icon theme, and the generated overlay active. If
+Papirus is installed while Dux still uses another theme, the option explains
 why it is blocked and offers an explicit **Use Papirus-Dark** button. Icon-theme
 selection is verified after writing to `SettingsData`; a rejected or reverted
 choice is reported instead of silently snapping back. IPC `status` exposes the
 discovered themes, folder base, capability, and blocking reason.
 
-On DMS versions with separate light and dark icon themes, Theme Sync mirrors
+On Dux versions with separate light and dark icon themes, Theme Sync mirrors
 that setting in its own panel and derives one overlay per mode (for example,
 `Papirus-DankFolders` and `Papirus-Dark-DankFolders`). Each base is remembered
-independently; disabling folder-color sync restores both DMS preferences, even
-when one of the modes is not currently visible. Older DMS versions continue to
+independently; disabling folder-color sync restores both Dux preferences, even
+when one of the modes is not currently visible. Older Dux versions continue to
 use the single effective icon-theme contract.
 
 When the GTK theme is Catppuccin and
@@ -450,7 +452,7 @@ The cursor-color option applies the same idea to the pointer. Build the
 packs once (28 `Bibata-Material-*` variants, each recolored around one
 Material accent, installed to `~/.icons`); on every apply the plugin maps the
 Matugen accent onto the nearest installed variant by CIE hue and hands the
-choice to DMS's own cursor setting, which propagates it everywhere the cursor
+choice to Dux's own cursor setting, which propagates it everywhere the cursor
 theme is already synchronized (GTK, Qt, KDE, XResources, compositor, Flatpak).
 A neutral accent selects a neutral variant (Grey, Slate, Cloud…) instead of
 landing on an arbitrary hue. The plugin never builds cursors itself and only
@@ -459,10 +461,10 @@ returns the cursor to the theme recorded before the first switch.
 
 ### Focused-border contrast (Niri)
 
-**Niri border: use DMS highlight color** (previously **Dim the focused-window
+**Niri border: use Dux highlight color** (previously **Dim the focused-window
 border**) replaces only the focused `border` and `focus-ring` active colors.
-It reads the recent-windows highlight from DMS's generated `dms/colors.kdl`.
-The DMS template maps this to **`primary_container.dark`**, including when the
+It reads the recent-windows highlight from Dux's generated `dms/colors.kdl`.
+The Dux template maps this to **`primary_container.dark`**, including when the
 current appearance mode is light. The setting key remains `dimNiriBorder`, so
 existing preferences keep working.
 
@@ -475,11 +477,11 @@ with `#ff793b`: the second color is darker but still a strong orange. There is
 no guaranteed number of tone steps, and the plugin does not test contrast
 against the content of the focused window.
 
-DMS's own shell surfaces may use additional derived colors. Those surfaces
+Dux's own shell surfaces may use additional derived colors. Those surfaces
 are not the source of this option: it follows the **exported Niri highlight**.
 It leaves border width, inactive and urgent colors, tabs, icons and text alone.
 
-The override lives in `dms-theme-sync.kdl`, after DMS's color include and before
+The override lives in `dms-theme-sync.kdl`, after Dux's color include and before
 user overrides on a fresh configuration. Existing include placement is
 respected; later includes and window rules can supersede the result. Disabling
 the option removes the plugin's color block on the next apply, returning control
@@ -487,7 +489,7 @@ to the remaining Niri configuration. The combined configuration is validated
 with `niri validate`; invalid writes are rolled back. Other compositors are
 unaffected.
 
-Keep DMS's **Run DMS templates** and **Niri** export enabled to follow palette
+Keep Dux's **Run DMS templates** and **Niri** export enabled to follow palette
 changes. If the generated file is missing or unreadable, the helper skips the
 color override and reports it. If the highlight already matches the border,
 there is no additional override. A disabled export with a surviving file can
@@ -570,20 +572,23 @@ both the snapshot ID and the exact `dms ipc` restore command.
 Snapshots live at:
 
 ```text
-~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/
+~/.local/state/dms/plugins/dmsThemeSync/backups/
 ```
+
+Pre-2.0 DMS kept the same snapshots under `~/.local/state/DankMaterialShell`;
+Dux migrates that directory and leaves a symlink, which the plugin still accepts.
 
 Retention is configurable from **1 to 30** snapshots and defaults to **10**.
 Named snapshots are pinned: they are neither counted nor deleted by normal
 rotation. Restoring disables auto-apply first so the recovered state is not
 immediately overwritten.
 
-DMS also creates `~/.Xresources.backup<TIMESTAMP>` before changing cursor
+Dux also creates `~/.Xresources.backup<TIMESTAMP>` before changing cursor
 resources. These are separate from Theme Sync snapshots. While the plugin is
 loaded, it retains the same configured number of these copies (default 10),
 checking shortly after startup and every minute. This maintenance also runs
 when auto-apply or snapshot creation is disabled, because cursor changes made
-in DMS can still create copies. A new copy can temporarily exceed the limit
+in Dux can still create copies. A new copy can temporarily exceed the limit
 until the next pass. Disabling the plugin stops this maintenance.
 
 Only regular files directly in the home directory with the exact
@@ -626,8 +631,8 @@ options, it may also create:
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
 - `~/.local/share/icons/<base>-DankFolders/`
 - `~/.local/share/color-schemes/DankUniform.colors`
-- an equalized View alternate inside DMS's `DankMatugen*.colors` exports
-  (while **Uniform list backgrounds** is on; DMS's next regeneration restores
+- an equalized View alternate inside Dux's `DankMatugen*.colors` exports
+  (while **Uniform list backgrounds** is on; Dux's next regeneration restores
   the original values once the option is off)
 - `~/.config/Kvantum/DankMatugen/`
 - a marked `~/.config/Kvantum/<paired-theme>/` shadow for uniform Dolphin lists
@@ -656,7 +661,7 @@ components used by the desktop:
 | Package or command | Purpose |
 | --- | --- |
 | `gsettings` / `dconf` | GNOME settings and portal hints |
-| `qt5ct` and `qt6ct-kde` | Qt configuration and native DMS KColorScheme support |
+| `qt5ct` and `qt6ct-kde` | Qt configuration and native Dux KColorScheme support |
 | `qt6-tools` / `qtdiag` | Detect loadable Qt platform themes and styles |
 | `breeze`, `breeze5`, and `breeze-gtk` | Complete native Breeze pair for Qt 6, Qt 5, and GTK |
 | `kvantum` | SVG-drawn Qt widgets and same-author theme pairs |
@@ -669,7 +674,7 @@ components used by the desktop:
 
 ## Limits
 
-- GTK 4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. DMS's
+- GTK 4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. Dux's
   generated GTK 4 CSS remains the color source; fonts, icons, cursor, and the
   light/dark preference can still be synchronized.
 - GTK 3/4 do not monitor their user `gtk.css`; restart running GTK applications
@@ -695,8 +700,13 @@ recoverable.
 Source: <https://github.com/arqueon/dms-theme-sync>
 
 The plugin is listed in the
-[DMS plugin registry](https://danklinux.com/plugins) and can be installed from
-*DMS Settings → Plugins*.
+[Dux plugin registry](https://plugins.duxlabs.dev/) and can be installed from
+*Dux Settings → Plugins*.
+
+The plugin id stays `dmsThemeSync`, and so does the IPC target
+(`dms ipc call dmsThemeSync …`). Dux 2.0 migrated the config and state
+directories to `dms`, and keeping the id preserves existing plugin settings,
+bar layouts and scripts across the rename.
 
 ## License
 

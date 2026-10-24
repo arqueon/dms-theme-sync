@@ -40,7 +40,7 @@ out=$("$helper" --directory "$dir" --keep 2)
 [[ -f "$dir/"$'.Xresources.backup\n.Xresources.backup1786777664' ]]
 out=$("$helper" --directory "$dir" --keep 2)
 [[ $out == *'removed=0 kept=2 limit=2' ]]
-# A later DMS cursor change is rotated on the next maintenance pass.
+# A later Dux cursor change is rotated on the next maintenance pass.
 printf 'new\n' > "$dir/.Xresources.backup1786777665"
 "$helper" --directory "$dir" --keep 2 >/dev/null
 [[ ! -e $dir/.Xresources.backup1786777663 && -f $dir/.Xresources.backup1786777665 ]]

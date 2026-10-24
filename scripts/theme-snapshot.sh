@@ -8,7 +8,14 @@ shift
 XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}
-BACKUP_ROOT=${DMS_THEME_SYNC_BACKUP_ROOT:-$XDG_STATE_HOME/DankMaterialShell/plugins/dmsThemeSync/backups}
+# Dux 2.0 moved shell state to ~/.local/state/dms and left the old path as a
+# symlink. Prefer the new root when it exists so snapshots are not written
+# through a compatibility link; older Dux keeps the legacy directory.
+state_root="$XDG_STATE_HOME/dms"
+if [[ ! -d $state_root && -d $XDG_STATE_HOME/DankMaterialShell ]]; then
+    state_root="$XDG_STATE_HOME/DankMaterialShell"
+fi
+BACKUP_ROOT=${DMS_THEME_SYNC_BACKUP_ROOT:-$state_root/plugins/dmsThemeSync/backups}
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
 RETENTION=10
 SNAPSHOT=latest

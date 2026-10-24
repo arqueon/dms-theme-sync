@@ -20,7 +20,33 @@ PluginComponent {
     readonly property bool autoSync: pluginData.autoSync !== undefined ? pluginData.autoSync : true
     readonly property string regularFont: SettingsData.fontFamily || "sans-serif"
     readonly property string monoFont: SettingsData.monoFontFamily || "monospace"
+    // Not SettingsData.displayFontFamily: in Dux 2.0 that is the headline face
+    // (default "DM Serif Display", loaded from the shell's own assets and not
+    // installed for fontconfig), so it is neither a body font nor resolvable by
+    // GTK/Qt. The settings panel promises "Same as regular font".
     readonly property string documentFont: pluginData.documentFontFamily || regularFont
+    readonly property real fontScale: Number(SettingsData.fontScale || 1)
+    // Dux publishes the OpenType weight (100-900); Qt's legacy QFont string
+    // stores 0-99, where 50 is normal. Passing 400 straight through makes Qt6
+    // clamp it to Black, so convert instead of copying. The scale is not
+    // linear: use Qt's own table (qfont.cpp convertWeights), which is also
+    // what Qt applies, nearest-match, when it reads the 10-field string back.
+    readonly property int qtFontWeight: {
+        const weight = Number(SettingsData.fontWeight || 400);
+        if (!isFinite(weight))
+            return 50;
+        const table = [[100, 0], [200, 12], [300, 25], [400, 50], [500, 57], [600, 63], [700, 75], [800, 81], [900, 87]];
+        let legacy = 50;
+        let closest = Infinity;
+        for (let i = 0; i < table.length; i++) {
+            const dist = Math.abs(table[i][0] - weight);
+            if (dist < closest) {
+                closest = dist;
+                legacy = table[i][1];
+            }
+        }
+        return legacy;
+    }
     readonly property int regularSize: Number(pluginData.regularFontSize || 11)
     readonly property int monoSize: Number(pluginData.monoFontSize || 12)
     readonly property int documentSize: Number(pluginData.documentFontSize || 11)
@@ -59,7 +85,7 @@ PluginComponent {
         return name.indexOf("Papirus") === 0;
     })
     readonly property string folderColorCapability: iconThemeSupportsFolderColor ? "ready" : "blocked"
-    readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but DMS uses " + iconTheme : "Papirus not installed")
+    readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but Dux uses " + iconTheme : "Papirus not installed")
     readonly property bool syncFolderColorRequested: pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false
     readonly property bool syncFolderColor: syncFolderColorRequested && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
@@ -74,7 +100,7 @@ PluginComponent {
     // Reuses the exported dark primary_container for the focused border/focus
     // ring, through the plugin's own Niri include. Expressive palettes do not
     // guarantee a darker or muted result. The helper writes or removes the
-    // block, and Niri reloads its configuration without a DMS setting change.
+    // block, and Niri reloads its configuration without a Dux setting change.
     readonly property bool dimNiriBorder: pluginData.dimNiriBorder !== undefined ? pluginData.dimNiriBorder : false
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
@@ -91,7 +117,7 @@ PluginComponent {
 
     // The Kvantum templates want 12 Material roles. Theme exposes most of them
     // as properties; the rest live on currentThemeData, and the fallbacks below
-    // mirror what DMS itself does in Theme.buildMatugenColorsFromTheme().
+    // mirror what Dux itself does in Theme.buildMatugenColorsFromTheme().
     function hex6(c) {
         const s = String(c);                 // QML colors serialise as #aarrggbb
         return s.length === 9 ? "#" + s.slice(3) : s;
@@ -104,7 +130,7 @@ PluginComponent {
             // surfaceText, not the onSurface alias: in the running shell that
             // alias can sit frozen at opaque black while surfaceText is correct
             // (seen live: onSurface=#000000, surfaceText=#f9dcd5). surfaceText
-            // is what DMS paints its own bar text with, so it cannot drift.
+            // is what Dux paints its own bar text with, so it cannot drift.
             on_surface: pick(td.surfaceText, Theme.surfaceText),
             surface: Theme.surface,
             surface_variant: Theme.surfaceVariant,
@@ -121,6 +147,28 @@ PluginComponent {
     }
     readonly property bool backupEnabled: pluginData.backupEnabled !== undefined ? pluginData.backupEnabled : true
     readonly property int backupRetention: Number(pluginData.backupRetention || 10)
+    // Dux 2.0 ("dux") moved Qt and KDE colour export into the shell. Probing for
+    // a settings key introduced in 2.0 keeps this loadable on 1.5/1.6.
+    readonly property bool dms20: typeof SettingsData.containerSaturation !== "undefined" || typeof Theme.selectedContainer !== "undefined"
+    // Dux 2.0 can write qt5ct/qt6ct/qtengine colour files itself, on every palette
+    // regeneration. Its qtXct templates only produce colors/matugen.conf (the
+    // [Appearance] palette keys are written only by its manual "Apply Qt colors"
+    // button), so report what Dux is configured to write rather than assume a clash.
+    readonly property bool dmsQtTemplates: typeof SettingsData.runDmsMatugenTemplates !== "undefined" && SettingsData.runDmsMatugenTemplates && (SettingsData.matugenTemplateQt5ct !== false || SettingsData.matugenTemplateQt6ct !== false || SettingsData.matugenTemplateQtengine !== false)
+    readonly property bool dmsKdeTemplate: typeof SettingsData.runDmsMatugenTemplates !== "undefined" && SettingsData.runDmsMatugenTemplates && SettingsData.matugenTemplateKcolorscheme !== false
+    // One owner per palette. Dux 2.0's qt5ct/qt6ct templates only write
+    // colors/matugen.conf and never point qtXct.conf at a palette, and its
+    // KColorScheme step re-applies the scheme only when the mode changes, so
+    // deferring on those templates left Qt without colours and kdeglobals stale.
+    // Only an active Qt engine, which replaces qtXct.conf, takes the Qt palette;
+    // KDE colours always stay with the plugin. Uniform lists need the plugin's
+    // own scheme and keep ownership in every case.
+    readonly property bool deferQtColors: qtengineActive && !uniformListBg
+    readonly property bool deferKdeColors: false
+    readonly property string qtColorOwner: deferQtColors ? "dms" : "plugin"
+    readonly property string kdeColorOwner: deferKdeColors ? "dms" : "plugin"
+    readonly property bool qtengineActive: typeof SettingsData.qtengineActive !== "undefined" && SettingsData.qtengineActive
+    readonly property string materialSpec: typeof SettingsData.matugenSpec !== "undefined" ? (SettingsData.matugenSpec || "2021") : "2021"
 
     Process {
         running: true
@@ -134,12 +182,12 @@ PluginComponent {
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, qtFontWeight, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, kvantumColors])
 
-    // The helper only builds the overlay; it never decides the icon theme. DMS
+    // The helper only builds the overlay; it never decides the icon theme. Dux
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
     // Writing the overlay straight into gsettings would look like an outside
-    // change to DMS's own checkIconThemeDrift() and get the theme unmanaged.
+    // change to Dux's own checkIconThemeDrift() and get the theme unmanaged.
     function setIconThemeForMode(themeName, light) {
         if (typeof SettingsData.setIconThemeForMode === "function")
             SettingsData.setIconThemeForMode(themeName, light);
@@ -173,7 +221,7 @@ PluginComponent {
     }
 
     // Same contract for the cursor: the helper chooses a Bibata-Material-*
-    // variant, DMS applies it through setCursorTheme() (which also updates
+    // variant, Dux applies it through setCursorTheme() (which also updates
     // XResources and the compositor cursor). The saved base is cleared after a
     // restore so a variant the user later picks by hand is never overridden.
     function reconcileCursorTheme(output) {
@@ -217,8 +265,8 @@ PluginComponent {
         xresourcesCleanupProcess.running = true;
     }
 
-    // Cursor updates run asynchronously inside DMS. Periodic maintenance also
-    // catches direct DMS changes and runs when autoSync or snapshots are off.
+    // Cursor updates run asynchronously inside Dux. Periodic maintenance also
+    // catches direct Dux changes and runs when autoSync or snapshots are off.
     Timer {
         interval: 5000
         running: true
@@ -246,22 +294,29 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
         return args;
     }
 
-    // DMS regenerates its Matugen templates (dank-colors.css, DankMatugen.colors)
+    // Dux regenerates its Matugen templates (dank-colors.css, DankMatugen.colors)
     // for the dynamic theme and for stock themes — but not for custom/downloaded
     // ones: pick a registry theme and the bar goes red while GTK keeps painting
-    // the previous palette, because the export never ran. Ask DMS to export
+    // the previous palette, because the export never ran. Ask Dux to export
     // through its own machinery, exactly the call its stock-theme path makes.
     // No matugen loop: for custom themes Theme.* reads theme.json, not the
     // generated files, so the regeneration cannot re-trigger this.
     function maybeExportDmsColors() {
         if (Theme.currentTheme !== "custom")
+            return ;
+
+        // Dux 2.0 exports custom and registry themes itself: its theme
+        // generation already builds the palette from the theme's own colours
+        // and writes dank-colors.css. Forcing a second matugen run here only
+        // duplicates work and races the shell. Legacy shells still need it.
+        if (dms20)
             return ;
 
         if (!Theme.currentThemeData || typeof Theme.setDesiredTheme !== "function" || typeof Theme.buildMatugenColorsFromTheme !== "function")
@@ -323,6 +378,10 @@ PluginComponent {
         return true;
     }
 
+    // Direct child rather than a Loader: the lazy version never opened the
+    // modal (the layer surface needs parentWidget before its first frame). The
+    // "graphical object was not placed in the graphics scene" warning Dux 2.0
+    // logs here is emitted for every daemon plugin, not for this dialog.
     function openConfiguration() {
         configDialog.openCentered();
     }
@@ -397,15 +456,15 @@ PluginComponent {
             if (root.manualRequest) {
                 if (exitCode === 0) {
                     if (root.currentAction === "backup")
-                        ToastService.showInfo("DMS Theme Sync", "Backup created");
+                        ToastService.showInfo("Dux Theme Sync", "Backup created");
                     else if (root.currentAction === "restore")
-                        ToastService.showInfo("DMS Theme Sync", "Backup restored; automatic sync disabled");
+                        ToastService.showInfo("Dux Theme Sync", "Backup restored; automatic sync disabled");
                     else if (qtStyleRestartRequired)
-                        ToastService.showInfo("DMS Theme Sync", "Themes synchronized; restart open Qt applications to finish the widget-style change");
+                        ToastService.showInfo("Dux Theme Sync", "Themes synchronized; restart open Qt applications to finish the widget-style change");
                     else
-                        ToastService.showInfo("DMS Theme Sync", "Application themes synchronized");
+                        ToastService.showInfo("Dux Theme Sync", "Application themes synchronized");
                 } else {
-                    ToastService.showError("DMS Theme Sync", root.lastOutput);
+                    ToastService.showError("Dux Theme Sync", root.lastOutput);
                 }
                 root.manualRequest = false;
             }
@@ -432,10 +491,10 @@ PluginComponent {
         parentWidget: root
     }
 
-    // DMS re-creates every daemon plugin each time another one finishes
+    // Dux re-creates every daemon plugin each time another one finishes
     // loading during the startup scan, and Quickshell 0.3.0 keeps the IPC
     // registration of the destroyed generations — the next call to a stale
-    // entry segfaults the whole shell (DMS #1956). Registering only after the
+    // entry segfaults the whole shell (Dux #1956). Registering only after the
     // scan has settled keeps the short-lived generations out of the registry.
     property bool ipcSettled: false
 
@@ -479,10 +538,26 @@ PluginComponent {
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
                 "dimNiriBorder": root.dimNiriBorder,
-                "materialSpec": typeof SettingsData.matugenSpec !== "undefined" ? SettingsData.matugenSpec : null,
+                "materialSpec": root.materialSpec,
                 "matugenScheme": SettingsData.matugenScheme,
                 "matugenContrast": SettingsData.matugenContrast,
+                "matugenSourceMode": typeof SettingsData.matugenSourceMode !== "undefined" ? SettingsData.matugenSourceMode : null,
+                "matugenSeedColor": typeof SettingsData.matugenSeedColor !== "undefined" ? SettingsData.matugenSeedColor : null,
+                "matugenSmartMode": typeof SettingsData.matugenSmartMode !== "undefined" ? SettingsData.matugenSmartMode : null,
+                "radiusMode": typeof SettingsData.radiusMode !== "undefined" ? SettingsData.radiusMode : null,
+                "radiusStrength": typeof SettingsData.radiusStrength !== "undefined" ? SettingsData.radiusStrength : null,
+                "fixedRadius": typeof SettingsData.fixedRadius !== "undefined" ? SettingsData.fixedRadius : null,
+                "terminalOpacity": typeof SettingsData.terminalOpacity !== "undefined" ? SettingsData.terminalOpacity : null,
+                "terminalPalette": typeof SettingsData.terminalPalette !== "undefined" ? SettingsData.terminalPalette : null,
                 "dmsTemplatesEnabled": typeof SettingsData.runDmsMatugenTemplates !== "undefined" ? SettingsData.runDmsMatugenTemplates : null,
+                "dmsQtTemplates": root.dmsQtTemplates,
+                "qtengineActive": root.qtengineActive,
+                "qtColorOwner": root.qtColorOwner,
+                "kdeColorOwner": root.kdeColorOwner,
+                "dms20": root.dms20,
+                "fontWeight": typeof SettingsData.fontWeight !== "undefined" ? SettingsData.fontWeight : null,
+                "qtFontWeight": root.qtFontWeight,
+                "fontScale": typeof SettingsData.fontScale !== "undefined" ? SettingsData.fontScale : null,
                 "gtkExportEnabled": typeof SettingsData.matugenTemplateGtk !== "undefined" ? SettingsData.matugenTemplateGtk : null,
                 "kColorSchemeExportEnabled": typeof SettingsData.matugenTemplateKcolorscheme !== "undefined" ? SettingsData.matugenTemplateKcolorscheme : null,
                 "niriExportEnabled": typeof SettingsData.matugenTemplateNiri !== "undefined" ? SettingsData.matugenTemplateNiri : null,

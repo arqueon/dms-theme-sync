@@ -12,7 +12,65 @@ PluginSettings {
     property var installedGtkThemes: ["auto", "preserve"]
     property var installedFonts: [SettingsData.fontFamily || "sans-serif"]
     property var installedMonoFonts: [SettingsData.monoFontFamily || "monospace"]
-    readonly property bool expressivePalette: typeof SettingsData.matugenSpec !== "undefined" && SettingsData.matugenSpec === "2025"
+    // Dux 2.0 added a third Material specification, "dms": the 2025 palette with
+    // a raised accent chroma. Probing for settings/properties introduced in 2.0
+    // keeps the panel loadable on 1.5/1.6, where offering "dms" would write a
+    // value the installed matugen rejects.
+    readonly property bool dms20: typeof SettingsData.containerSaturation !== "undefined" || typeof Theme.selectedContainer !== "undefined"
+    readonly property bool specControlAvailable: typeof SettingsData.matugenSpec !== "undefined" && typeof SettingsData.setMatugenSpec === "function" && Theme.matugenAvailable
+    readonly property string materialSpec: specControlAvailable ? (SettingsData.matugenSpec || "2021") : "2021"
+    // 2025 and the 2.0 bold variant share the 0..100 contrast range; only the
+    // 2021 generator accepts negative values.
+    readonly property bool modernSpec: materialSpec !== "2021"
+    readonly property var specOptions: {
+        const opts = [{
+            "label": "Standard (2021)",
+            "value": "2021"
+        }, {
+            "label": "Expressive (2025)",
+            "value": "2025"
+        }];
+        if (dms20)
+            opts.push({
+                "label": "Bold (Dux 2025)",
+                "value": "dms"
+            });
+        return opts;
+    }
+    readonly property var specLabels: specOptions.map(function(o) {
+        return o.label;
+    })
+    readonly property string specLabel: {
+        for (let i = 0; i < specOptions.length; i++) {
+            if (specOptions[i].value === materialSpec)
+                return specOptions[i].label;
+        }
+        return materialSpec;
+    }
+    readonly property bool sourceModeAvailable: typeof SettingsData.matugenSourceMode !== "undefined" && typeof SettingsData.setMatugenSourceMode === "function" && typeof Theme !== "undefined" && Theme.availableSourceModes !== undefined && Theme.matugenAvailable
+    readonly property var sourceModeOptions: sourceModeAvailable ? Theme.availableSourceModes : []
+    readonly property var sourceModeLabels: sourceModeOptions.map(function(o) {
+        return o.label;
+    })
+    readonly property string sourceModeLabel: {
+        if (!sourceModeAvailable)
+            return "";
+        const mode = Theme.getSourceMode(SettingsData.matugenSourceMode);
+        return mode ? mode.label : (SettingsData.matugenSourceMode || "");
+    }
+    readonly property bool seedColorAvailable: typeof SettingsData.matugenSeedColor !== "undefined" && typeof SettingsData.setMatugenSeedColor === "function"
+    readonly property bool customSeed: seedColorAvailable && !!SettingsData.matugenSeedColor
+    readonly property bool smartModeAvailable: typeof SettingsData.matugenSmartMode !== "undefined" && typeof SettingsData.setMatugenSmartMode === "function"
+    readonly property bool radiusAvailable: typeof SettingsData.radiusMode !== "undefined" && typeof SettingsData.fixedRadius !== "undefined"
+    readonly property bool fixedRadiusMode: radiusAvailable && SettingsData.radiusMode === "fixed"
+    // Dux 2.0 can write qt5ct/qt6ct/qtengine colour files itself, on every palette
+    // regeneration; the panel says which palette each side owns.
+    readonly property bool dmsQtTemplates: typeof SettingsData.runDmsMatugenTemplates !== "undefined" && SettingsData.runDmsMatugenTemplates && (SettingsData.matugenTemplateQt5ct !== false || SettingsData.matugenTemplateQt6ct !== false || SettingsData.matugenTemplateQtengine !== false)
+    readonly property bool dmsKdeTemplate: typeof SettingsData.runDmsMatugenTemplates !== "undefined" && SettingsData.runDmsMatugenTemplates && SettingsData.matugenTemplateKcolorscheme !== false
+    // Mirrors ThemeSyncService: only an active Qt engine takes the Qt palette.
+    readonly property bool deferQtColors: qtengineActive && !uniformToggle.value
+    readonly property bool deferKdeColors: false
+    readonly property bool qtengineActive: typeof SettingsData.qtengineActive !== "undefined" && SettingsData.qtengineActive
     property var installedIconThemes: [SettingsData.iconTheme || "System Default"]
     property string iconThemeValue: SettingsData.iconTheme || "System Default"
     property string requestedIconTheme: ""
@@ -68,18 +126,18 @@ PluginSettings {
     property int monoFontSizeValue: 12
     property int documentFontSizeValue: 11
     property int backupRetentionValue: 10
-    // DMS color themes, mirrored from the live DMS API. These act on DMS directly,
-    // exactly like the DMS Settings "Theme" tab.
+    // Dux color themes, mirrored from the live Dux API. These act on Dux directly,
+    // exactly like the Dux Settings "Theme" tab.
     readonly property var dmsThemeOptions: {
         const opts = [{
-            "label": "Dynamic (DMS palette)",
+            "label": "Dynamic (Dux palette)",
             "value": "dynamic"
         }];
         // getAvailableThemes() can be empty while StockThemes is still being
         // initialised.  A function call does not expose that dependency to the
         // QML binding engine, so the expression would then stay empty for the
         // lifetime of this settings component.  These are the same stable
-        // generic themes offered by DMS's native ThemeColorsTab.
+        // generic themes offered by Dux's native ThemeColorsTab.
         let names = (typeof Theme !== "undefined" && Theme.getAvailableThemes) ? Theme.getAvailableThemes() : [];
         if (!names || names.length === 0)
             names = ["blue", "purple", "green", "orange", "red", "cyan", "pink", "amber", "coral", "monochrome"];
@@ -106,7 +164,7 @@ PluginSettings {
         "label": "GTK–Qt twin theme (native Qt or Kvantum)",
         "value": "pair"
     }, {
-        "label": "Kvantum rendered from the DMS palette",
+        "label": "Kvantum rendered from the Dux palette",
         "value": "kvantum"
     }, {
         "label": "Dynamic wallpaper colors — Fusion (qt6ct-kde)",
@@ -130,7 +188,7 @@ PluginSettings {
 
         if (name === "qtct")
             return {
-            "label": "Plugin sets DMS palette (qt5ct/qt6ct)",
+            "label": "Plugin sets Dux palette (qt5ct/qt6ct)",
             "value": "qtct"
         };
 
@@ -169,7 +227,21 @@ PluginSettings {
             "value": name
         };
     })
-    readonly property var matugenSchemeOptions: (typeof Theme !== "undefined" && Theme.availableMatugenSchemes) ? Theme.availableMatugenSchemes : []
+    // Same filter as Dux 2.0's own picker (MatugenPreviewService.schemeOptions):
+    // the 2025 and Bold generators only take the spec2025 schemes, and
+    // scheme-smart needs a matugen that reports smart support. Older shells
+    // lack those fields, so the list stays whole there.
+    readonly property var matugenSchemeOptions: {
+        const all = (typeof Theme !== "undefined" && Theme.availableMatugenSchemes) ? Theme.availableMatugenSchemes : [];
+        if (!root.dms20)
+            return all;
+        const smartSupported = typeof DMSService !== "undefined" && DMSService.matugenSmartSupported === true;
+        return all.filter(function(o) {
+            if (o.value === "scheme-smart" && !smartSupported)
+                return false;
+            return !root.modernSpec || o.spec2025 === true;
+        });
+    }
     readonly property var matugenSchemeLabels: matugenSchemeOptions.map(function(o) {
         return o.label;
     })
@@ -345,7 +417,7 @@ PluginSettings {
     // version; picking one alone leaves the other toolkit unthemed). snap and
     // flatpak are libqxdgdesktopportal registering the same plugin under names
     // meant for apps inside those sandboxes — three entries, one plugin. And kde
-    // (plasma-integration) expects a running Plasma session, which a DMS desktop
+    // (plasma-integration) expects a running Plasma session, which a Dux desktop
     // by definition is not; anyone exporting it by hand still gets the reconcile
     // note, but the dropdown does not offer a switch that is never right here.
     function parseQtPlatformThemes(text) {
@@ -439,7 +511,7 @@ PluginSettings {
                 return ;
             }
             root.iconThemeValue = canonical;
-            root.iconThemeSelectionStatus = "DMS kept " + canonical + " instead of " + root.requestedIconTheme + ".";
+            root.iconThemeSelectionStatus = "Dux kept " + canonical + " instead of " + root.requestedIconTheme + ".";
             ToastService.showError("Icon theme was not changed", root.iconThemeSelectionStatus);
         }
     }
@@ -598,7 +670,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "DMS Theme Sync"
+        text: "Dux Theme Sync"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
         color: Theme.surfaceText
@@ -606,14 +678,14 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "The controls below change DMS's theme, mode, palette, fonts, icons and cursor. Theme Sync then carries the supported choices into GTK, Qt, KDE and other applications. DMS keeps its own layout, surfaces, radii and effects in Appearance settings."
+        text: "The controls below change Dux's theme, mode, palette, radii, fonts, icons and cursor. Theme Sync then carries the supported choices into GTK, Qt, KDE and other applications. Radii and layout stay in the shell; application themes keep their own geometry."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
     }
 
     SectionHeader {
-        text: "DMS appearance"
+        text: "Dux appearance"
     }
 
     Column {
@@ -629,7 +701,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "DMS color theme. 'Dynamic (wallpaper)' derives the palette from the wallpaper with Matugen."
+            text: "Dux color theme. 'Dynamic (wallpaper)' derives the palette from the wallpaper with Matugen."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -652,7 +724,7 @@ PluginSettings {
     DankToggle {
         width: parent.width
         text: "Light mode"
-        description: "Use the light variant instead of dark. DMS stays the source of truth for the mode."
+        description: "Use the light variant instead of dark. Dux stays the source of truth for the mode."
         checked: SessionData.isLightMode
         onToggled: function(isChecked) {
             if (isChecked === SessionData.isLightMode)
@@ -678,7 +750,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Algorithm used to generate the dynamic palette. The Expressive scheme is separate from the Material 2025 specification below; DMS controls the wallpaper, source color and target monitor."
+            text: "Algorithm used to generate the dynamic palette. The Expressive scheme is separate from the Material 2025 specification below; Dux controls the wallpaper, source color and target monitor."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -701,7 +773,7 @@ PluginSettings {
     Column {
         width: parent.width
         spacing: Theme.spacingS
-        visible: typeof SettingsData.matugenSpec !== "undefined" && typeof SettingsData.setMatugenSpec === "function" && Theme.matugenAvailable
+        visible: root.specControlAvailable
 
         StyledText {
             text: "Material palette"
@@ -712,7 +784,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Standard uses Material 2021; Expressive uses Material 2025. This selects how DMS generates dynamic colors. Theme Sync follows the resulting palette; it does not copy DMS layout, shapes or animations into applications."
+            text: root.dms20 ? "Standard is Material 2021, Expressive is Material 2025, and Bold raises the accent chroma on Dux's 2025 generator. This decides how Dux generates dynamic colors; Theme Sync follows the resulting palette and never re-generates it." : "Standard uses Material 2021; Expressive uses Material 2025. This selects how Dux generates dynamic colors. Theme Sync follows the resulting palette; it does not copy Dux layout, shapes or animations into applications."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -720,13 +792,114 @@ PluginSettings {
 
         DankDropdown {
             width: parent.width
-            currentValue: root.expressivePalette ? "Expressive (2025)" : "Standard (2021)"
-            options: ["Standard (2021)", "Expressive (2025)"]
+            currentValue: root.specLabel
+            options: root.specLabels
             onValueChanged: function(value) {
-                const spec = value === "Expressive (2025)" ? "2025" : "2021";
-                if (spec !== SettingsData.matugenSpec)
+                const spec = root.valueForLabel(root.specOptions, value);
+                if (spec && spec !== SettingsData.matugenSpec)
                     SettingsData.setMatugenSpec(spec);
+
             }
+        }
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.sourceModeAvailable
+        opacity: root.customSeed ? 0.5 : 1
+
+        StyledText {
+            text: "Source color"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: root.customSeed ? "Dux is deriving the palette from a fixed seed color, so the wallpaper source is ignored until that override is cleared." : "Which wallpaper color the palette is built from. Dux owns the extraction; Theme Sync only reports and changes the choice."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            enabled: !root.customSeed
+            currentValue: root.sourceModeLabel
+            options: root.sourceModeLabels
+            onValueChanged: function(value) {
+                const mode = Theme.getSourceMode(SettingsData.matugenSourceMode);
+                if (!mode)
+                    return ;
+                for (let i = 0; i < root.sourceModeOptions.length; i++) {
+                    if (root.sourceModeOptions[i].label === value && root.sourceModeOptions[i].value !== SettingsData.matugenSourceMode)
+                        SettingsData.setMatugenSourceMode(root.sourceModeOptions[i].value);
+                }
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.seedColorAvailable
+
+        Item {
+            width: parent.width
+            height: seedTitle.implicitHeight
+
+            StyledText {
+                id: seedTitle
+
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Palette seed"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+            }
+
+            DankActionButton {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.customSeed
+                iconName: "restart_alt"
+                tooltipText: "Use the wallpaper color again"
+                onClicked: SettingsData.setMatugenSeedColor("")
+            }
+
+        }
+
+        StyledText {
+            width: parent.width
+            text: root.customSeed ? "Custom seed " + SettingsData.matugenSeedColor + ". Clear it to derive the palette from the wallpaper again. Pick a seed in Dux Wallpaper & colors → Theme & colors if you want to choose another." : "Derived from the wallpaper. Dux can pin a custom seed color; when it does, Theme Sync shows it here."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+    }
+
+    DankToggle {
+        width: parent.width
+        // Dux only offers wallpaper-driven mode when its matugen reports smart
+        // support (Dark mode → Wallpaper), and turns the time/location schedule
+        // off when it is chosen; mirror both so the two never fight.
+        visible: root.smartModeAvailable && typeof Theme !== "undefined" && Theme.matugenAvailable && (SettingsData.matugenSmartMode || typeof DMSService === "undefined" || DMSService.matugenSmartSupported !== false)
+        text: "Smart mode"
+        description: "Dux lets the wallpaper pick light or dark instead of your chosen mode. Only affects wallpaper-generated palettes; Theme Sync keeps following whatever Dux ends up painting."
+        checked: root.smartModeAvailable ? SettingsData.matugenSmartMode : false
+        onToggled: function(isChecked) {
+            if (!root.smartModeAvailable || isChecked === SettingsData.matugenSmartMode)
+                return ;
+
+            if (isChecked && SessionData.themeModeAutoEnabled && typeof SessionData.setThemeModeAutoEnabled === "function")
+                SessionData.setThemeModeAutoEnabled(false);
+
+            SettingsData.setMatugenSmartMode(isChecked);
         }
     }
 
@@ -766,7 +939,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: root.expressivePalette ? "Contrast of generated colors (0 standard to 100 maximum for Expressive)" : "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
+            text: root.modernSpec ? "Contrast of generated colors (0 standard to 100 maximum for Material 2025 and Bold)" : "Contrast of generated colors (-100 minimum, 0 standard, 100 maximum)"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -776,13 +949,13 @@ PluginSettings {
             id: matugenContrastSlider
 
             width: parent.width
-            minimum: root.expressivePalette ? 0 : -100
+            minimum: root.modernSpec ? 0 : -100
             maximum: 100
             unit: "%"
             wheelEnabled: false
             value: Math.round((SettingsData.matugenContrast || 0) * 100)
             onSliderDragFinished: function(finalValue) {
-                const clamped = root.expressivePalette ? Math.max(0, finalValue) : finalValue;
+                const clamped = root.modernSpec ? Math.max(0, finalValue) : finalValue;
                 SettingsData.setMatugenContrast(clamped / 100);
                 if (clamped !== finalValue)
                     matugenContrastSlider.value = clamped;
@@ -792,7 +965,119 @@ PluginSettings {
     }
 
     SectionHeader {
+        text: "Dux shapes"
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.radiusAvailable
+
+        StyledText {
+            text: "Corner style"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Dux 2.0 can scale Material shapes or pin one radius. These controls write the same settings as Dux Interface style; GTK and Qt keep their own theme radii, so nothing here is exported to applications."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.fixedRadiusMode ? "Fixed radius" : "Material scale"
+            options: ["Material scale", "Fixed radius"]
+            onValueChanged: function(value) {
+                const mode = value === "Fixed radius" ? "fixed" : "scale";
+                if (mode !== SettingsData.radiusMode)
+                    SettingsData.set("radiusMode", mode);
+
+            }
+        }
+
+        Item {
+            width: parent.width
+            height: radiusStrengthTitle.implicitHeight
+            visible: !root.fixedRadiusMode
+
+            StyledText {
+                id: radiusStrengthTitle
+
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Radius strength"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+            }
+
+        }
+
+        DankSlider {
+            width: parent.width
+            visible: !root.fixedRadiusMode
+            minimum: 0
+            maximum: 100
+            unit: "%"
+            wheelEnabled: false
+            value: SettingsData.radiusStrength
+            onSliderDragFinished: function(finalValue) {
+                if (finalValue !== SettingsData.radiusStrength)
+                    SettingsData.set("radiusStrength", finalValue);
+
+            }
+        }
+
+        Item {
+            width: parent.width
+            height: fixedRadiusTitle.implicitHeight
+            visible: root.fixedRadiusMode
+
+            StyledText {
+                id: fixedRadiusTitle
+
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Corner radius"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+            }
+
+        }
+
+        DankSlider {
+            width: parent.width
+            visible: root.fixedRadiusMode
+            minimum: 0
+            maximum: 32
+            unit: "px"
+            wheelEnabled: false
+            value: SettingsData.fixedRadius
+            onSliderDragFinished: function(finalValue) {
+                if (finalValue !== SettingsData.fixedRadius)
+                    SettingsData.set("fixedRadius", finalValue);
+
+            }
+        }
+
+    }
+
+    SectionHeader {
         text: "Fonts, icons and cursor"
+    }
+
+    StyledText {
+        width: parent.width
+        text: "Font weight comes from Dux and is converted to Qt's legacy scale for Qt and KDE applications; GTK keeps the family and size. Sizes below are absolute, so Dux's UI scale does not resize application text."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
     }
 
     Column {
@@ -808,7 +1093,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Updates the canonical DMS regular font"
+            text: "Updates the canonical Dux regular font"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -841,7 +1126,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Updates the canonical DMS monospace font"
+            text: "Updates the canonical Dux monospace font"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -874,7 +1159,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Choose an installed family or follow the regular DMS font"
+            text: "Choose an installed family or follow the regular Dux font"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -909,7 +1194,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: root.iconThemePerMode ? "Updates DMS's separate light and dark icon themes" : "Updates the canonical DMS icon theme"
+            text: root.iconThemePerMode ? "Updates Dux's separate light and dark icon themes" : "Updates the canonical Dux icon theme"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -998,7 +1283,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Updates the canonical DMS cursor theme"
+            text: "Updates the canonical Dux cursor theme"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1052,7 +1337,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Updates the canonical DMS cursor size"
+            text: "Updates the canonical Dux cursor size"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1091,7 +1376,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Installed GTK theme used when DMS is in light mode. 'auto' matches an installed variant; 'preserve' keeps the current theme."
+            text: "Installed GTK theme used when Dux is in light mode. 'auto' matches an installed variant; 'preserve' keeps the current theme."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1125,7 +1410,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Installed GTK theme used when DMS is in dark mode (Dracula, Matcha, Breeze, etc.)"
+            text: "Installed GTK theme used when Dux is in dark mode (Dracula, Matcha, Breeze, etc.)"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1151,8 +1436,8 @@ PluginSettings {
     ToggleSetting {
         id: matugenColorsToggle
         settingKey: "applyMatugenColors"
-        label: "Apply DMS Matugen colors"
-        description: "Import DMS dynamic colors over the selected GTK theme and expose DankMatugen.colors to compatible Qt routes. A fixed same-author Kvantum pair such as Matcha keeps its own colors by design."
+        label: "Apply Dux Matugen colors"
+        description: "Import Dux dynamic colors over the selected GTK theme and expose DankMatugen.colors to compatible Qt routes. A fixed same-author Kvantum pair such as Matcha keeps its own colors by design."
         defaultValue: true
     }
 
@@ -1160,13 +1445,15 @@ PluginSettings {
         width: parent.width
         visible: matugenColorsToggle.value && typeof SettingsData.runDmsMatugenTemplates !== "undefined"
             && (!SettingsData.runDmsMatugenTemplates || SettingsData.matugenTemplateGtk === false || SettingsData.matugenTemplateKcolorscheme === false)
-        text: "A DMS color export used here is disabled. In DMS Appearance → Apps, enable Run DMS templates and the exports you use: GTK for GTK colors, KColorScheme for Qt palette routes. Existing files can retain an older palette. Theme Sync leaves your template choices unchanged."
+        text: "A Dux color export used here is disabled. In Dux Wallpaper & colors → App theming, enable Run DMS templates and the exports you use: GTK for GTK colors, KColorScheme for Qt palette routes. Existing files can retain an older palette. Theme Sync leaves your template choices unchanged."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
     }
 
     ToggleSetting {
+        id: uniformToggle
+
         settingKey: "uniformListBg"
         label: "Uniform list backgrounds"
         description: "Remove the alternating row colors in file lists (Dolphin details view and friends) on every surface the plugin manages"
@@ -1186,7 +1473,7 @@ PluginSettings {
                 return "Probing what this machine can do…";
 
             const parts = [];
-            parts.push(root.probeQt6ct === "kde" ? "qt6ct-kde ✓ (reads the DMS palette directly)" : "stock qt6ct (cannot read the DMS .colors palette — qt6ct-kde fixes that)");
+            parts.push(root.probeQt6ct === "kde" ? "qt6ct-kde ✓ (reads the Dux palette directly)" : "stock qt6ct (cannot read the Dux .colors palette — qt6ct-kde fixes that)");
             parts.push(root.probeKvantum === "yes" ? "Kvantum ✓" : "Kvantum not installed");
             if (root.probeNativePair && root.probeNativePair !== "none")
                 parts.push("native Qt pair for " + root.probeGtk + ": " + root.probeNativePair);
@@ -1198,6 +1485,24 @@ PluginSettings {
                 parts.push("no Kvantum pair for " + root.probeGtk);
             return "Detected: " + parts.join(" · ");
         }
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
+    }
+
+    StyledText {
+        width: parent.width
+        visible: root.dmsQtTemplates
+        text: root.deferQtColors ? "Dux's Qt engine is the active Qt platform theme, so it paints Qt apps with Dux's palette. Theme Sync leaves the Qt palette alone and keeps widget style, fonts, icons and the KDE colour scheme in sync." : "Dux's Qt templates are on. They write their own colors/matugen.conf and do not touch the palette Theme Sync points Qt and KDE at, so both can stay enabled: Theme Sync keeps those palettes in step with Dux on every wallpaper change."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.surfaceVariantText
+        wrapMode: Text.WordWrap
+    }
+
+    StyledText {
+        width: parent.width
+        visible: root.qtengineActive
+        text: "Dux's Qt engine is active on this session. Theme Sync's qt5ct/qt6ct routes do not feed it: keep Dux's Qt engine template enabled for it, or switch platform themes deliberately."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -1221,7 +1526,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Choose the objective for Qt. 'Automatic' prioritizes visual fidelity with GTK, re-evaluated on every apply: native Breeze → a same-author Kvantum pair such as Matcha → Kvantum rendered from DMS → Fusion with the DMS palette → follow GTK. Select 'Dynamic wallpaper colors — Fusion' when wallpaper colors matter more than preserving Matcha's fixed Qt design. Every route except 'Manual' overrides the platform theme and widget style below. Changing that widget style is a process boundary: configuration is applied immediately, but open Qt applications may need a restart to rebuild the whole window."
+            text: "Choose the objective for Qt. 'Automatic' prioritizes visual fidelity with GTK, re-evaluated on every apply: native Breeze → a same-author Kvantum pair such as Matcha → Kvantum rendered from Dux → Fusion with the Dux palette → follow GTK. Select 'Dynamic wallpaper colors — Fusion' when wallpaper colors matter more than preserving Matcha's fixed Qt design. Every route except 'Manual' overrides the platform theme and widget style below. Changing that widget style is a process boundary: configuration is applied immediately, but open Qt applications may need a restart to rebuild the whole window."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1283,7 +1588,7 @@ PluginSettings {
                     where = "On Hyprland it is written to environment.d plus a Hyprland include";
                 else
                     where = "It is written to environment.d (systemd user session)";
-                return "Only platform themes this machine has and that make sense on a DMS desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'DMS palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
+                return "Only platform themes this machine has and that make sense on a Dux desktop are listed (sandbox aliases and Plasma's are filtered out). Controls QT_QPA_PLATFORMTHEME. " + where + ". Apps started after the next apply pick it up; already-running ones need a restart. Keep 'Leave to my environment' if you already set the variable yourself. Only 'Dux palette' reads qt5ct/qt6ct.conf — under gtk3 the widget style below is ignored.";
             }
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
@@ -1548,14 +1853,14 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncTerminalFonts"
         label: "Synchronize terminal fonts"
-        description: "Terminals read their own config, not GTK/Qt, so the monospace font never reaches them otherwise. When on, the plugin writes a font include per terminal in ~/.config/dms-theme-sync/ (kitty.conf, alacritty.toml, ghostty.conf) using the DMS monospace font and size. Opt-in: reference each file from your terminal config once — kitty: include ~/.config/dms-theme-sync/kitty.conf · ghostty: config-file = ~/.config/dms-theme-sync/ghostty.conf · alacritty: add it to [general] import. Each generated file also prints its exact reference line in its header."
+        description: "Terminals read their own config, not GTK/Qt, so the monospace font never reaches them otherwise. When on, the plugin writes a font include per terminal in ~/.config/dms-theme-sync/ (kitty.conf, alacritty.toml, ghostty.conf) using the Dux monospace font and size. Opt-in: reference each file from your terminal config once — kitty: include ~/.config/dms-theme-sync/kitty.conf · ghostty: config-file = ~/.config/dms-theme-sync/ghostty.conf · alacritty: add it to [general] import. Each generated file also prints its exact reference line in its header."
         defaultValue: false
     }
 
     ToggleSetting {
         settingKey: "syncKvantum"
-        label: "Generate a Kvantum theme from the DMS palette"
-        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the DMS colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the DMS-palette-Kvantum step; a native Qt pair or paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
+        label: "Generate a Kvantum theme from the Dux palette"
+        description: "Kvantum draws Qt widgets from an SVG and takes its colours from its own theme, not from the qt5ct/qt6ct palette — so selecting the kvantum style without giving it a theme does not add Material You to Qt, it removes it. When on, the plugin renders ~/.config/Kvantum/DankMatugen/ from the Dux colours (both the .kvconfig and the recoloured .svg) and selects it. Only has an effect when the Qt widget style is 'kvantum'. In the 'Automatic' synchronization route this toggle also gates the Dux-palette-Kvantum step; a native Qt pair or paired Kvantum theme always wins over the render, because pairing means both halves come from one design."
         defaultValue: false
     }
 
@@ -1625,22 +1930,22 @@ PluginSettings {
     ToggleSetting {
         settingKey: "syncCursorColor"
         label: "Sync cursor color (requires Bibata-Material-* cursors)"
-        description: "Selects the installed Bibata-Material-* cursor variant nearest to the Material You accent on every apply, matched by hue like the folder color. The variants are built once with material-bibata-cursor (28 accents, installed to ~/.icons); the plugin never builds cursors itself, it only chooses among the ones present and hands the choice to DMS's own cursor setting. A neutral accent picks a neutral variant (Grey, Slate, Cloud…). Turning this off returns the cursor to the theme you had before."
+        description: "Selects the installed Bibata-Material-* cursor variant nearest to the Material You accent on every apply, matched by hue like the folder color. The variants are built once with material-bibata-cursor (28 accents, installed to ~/.icons); the plugin never builds cursors itself, it only chooses among the ones present and hands the choice to Dux's own cursor setting. A neutral accent picks a neutral variant (Grey, Slate, Cloud…). Turning this off returns the cursor to the theme you had before."
         defaultValue: false
     }
 
     ToggleSetting {
         id: niriBorderToggle
         settingKey: "dimNiriBorder"
-        label: "Niri border: use DMS highlight color"
-        description: "Uses the recent-windows highlight color for the focused border and focus ring. DMS exports this as primary_container from its dark palette, even in light mode. It often looks darker than the main accent, but this is a color substitution, not a brightness slider. Width, inactive and urgent colors stay unchanged. Turning it off removes the plugin override on the next apply; later user overrides still take precedence. Niri only."
+        label: "Niri border: use Dux highlight color"
+        description: "Uses the recent-windows highlight color for the focused border and focus ring. Dux exports this as primary_container from its dark palette, even in light mode. It often looks darker than the main accent, but this is a color substitution, not a brightness slider. Width, inactive and urgent colors stay unchanged. Turning it off removes the plugin override on the next apply; later user overrides still take precedence. Niri only."
         defaultValue: false
     }
 
     StyledText {
         width: parent.width
-        visible: niriBorderToggle.value && root.expressivePalette
-        text: "With Expressive (2025), the highlight can stay vivid or close to the main accent. A subtle change is expected for some palettes; it does not by itself mean synchronization failed. DMS surface colors and the exported Niri highlight can also differ."
+        visible: niriBorderToggle.value && root.modernSpec
+        text: "With Expressive (2025), the highlight can stay vivid or close to the main accent. A subtle change is expected for some palettes; it does not by itself mean synchronization failed. Dux surface colors and the exported Niri highlight can also differ."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -1651,7 +1956,7 @@ PluginSettings {
         visible: niriBorderToggle.value && CompositorService.compositor === "niri"
             && typeof SettingsData.runDmsMatugenTemplates !== "undefined"
             && (!SettingsData.runDmsMatugenTemplates || SettingsData.matugenTemplateNiri === false)
-        text: "The DMS Niri color export is disabled. The border can reuse an older highlight or skip the override if no palette exists. Enable Run DMS templates and Niri in DMS Appearance → Apps to follow new colors."
+        text: "The Dux Niri color export is disabled. The border can reuse an older highlight or skip the override if no palette exists. Enable Run DMS templates and Niri in Dux Wallpaper & colors → App theming to follow new colors."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -1664,7 +1969,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "autoSync"
         label: "Auto-apply to applications"
-        description: "Propagate DMS appearance changes (theme, light/dark, fonts, icons, cursor) to GTK, Qt and KDE apps automatically. When off, changes apply only with 'Apply now' below."
+        description: "Propagate Dux appearance changes (theme, light/dark, fonts, icons, cursor) to GTK, Qt and KDE apps automatically. When off, changes apply only with 'Apply now' below."
         defaultValue: true
     }
 
@@ -1718,7 +2023,7 @@ PluginSettings {
 
         StyledText {
             width: parent.width
-            text: "Keeps this many unnamed snapshots and, separately, the newest DMS .Xresources.backup files. Named snapshots stay pinned. Cursor-file copies are cleaned at plugin startup and every minute, even when automatic theme sync or snapshots are off. To preserve one outside rotation, rename it with a nonnumeric suffix."
+            text: "Keeps this many unnamed snapshots and, separately, the newest Dux .Xresources.backup files. Named snapshots stay pinned. Cursor-file copies are cleaned at plugin startup and every minute, even when automatic theme sync or snapshots are off. To preserve one outside rotation, rename it with a nonnumeric suffix."
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
             wrapMode: Text.WordWrap
@@ -1926,7 +2231,7 @@ PluginSettings {
 
             StyledText {
                 width: parent.width
-                text: "Stored under ~/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups.\nList: scripts/theme-snapshot.sh list\nRestore selected: dms ipc call dmsThemeSync restore " + (root.selectedSnapshot || "SNAPSHOT_ID") + "\nRestore latest: dms ipc call dmsThemeSync restoreLatest"
+                text: "Stored under ~/.local/state/dms/plugins/dmsThemeSync/backups (older Dux: ~/.local/state/DankMaterialShell, kept as a symlink).\nList: scripts/theme-snapshot.sh list\nRestore selected: dms ipc call dmsThemeSync restore " + (root.selectedSnapshot || "SNAPSHOT_ID") + "\nRestore latest: dms ipc call dmsThemeSync restoreLatest"
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: "monospace"
                 color: Theme.surfaceVariantText

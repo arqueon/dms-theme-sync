@@ -8,7 +8,7 @@ service="$ROOT/ThemeSyncService.qml"
 grep -Fq 'names = ["blue", "purple", "green", "orange", "red", "cyan", "pink", "amber", "coral", "monochrome"]' "$settings"
 grep -Fq 'function selectIconTheme(value, lightMode)' "$settings"
 grep -Fq 'id: iconThemeVerifyTimer' "$settings"
-grep -Fq 'DMS kept ' "$settings"
+grep -Fq 'Dux kept ' "$settings"
 grep -Fq 'SettingsData.setIconThemeForMode(value, targetLight)' "$settings"
 grep -Fq 'text: "Separate light and dark themes"' "$settings"
 grep -Fq 'currentValue: root.iconThemeDark' "$settings"
@@ -28,7 +28,7 @@ grep -Fq 'nothing was changed.' "$settings"
 
 # DankSlider assigns to its own value while dragging, which replaces the
 # declarative value binding. Reset actions must therefore restore both the
-# visible slider and the backing setting, as DMS SettingsSliderRow does.
+# visible slider and the backing setting, as Dux SettingsSliderRow does.
 grep -Fq 'matugenContrastSlider.value = 0;' "$settings"
 grep -Fq 'cursorSizeSlider.value = 24;' "$settings"
 grep -Fq 'regularFontSizeSlider.value = 11;' "$settings"

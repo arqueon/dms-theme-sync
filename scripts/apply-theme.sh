@@ -41,6 +41,9 @@ while (( $# )); do
         --mono-font) MONO_FONT=${2:?}; shift 2 ;;
         --document-font) DOCUMENT_FONT=${2-}; shift 2 ;;
         --font-size) FONT_SIZE=${2:?}; shift 2 ;;
+        --font-weight) FONT_WEIGHT=${2:?}; shift 2 ;;
+        --defer-qt-colors) DEFER_QT_COLORS=${2:?}; shift 2 ;;
+        --defer-kde-colors) DEFER_KDE_COLORS=${2:?}; shift 2 ;;
         --mono-size) MONO_SIZE=${2:?}; shift 2 ;;
         --document-size) DOCUMENT_SIZE=${2:?}; shift 2 ;;
         --icon-theme) ICON_THEME=${2:?}; shift 2 ;;
@@ -75,6 +78,12 @@ while (( $# )); do
 done
 
 DOCUMENT_FONT=${DOCUMENT_FONT:-$FONT}
+# Qt's legacy QFont::toString takes a 0-99 weight (50 = normal). Dux publishes
+# fontWeight on the OpenType 100-900 scale, so the caller converts; this default
+# keeps older callers and the shell's normal weight at the historical value.
+FONT_WEIGHT=${FONT_WEIGHT:-50}
+DEFER_QT_COLORS=${DEFER_QT_COLORS:-false}
+DEFER_KDE_COLORS=${DEFER_KDE_COLORS:-false}
 XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
@@ -95,6 +104,12 @@ esac
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
 }
+[[ $FONT_WEIGHT =~ ^[0-9]+$ && $FONT_WEIGHT -le 99 ]] || {
+    printf 'Font weight must be an integer from 0 to 99 (Qt legacy scale)\n' >&2
+    exit 2
+}
+case "$DEFER_QT_COLORS" in true|false) ;; *) printf 'Invalid defer-qt-colors: %s\n' "$DEFER_QT_COLORS" >&2; exit 2 ;; esac
+case "$DEFER_KDE_COLORS" in true|false) ;; *) printf 'Invalid defer-kde-colors: %s\n' "$DEFER_KDE_COLORS" >&2; exit 2 ;; esac
 
 # Kvantum is a QStyle plugin. /usr/share/Kvantum proves nothing — GTK themes such
 # as celestial-gtk-theme ship Kvantum *themes* there without Kvantum itself — so
@@ -149,7 +164,7 @@ native_pair_missing_for_gtk() {
 }
 
 # qt6ct-kde is qt6ct built against KF6::ColorScheme, which is what lets it parse
-# the KColorScheme (.colors) file DMS exports — stock qt6ct expects its own
+# the KColorScheme (.colors) file Dux exports — stock qt6ct expects its own
 # [ColorScheme] arrays and falls back to the default palette without a word.
 # The patch lands in libqt6ct-common, so only the patched build carries a
 # libKF6ColorScheme NEEDED entry there; grepping for that string tells the two
@@ -357,7 +372,7 @@ GTK_THEME=$(resolve_gtk_theme "$GTK_REQUEST" "$MODE")
 #                 (Breeze, when both breeze5 and breeze6 are installed)
 #   pair          qtct + kvantum, selecting the Kvantum half of the GTK theme's
 #                 same-author pair (WhiteSur, Orchis, Catppuccin, KvLibadwaita…)
-#   kvantum       qtct + kvantum, rendering DankMatugen from the DMS palette
+#   kvantum       qtct + kvantum, rendering DankMatugen from the Dux palette
 #   kcolorscheme  qtct + Fusion, palette from DankMatugen.colors — the route
 #                 that needs qt6ct-kde to actually work
 #   gtk3          Qt follows the GTK theme; nothing reads qt5ct/qt6ct.conf
@@ -411,7 +426,7 @@ resolve_qt_sync_mode() {
                 native_missing=$(native_pair_missing_for_gtk "$pair_gtk" || true)
                 [[ -n $native_missing ]] \
                     && log "qt-sync: native Breeze pair incomplete (missing $native_missing; packages: breeze5 + breeze)"
-                log "qt-sync: no Kvantum theme pairs or complete native Qt pair with GTK theme '${pair_gtk:-unknown}'; rendering the DMS palette instead"
+                log "qt-sync: no Kvantum theme pairs or complete native Qt pair with GTK theme '${pair_gtk:-unknown}'; rendering the Dux palette instead"
                 apply_qt_sync_route kvantum
             fi
             ;;
@@ -732,7 +747,7 @@ build_folder_overlay() {
 }
 
 icons_home="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
-# DMS owns the icon theme. Once the overlay is applied, SettingsData.iconTheme
+# Dux owns the icon theme. Once the overlay is applied, SettingsData.iconTheme
 # *is* the overlay, so the base to derive from must be remembered by the plugin
 # and passed in; deriving it by stripping the suffix would break the moment the
 # user renames anything.
@@ -741,7 +756,7 @@ folder_base=${FOLDER_BASE_THEME:-$ICON_THEME}
 overlay_dir="$icons_home/${folder_base}${OVERLAY_SUFFIX}"
 
 # The overlay's name must stay ${folder_base}${OVERLAY_SUFFIX}: the QML side
-# recomputes that exact name to hand to DMS, and renaming per mode would strand
+# recomputes that exact name to hand to Dux, and renaming per mode would strand
 # the icon-theme setting on every light/dark flip. The *content* is a different
 # matter — a light base's monochrome action icons (#444444 in Papirus) vanish
 # against a dark palette — so the symlinks and Inherits= derive from the mode's
@@ -795,7 +810,7 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
                 log "folder-color: deriving from $folder_source ($MODE-mode variant of $folder_base)"
             fi
             # The overlay is a derived asset, not a decision. We build it and
-            # name it; DMS decides whether it becomes the icon theme, so its own
+            # name it; Dux decides whether it becomes the icon theme, so its own
             # drift check (checkIconThemeDrift) never sees a stranger in
             # gsettings and never falls back to "System Default".
             log "folder-color: accent $accent -> $color (overlay ${overlay_dir##*/})"
@@ -804,7 +819,7 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
                 # modes. KDE applications therefore cannot infer that its
                 # Inherits= chain changed and keep their old KIconLoader
                 # pixmaps until restart. The QML side turns this marker into
-                # KDE's process-wide iconChanged notification after DMS has
+                # KDE's process-wide iconChanged notification after Dux has
                 # reconciled the authoritative theme setting.
                 log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
             fi
@@ -823,7 +838,7 @@ fi
 # builds Bibata cursor packs named Bibata-Material-<Name>, each recoloured
 # around one Material accent. Like the folder overlay, the helper only
 # *chooses*: it maps the Matugen accent onto the nearest installed variant by
-# CIE hue and reports the choice. DMS owns the cursor setting — the QML side
+# CIE hue and reports the choice. Dux owns the cursor setting — the QML side
 # turns the report into SettingsData.setCursorTheme(), and the resulting apply
 # propagates the new name to every surface the plugin already writes.
 #
@@ -1099,7 +1114,7 @@ ensure_matugen_css_import() {
     fi
     mkdir -p "$gtk_dir"
     if [[ -L $css_file && $css_file -ef $colors_file ]]; then
-        # DMS links GTK3's user stylesheet directly to its generated Matugen
+        # Dux links GTK3's user stylesheet directly to its generated Matugen
         # palette. Writing an import through that link would replace the palette
         # with a self-import, so preserve the link and its content.
         return
@@ -1149,7 +1164,7 @@ set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark
 #
 # File managers (Dolphin's details view above all) stripe their lists with
 # QPalette::AlternateBase, and there is no Dolphin toggle for it: the colour
-# comes from whichever palette source the active route uses. DMS's exported
+# comes from whichever palette source the active route uses. Dux's exported
 # scheme keeps [Colors:View] BackgroundAlternate distinct from BackgroundNormal
 # by design, so two moves cover its consumers:
 #
@@ -1160,15 +1175,15 @@ set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark
 # 2. The DankMatugen*.colors files themselves get the same equalisation.
 #    KColorSchemeManager pins a scheme PER APP (Settings > Color Scheme writes
 #    e.g. ColorScheme=DankMatugen into dolphinrc), and a pinned app reads
-#    DMS's file directly — every view it creates from then on (new tab, split
+#    Dux's file directly — every view it creates from then on (new tab, split
 #    pane, new window) captures the striped alternate at construction and
 #    keeps it, no matter how uniform kdeglobals is (seen live in Dolphin
 #    26.04: fresh tabs striped while old views sat uniform). Patching the
 #    regenerated output rather than a template is the Kvantum-render move:
-#    DMS rewrites these files on every wallpaper/mode change, and this run —
-#    which follows DMS — re-patches them at the same cadence as the
+#    Dux rewrites these files on every wallpaper/mode change, and this run —
+#    which follows Dux — re-patches them at the same cadence as the
 #    kdeglobals refresh. When the toggle goes off there is nothing to restore
-#    from; the stripes return with DMS's next regeneration.
+#    from; the stripes return with Dux's next regeneration.
 DANK_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
 UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankUniform.colors"
 # v0.8.0 briefly named the derived scheme DankMatugenUniform; sweep it so the
@@ -1176,19 +1191,19 @@ UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankUniform.colors"
 LEGACY_UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
 
 derive_uniform_scheme() {
-    [[ -f $DANK_SCHEME ]] || return 1
+    [[ -f $DANK_SCHEME_MODE ]] || return 1
     if $DRY_RUN; then
-        log "DRY-RUN: derive ${UNIFORM_SCHEME##*/} from ${DANK_SCHEME##*/}"
+        log "DRY-RUN: derive ${UNIFORM_SCHEME##*/} from ${DANK_SCHEME_MODE##*/}"
         return 0
     fi
     local tmp="$UNIFORM_SCHEME.tmp.$$"
-    # The name deliberately does NOT carry the DankMatugen prefix: DMS core's
+    # The name deliberately does NOT carry the DankMatugen prefix: Dux core's
     # isDMSKDEColorSchemeActive() matches by prefix and then runs
     # plasma-apply-colorscheme with the (non-uniform) DankMatugenDark/Light
     # scheme, stomping the uniform sections out of kdeglobals until the next
     # plugin apply — a ~10 s window in which every KDE app that (re)reads its
     # palette picks the stripes back up (seen live in a Dolphin split pane).
-    # With a foreign prefix DMS leaves kdeglobals alone, and the refresh below
+    # With a foreign prefix Dux leaves kdeglobals alone, and the refresh below
     # is its only writer while the toggle is on.
     awk '
         /^\[/ { in_view = ($0 == "[Colors:View]"); in_general = ($0 == "[General]") }
@@ -1207,11 +1222,11 @@ derive_uniform_scheme() {
                 print line
             }
         }
-    ' "$DANK_SCHEME" > "$tmp"
+    ' "$DANK_SCHEME_MODE" > "$tmp"
     commit_staged_file "$tmp" "$UNIFORM_SCHEME"
 }
 
-# Move 2 above: equalise the View alternate inside DMS's own scheme files, for
+# Move 2 above: equalise the View alternate inside Dux's own scheme files, for
 # the apps that pin one of them per-app and so never look at DankUniform.
 uniform_dms_schemes() {
     local f tmp
@@ -1240,9 +1255,23 @@ uniform_dms_schemes() {
 }
 
 # The scheme every Qt/KDE consumer below points at: the uniform derivation when
-# the toggle is on and the source exists, DMS's own export otherwise.
-SCHEME_SOURCE="$DANK_SCHEME"
+# the toggle is on and the source exists, Dux's own export otherwise.
+#
+# Dux 2.0 writes a per-mode scheme next to the historical mode-agnostic one.
+# Prefer the file that matches the current mode so a stale `.default` section
+# cannot leak into kdeglobals; fall back to DankMatugen.colors on older shells.
+DANK_SCHEME_MODE="$XDG_DATA_HOME/color-schemes/DankMatugenDark.colors"
+[[ $MODE == light ]] && DANK_SCHEME_MODE="$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
+[[ -f $DANK_SCHEME_MODE ]] || DANK_SCHEME_MODE="$DANK_SCHEME"
+
+SCHEME_SOURCE="$DANK_SCHEME_MODE"
+# KDE resolves the scheme by the [General] ColorScheme value, which is
+# DankMatugenDark/Light in the per-mode files, not by the file name.
 KDE_SCHEME_NAME="DankMatugen"
+if [[ -f $SCHEME_SOURCE ]]; then
+    scheme_name=$(sed -n 's/^ColorScheme=//p' "$SCHEME_SOURCE" | head -n 1)
+    [[ -n $scheme_name ]] && KDE_SCHEME_NAME=$scheme_name
+fi
 if [[ $UNIFORM_LIST_BG == true && $APPLY_MATUGEN_COLORS == true ]]; then
     uniform_dms_schemes
     if derive_uniform_scheme; then
@@ -1270,11 +1299,25 @@ for qt_version in 5 6; do
     fi
     [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
     [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
-    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0\""
-    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0\""
-    if [[ $APPLY_MATUGEN_COLORS == true && -f $DANK_SCHEME ]]; then
-        update_ini "$qt_file" Appearance custom_palette true
-        update_ini "$qt_file" Appearance color_scheme_path "$SCHEME_SOURCE"
+    update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0\""
+    update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0\""
+    if [[ $APPLY_MATUGEN_COLORS == true && -f $SCHEME_SOURCE ]]; then
+        if [[ $DEFER_QT_COLORS == true ]]; then
+            # Dux writes this file too; leaving its palette alone is the only way
+            # to keep one owner. Style, fonts and icons above are still ours.
+            # If we were the previous owner, hand the scheme back once instead
+            # of leaving Qt pointed at DankUniform forever.
+            current_path=$(read_ini_value "$qt_file" Appearance color_scheme_path || true)
+            if [[ $current_path == "$UNIFORM_SCHEME" ]]; then
+                update_ini "$qt_file" Appearance color_scheme_path "$DANK_SCHEME"
+                log "qt-colors: handed palette back to Dux (qt${qt_version}ct)"
+            else
+                log "qt-colors: deferred to Dux templates (qt${qt_version}ct palette untouched)"
+            fi
+        else
+            update_ini "$qt_file" Appearance custom_palette true
+            update_ini "$qt_file" Appearance color_scheme_path "$SCHEME_SOURCE"
+        fi
     fi
 done
 if (( ${#qt_style_changes[@]} )); then
@@ -1282,7 +1325,7 @@ if (( ${#qt_style_changes[@]} )); then
 fi
 
 # KDE apps read their colours straight from kdeglobals' [Colors:*] sections, a
-# full copy of the scheme that only plasma-apply-colorscheme refreshes — and DMS
+# full copy of the scheme that only plasma-apply-colorscheme refreshes — and Dux
 # invokes that on mode switches, not on every wallpaper regeneration, so the
 # copy silently ages while the .colors file moves on. Re-copy the sections from
 # the scheme we point everything else at, so kdeglobals can never go stale.
@@ -1309,15 +1352,29 @@ refresh_kdeglobals_colors() {
 
 if [[ $SYNC_KDE == true ]]; then
     KDEGLOBALS="$XDG_CONFIG_HOME/kdeglobals"
-    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,50,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
-    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,50,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General fixed "$MONO_FONT,$MONO_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General menuFont "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General toolBarFont "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
+    update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
     [[ -n $ICON_THEME ]] && update_ini "$KDEGLOBALS" Icons Theme "$ICON_THEME"
-    if [[ $APPLY_MATUGEN_COLORS == true && -f $DANK_SCHEME ]]; then
-        update_ini "$KDEGLOBALS" General ColorScheme "$KDE_SCHEME_NAME"
-        refresh_kdeglobals_colors "$SCHEME_SOURCE" "$KDEGLOBALS"
+    if [[ $APPLY_MATUGEN_COLORS == true && -f $SCHEME_SOURCE ]]; then
+        if [[ $DEFER_KDE_COLORS == true ]]; then
+            # Dux runs plasma-apply-colorscheme with its own per-mode scheme;
+            # rewriting General ColorScheme here would undo that on every apply.
+            # Hand back only if the plugin's uniform scheme is still active.
+            current_scheme=$(read_ini_value "$KDEGLOBALS" General ColorScheme || true)
+            if [[ $current_scheme == DankUniform ]]; then
+                update_ini "$KDEGLOBALS" General ColorScheme "$KDE_SCHEME_NAME"
+                refresh_kdeglobals_colors "$SCHEME_SOURCE" "$KDEGLOBALS"
+                log "kde-colors: handed scheme back to Dux ($KDE_SCHEME_NAME)"
+            else
+                log "kde-colors: deferred to Dux kcolorscheme export"
+            fi
+        else
+            update_ini "$KDEGLOBALS" General ColorScheme "$KDE_SCHEME_NAME"
+            refresh_kdeglobals_colors "$SCHEME_SOURCE" "$KDEGLOBALS"
+        fi
     fi
     [[ -n $CURSOR_THEME ]] && update_ini "$XDG_CONFIG_HOME/kcminputrc" Mouse cursorTheme "$CURSOR_THEME"
     update_ini "$XDG_CONFIG_HOME/kcminputrc" Mouse cursorSize "$CURSOR_SIZE"
@@ -1442,10 +1499,10 @@ fi
 # Kvantum draws Qt widgets from an SVG and takes its colours from its own theme
 # (<name>.kvconfig + <name>.svg), not from the qt5ct/qt6ct palette. So selecting
 # the kvantum style without giving it a theme does not add Material You to Qt —
-# it removes it, swapping the DMS palette for whatever Kvantum was last set to.
+# it removes it, swapping the Dux palette for whatever Kvantum was last set to.
 #
 # Render both files from the templates in assets/kvantum/ (vendored from
-# InioX/matugen-themes, MIT) with the 12 Material roles DMS hands us, then point
+# InioX/matugen-themes, MIT) with the 12 Material roles Dux hands us, then point
 # kvantum.kvconfig at the result. The SVG has to be recoloured too: it is where
 # every widget shape lives, and it contains no hard-coded hex at all.
 sync_kvantum_theme() {
@@ -1474,7 +1531,7 @@ sync_kvantum_theme() {
         commit_staged_file "$out_dir/$name.$f.tmp.$$" "$out_dir/$name.$f"
     done
 
-    # Any leftover placeholder means a role DMS did not give us: Kvantum would
+    # Any leftover placeholder means a role Dux did not give us: Kvantum would
     # render a literal "{{...}}" as an invalid colour and fall back to grey.
     local leftover
     leftover=$(grep -ohE '\{\{colors\.[a-z_]+' "$out_dir/$name.kvconfig" "$out_dir/$name.svg" | sort -u | head -3)
@@ -1486,7 +1543,7 @@ sync_kvantum_theme() {
     # transparent_dolphin_view=true, under which Dolphin's normal rows show the
     # *window* colour while the alternates are still painted with
     # AlternateBase — base and window differ, so the stripes survive (measured
-    # live: rows at the DMS background vs rows at base). A fully transparent
+    # live: rows at the Dux background vs rows at base). A fully transparent
     # alternate is the one value uniform everywhere: opaque views show base
     # through it, transparent views show the window through it. The render is
     # plugin-owned: patch the output, never the template.
@@ -1545,7 +1602,7 @@ sweep_uniform_shadows() {
 }
 
 # A paired theme wins over the DankMatugen render: pairing means "both halves
-# come from one design", and overwriting the pair's colours with the DMS
+# come from one design", and overwriting the pair's colours with the Dux
 # palette would undo exactly that.
 if [[ -n $KVANTUM_PAIR_THEME ]]; then
     if [[ $UNIFORM_LIST_BG == true ]]; then
@@ -1587,7 +1644,7 @@ write_terminal_font_includes() {
     tmp="$TERMINAL_DIR/kitty.conf.tmp.$$"
     {
         printf '%s\n' '# ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-        printf '%s\n' '# ! Monospace font managed by the DMS Theme Sync plugin. !'
+        printf '%s\n' '# ! Monospace font managed by the Dux Theme Sync plugin. !'
         printf '%s\n' "# Reference from kitty.conf:  include $TERMINAL_DIR/kitty.conf"
         printf 'font_family %s\n' "$MONO_FONT"
         printf 'font_size %s\n' "$MONO_SIZE"
@@ -1599,7 +1656,7 @@ write_terminal_font_includes() {
     tmp="$TERMINAL_DIR/ghostty.conf.tmp.$$"
     {
         printf '%s\n' '# ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-        printf '%s\n' '# ! Monospace font managed by the DMS Theme Sync plugin. !'
+        printf '%s\n' '# ! Monospace font managed by the Dux Theme Sync plugin. !'
         printf '%s\n' "# Reference from the ghostty config:  config-file = $TERMINAL_DIR/ghostty.conf"
         printf 'font-family = %s\n' "$MONO_FONT"
         printf 'font-size = %s\n' "$MONO_SIZE"
@@ -1614,7 +1671,7 @@ write_terminal_font_includes() {
     tmp="$TERMINAL_DIR/alacritty.toml.tmp.$$"
     {
         printf '%s\n' '# ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-        printf '%s\n' '# ! Monospace font managed by the DMS Theme Sync plugin. !'
+        printf '%s\n' '# ! Monospace font managed by the Dux Theme Sync plugin. !'
         printf '%s\n' "# Reference from alacritty.toml:  [general] import = [\"$TERMINAL_DIR/alacritty.toml\"]"
         printf '%s\n' '[font]'
         printf 'size = %s\n' "$MONO_SIZE"
@@ -1659,7 +1716,7 @@ LABWC_END='# <<< dmsThemeSync <<<'
 # resolution are set near the top of this file: QT_STYLE is consumed by the qtXct
 # writer and the Kvantum block long before this point.
 
-# DMS passes --compositor (CompositorService.compositor). Fall back to sniffing
+# Dux passes --compositor (CompositorService.compositor). Fall back to sniffing
 # the session env so the helper also works when invoked standalone or in tests.
 detect_compositor() {
     [[ -n ${NIRI_SOCKET:-} ]] && { printf niri; return; }
@@ -1680,7 +1737,7 @@ detect_compositor() {
 [[ -n $COMPOSITOR ]] || COMPOSITOR=$(detect_compositor)
 
 # Universal baseline: environment.d is imported by sessions started through uwsm
-# or systemd, which is how DMS launches every supported compositor except Niri.
+# or systemd, which is how Dux launches every supported compositor except Niri.
 write_environment_d() {
     mkdir -p "$ENV_DIR"
     local tmp="$ENV_FILE.tmp.$$"
@@ -1711,7 +1768,7 @@ write_hyprland_env_include() {
         local tmp="$HYPR_INCLUDE.tmp.$$"
         {
             printf '%s\n' '# ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-            printf '%s\n' '# ! Cursor and Qt platform theme managed by the DMS Theme Sync plugin. !'
+            printf '%s\n' '# ! Cursor and Qt platform theme managed by the Dux Theme Sync plugin. !'
             if [[ -n $CURSOR_THEME ]]; then
                 printf 'env = XCURSOR_THEME,%s\n' "$CURSOR_THEME"
                 printf 'env = HYPRCURSOR_THEME,%s\n' "$CURSOR_THEME"
@@ -1734,7 +1791,7 @@ write_hyprland_env_include() {
         local tmp="$HYPR_LUA_INCLUDE.tmp.$$"
         {
             printf '%s\n' '-- ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-            printf '%s\n' '-- ! Cursor and Qt platform theme managed by the DMS Theme Sync plugin. !'
+            printf '%s\n' '-- ! Cursor and Qt platform theme managed by the Dux Theme Sync plugin. !'
             if [[ -n $CURSOR_THEME ]]; then
                 printf 'hl.env("XCURSOR_THEME", "%s")\n' "$CURSOR_THEME"
                 printf 'hl.env("HYPRCURSOR_THEME", "%s")\n' "$CURSOR_THEME"
@@ -1769,7 +1826,7 @@ write_labwc_env_block() {
     fi
     {
         printf '%s\n' "$LABWC_BEGIN"
-        printf '%s\n' '# AUTO-GENERATED by dmsThemeSync — change DMS settings, not this block.'
+        printf '%s\n' '# AUTO-GENERATED by dmsThemeSync — change Dux settings, not this block.'
         if [[ -n $CURSOR_THEME ]]; then
             printf 'XCURSOR_THEME=%s\n' "$CURSOR_THEME"
             printf 'HYPRCURSOR_THEME=%s\n' "$CURSOR_THEME"
@@ -1788,12 +1845,12 @@ write_labwc_env_block() {
 # Niri reads env vars from its environment {} block, not environment.d. On Niri
 # we generate a dedicated include (cursor + Qt platform theme) and reference it
 # once as a TOP-LEVEL include in config.kdl. Placement matters: it must come
-# after the dms/*.kdl includes (so the synced theme overrides DMS-generated
+# after the dms/*.kdl includes (so the synced theme overrides Dux-generated
 # cursor/theme values) and before any user override includes (user*.kdl keeps
 # the last word), so on fresh setups the line is inserted before the first
 # `include "user..."` if present. If the line already exists anywhere in
 # config.kdl, its position is respected and nothing is moved.
-# One active-color out of the dms/colors.kdl DMS generates through Matugen.
+# One active-color out of the dms/colors.kdl Dux generates through Matugen.
 # $1 names the KDL node to read from ("border", "highlight"); the first
 # active-color inside it wins.
 niri_dms_active_color() {
@@ -1819,7 +1876,7 @@ write_niri_env_include() {
     local tmp="$NIRI_INCLUDE.tmp.$$"
     {
         printf '%s\n' '// ! AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT !'
-        printf '%s\n' '// ! Cursor, Qt platform theme and border override managed by the DMS Theme Sync plugin. !'
+        printf '%s\n' '// ! Cursor, Qt platform theme and border override managed by the Dux Theme Sync plugin. !'
         printf '%s\n' 'environment {'
         if [[ -n $CURSOR_THEME ]]; then
             printf '    XCURSOR_THEME "%s"\n' "$CURSOR_THEME"
@@ -1835,7 +1892,7 @@ write_niri_env_include() {
         if [[ -n $NIRI_BORDER_DIM_COLOR ]]; then
             printf '\n'
             printf '%s\n' '// config.kdl loads this file after dms/colors.kdl and later includes win,'
-            printf '%s\n' "// so only these two values override Matugen; every other colour stays DMS's."
+            printf '%s\n' "// so only these two values override Matugen; every other colour stays Dux's."
             printf '%s\n' 'layout {'
             printf '%s\n' '    focus-ring {'
             printf '        active-color "%s"\n' "$NIRI_BORDER_DIM_COLOR"
@@ -1901,12 +1958,12 @@ write_niri_env_include() {
 
 # --- Niri focused-border dimming ----------------------------------------------
 #
-# Reuse the highlight from DMS's Niri template (primary_container.dark).
+# Reuse the highlight from Dux's Niri template (primary_container.dark).
 # Standard palettes often make it darker than primary; Expressive palettes
 # may keep it vivid, similar in brightness, or even brighter. This is a role
 # substitution, not fixed dimming. The dark role is used in either mode.
 # Only the plugin include changes; switching off removes its override on the
-# next apply. DMS's generated file and later user overrides remain authoritative.
+# next apply. Dux's generated file and later user overrides remain authoritative.
 NIRI_BORDER_DIM_COLOR=""
 if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
     dim_color=$(niri_dms_active_color highlight)
@@ -1917,7 +1974,7 @@ if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
         log "niri-border: accent $bright_color already matches the container tone; skipping"
     else
         NIRI_BORDER_DIM_COLOR=$dim_color
-        log "niri-border: active border ${bright_color:-unknown} -> $dim_color (DMS highlight; brightness depends on palette)"
+        log "niri-border: active border ${bright_color:-unknown} -> $dim_color (Dux highlight; brightness depends on palette)"
     fi
 fi
 
@@ -2059,11 +2116,11 @@ verify_theme_assets() {
         case "$effective" in
             qt5ct|qt6ct) ;;
             gtk3) note "Qt platform theme is 'gtk3': Qt apps follow the GTK theme, and style '$QT_STYLE' in qt5ct/qt6ct.conf is ignored" ;;
-            "") note "no Qt platform theme is set: Qt ignores qt5ct/qt6ct.conf, so style '$QT_STYLE' and the DMS palette do not reach Qt apps" ;;
+            "") note "no Qt platform theme is set: Qt ignores qt5ct/qt6ct.conf, so style '$QT_STYLE' and the Dux palette do not reach Qt apps" ;;
             *)  note "Qt platform theme is '$effective', which does not read qt5ct/qt6ct.conf: style '$QT_STYLE' is ignored" ;;
         esac
     fi
-    # DMS exports its Qt palette as a KColorScheme (.colors) file, and stock
+    # Dux exports its Qt palette as a KColorScheme (.colors) file, and stock
     # qt6ct cannot parse that format: loadColorScheme() expects its own
     # [ColorScheme] arrays, finds none, and keeps the default palette without
     # a word (verified against qt6ct 0.11). Only qt6ct-kde — the same qt6ct
@@ -2082,8 +2139,8 @@ verify_theme_assets() {
     if [[ $KVANTUM_PAIR_THEME != "" ]] && ! kvantum_style_plugin_installed; then
         note "a Kvantum theme pair was selected but the Kvantum style plugin is missing; Qt falls back to Fusion"
     fi
-    # GTK follows what DMS *exported* (dank-colors.css); Qt and Kvantum follow
-    # the *live* theme the daemon reads. DMS does not regenerate the export for
+    # GTK follows what Dux *exported* (dank-colors.css); Qt and Kvantum follow
+    # the *live* theme the daemon reads. Dux does not regenerate the export for
     # custom/downloaded themes, so the two can diverge — the bar shows the new
     # palette while GTK apps keep the old one. Compare the accents and say so.
     local kv_primary css_accent
@@ -2091,7 +2148,7 @@ verify_theme_assets() {
     css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
         "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css" 2>/dev/null | grep -oE '#[0-9a-fA-F]{6}')
     if [[ -n $kv_primary && -n $css_accent && ${kv_primary,,} != "${css_accent,,}" ]]; then
-        note "DMS's exported GTK palette ($css_accent) is not the live theme ($kv_primary): GTK apps follow the stale export"
+        note "Dux's exported GTK palette ($css_accent) is not the live theme ($kv_primary): GTK apps follow the stale export"
     fi
     return 0
 }
@@ -2117,7 +2174,7 @@ verify_uniform_list_bg() {
             fi
         fi
     fi
-    # Apps that pin a scheme per-app read DMS's files directly. This run just
+    # Apps that pin a scheme per-app read Dux's files directly. This run just
     # equalised them, so a striped one here means something regenerated it
     # behind us and pinned apps (e.g. Dolphin) stripe until the next apply.
     local f normal alternate

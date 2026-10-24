@@ -52,7 +52,7 @@ DankModal {
                     anchors.right: closeButton.left
                     anchors.rightMargin: Theme.spacingM
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "DMS Theme Sync"
+                    text: "Dux Theme Sync"
                     font.pixelSize: Theme.fontSizeLarge
                     font.weight: Font.Bold
                     color: Theme.surfaceText

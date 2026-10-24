@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# DMS updateXResources() creates these before a cursor change. They are
+# Dux updateXResources() creates these before a cursor change. They are
 # separate from Theme Sync's named/pinned snapshots. Never follow symlinks.
 target_dir=${HOME:?}
 keep=10

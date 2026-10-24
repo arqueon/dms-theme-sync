@@ -159,7 +159,7 @@ ln -s ../../dotfiles/xsettingsd.conf "$XDG_CONFIG_HOME/xsettingsd/xsettingsd.con
 printf 'button { padding: 2px; }\n' > "$DOTFILES/gtk-4.0/gtk.css"
 rm -f "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
 ln -s ../../dotfiles/gtk-4.0/gtk.css "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
-# DMS itself links GTK3's watched stylesheet directly to the generated Matugen
+# Dux itself links GTK3's watched stylesheet directly to the generated Matugen
 # palette. Theme Sync must refresh that file without replacing its contents
 # with an import of itself.
 rm -f "$XDG_CONFIG_HOME/gtk-3.0/gtk.css"
@@ -204,7 +204,7 @@ symlink_backup=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 10 --label
 symlink_snapshot=${symlink_backup#BACKUP_CREATED:}
 awk -F '\t' -v p="$XDG_CONFIG_HOME/gtk-3.0/settings.ini" \
     '$3 == p && $4 == "present" { found=1 } END { exit !found }' \
-    "$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/$symlink_snapshot/manifest.tsv" \
+    "$HOME/.local/state/dms/plugins/dmsThemeSync/backups/$symlink_snapshot/manifest.tsv" \
     || { printf 'Symlink target was not recorded in snapshot manifest\n' >&2; exit 1; }
 printf 'mutated-after-symlink-backup\n' > "$DOTFILES/gtk-3.0/settings.ini"
 "$ROOT/scripts/theme-snapshot.sh" restore --snapshot "$symlink_snapshot" --no-runtime >/dev/null
@@ -287,7 +287,7 @@ sleep 1.1
     && { printf 'Unpinned snapshot survived the rotation\n' >&2; exit 1; }
 
 # A stray directory in the backup root must neither be listed nor eat slots.
-mkdir -p "$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups/stray-dir"
+mkdir -p "$HOME/.local/state/dms/plugins/dmsThemeSync/backups/stray-dir"
 "$ROOT/scripts/theme-snapshot.sh" list | cut -f1 | grep -q '^stray-dir$' \
     && { printf 'Non-snapshot directory listed as a snapshot\n' >&2; exit 1; }
 
@@ -372,14 +372,14 @@ grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override written without opt-in\n' >&2; exit 1; }
 
 # on: border and focus-ring take the darker container tone — and nothing else.
-# The inactive/urgent colours must stay DMS's, so they never appear here.
+# The inactive/urgent colours must stay Dux's, so they never appear here.
 run_niri --dim-niri-border true
 [[ $(grep -c 'active-color "#6d9f00"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
     || { printf 'Border override missing or incomplete:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
 grep -Eq 'inactive-color|urgent-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override leaked beyond the active colours\n' >&2; exit 1; }
 
-# off again: the next apply drops the block and DMS colours return
+# off again: the next apply drops the block and Dux colours return
 run_niri
 grep -q 'layout' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override survived the toggle being turned off\n' >&2; exit 1; }
@@ -440,7 +440,7 @@ after_term=$(find "$TERMINAL_DIR" -type f -exec sha256sum {} + | LC_ALL=C sort)
 [[ $before_term == "$after_term" ]] || { printf 'Terminal include run was not idempotent\n' >&2; exit 1; }
 
 # terminal includes are captured in snapshots and restore can remove them
-BACKUP_ROOT="$HOME/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups"
+BACKUP_ROOT="$HOME/.local/state/dms/plugins/dmsThemeSync/backups"
 term_backup=$("$ROOT/scripts/theme-snapshot.sh" backup --retention 3 --label term --no-runtime)
 term_snapshot=${term_backup#BACKUP_CREATED:}
 grep -Fq "$TERMINAL_DIR/kitty.conf" "$BACKUP_ROOT/$term_snapshot/manifest.tsv" \
@@ -665,9 +665,9 @@ if [[ -n $PAPIRUS ]]; then
         || { printf 'Overlay index.theme lacks Scale for @2x dirs\n' >&2; exit 1; }
     [[ -z $(find "$OVERLAY" -xtype l -print -quit) ]] \
         || { printf 'Overlay contains broken symlinks\n' >&2; exit 1; }
-    # The helper builds the overlay but never applies it: DMS owns the icon
+    # The helper builds the overlay but never applies it: Dux owns the icon
     # theme, and writing the overlay name straight into gsettings would trip
-    # DMS's own drift check and unmanage the theme.
+    # Dux's own drift check and unmanage the theme.
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
 
     # Rebuilding the same derived theme must stay quiet: the D-Bus reload is
@@ -786,7 +786,7 @@ fi
 
 # --- Cursor accent: nearest installed Bibata-Material-* variant by hue --------
 #
-# The helper only reports a choice; DMS applies it. So the whole contract here
+# The helper only reports a choice; Dux applies it. So the whole contract here
 # is the log line: which variant, and the exact skip reasons.
 #
 # $HOME is sandboxed but /usr/share/icons is not, and on a machine with the
@@ -926,7 +926,7 @@ else
     printf 'flatpak overrides: skipped (flatpak not installed)\n'
 fi
 
-# --- Kvantum: rendered from the DMS palette, both files, no leftovers ---------
+# --- Kvantum: rendered from the Dux palette, both files, no leftovers ---------
 KV_COLORS="primary=#a1c9ff;on_surface=#f0f5ff;surface=#0e141c;surface_variant=#1f252d"
 KV_COLORS="$KV_COLORS;surface_container_low=#1f252d;surface_container_highest=#2a323c"
 KV_COLORS="$KV_COLORS;surface_bright=#2a323c;surface_dim=#0e141c;inverse_on_surface=#0e141c"
@@ -986,7 +986,7 @@ run_uniform() {
         --sync-xsettingsd false --backup-enabled false --no-runtime "$@" 2>&1
 }
 
-# off (default): no derived scheme, qt6ct points at DMS's own file
+# off (default): no derived scheme, qt6ct points at Dux's own file
 run_uniform --sync-kde true --qt-style Fusion >/dev/null
 [[ ! -e $SCHEMES/DankUniform.colors ]] \
     || { printf 'Derived scheme written while the toggle was off\n' >&2; exit 1; }
@@ -1009,17 +1009,17 @@ assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=1,2,3"
 # untouched sections still arrive verbatim
 assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundNormal=5,6,7"
 
-# DMS's own scheme files are equalised too: KColorSchemeManager pins a scheme
+# Dux's own scheme files are equalised too: KColorSchemeManager pins a scheme
 # per app (dolphinrc ColorScheme=DankMatugen) and pinned apps read these files
 # directly — every new view (tab, split pane) captures the alternate from them.
 grep -A2 '\[Colors:View\]' "$SCHEMES/DankMatugen.colors" | grep -Fqx 'BackgroundAlternate=1,2,3' \
-    || { printf 'DMS scheme file kept its striped View alternate\n' >&2; exit 1; }
+    || { printf 'Dux scheme file kept its striped View alternate\n' >&2; exit 1; }
 # a regeneration behind our back (any DankMatugen* variant) is re-patched
 printf '[General]\nColorScheme=DankMatugenDark\nName=Dank Dark\n\n[Colors:View]\nBackgroundAlternate=40,50,60\nBackgroundNormal=4,5,6\n' \
     > "$SCHEMES/DankMatugenDark.colors"
 run_uniform --sync-kde true --qt-style Fusion --uniform-list-bg true >/dev/null
 grep -A2 '\[Colors:View\]' "$SCHEMES/DankMatugenDark.colors" | grep -Fqx 'BackgroundAlternate=4,5,6' \
-    || { printf 'Regenerated DMS scheme variant was not re-equalised\n' >&2; exit 1; }
+    || { printf 'Regenerated Dux scheme variant was not re-equalised\n' >&2; exit 1; }
 rm -f "$SCHEMES/DankMatugenDark.colors"
 
 # kdeglobals refresh is a section replace, not an append: run twice, one copy
@@ -1063,7 +1063,7 @@ run_uniform --sync-kde false --qt-style Fusion >/dev/null
     || { printf 'User-owned Kvantum copy was swept\n' >&2; exit 1; }
 rm -rf "$XDG_CONFIG_HOME/Kvantum"
 
-# off again: the derived scheme is removed and the pointers return to DMS's file
+# off again: the derived scheme is removed and the pointers return to Dux's file
 run_uniform --sync-kde true --qt-style Fusion >/dev/null
 [[ ! -e $SCHEMES/DankUniform.colors ]] \
     || { printf 'Derived scheme survived the toggle being turned off\n' >&2; exit 1; }
@@ -1189,7 +1189,7 @@ grep -Fq 'QT_QPA_PLATFORMTHEME "xdgdesktopportal"' "$NIRI_DIR/dms-theme-sync.kdl
 
 # --- GTK export drift: reconcile says when dank-colors.css is not the live theme
 #
-# GTK follows what DMS exported; Qt/Kvantum follow the live theme. DMS skips the
+# GTK follows what Dux exported; Qt/Kvantum follow the live theme. Dux skips the
 # export for custom/downloaded themes, so a registry theme can leave GTK painting
 # the previous palette. The daemon re-exports, and reconcile is the safety net.
 printf '@define-color accent_bg_color #c7b3f3;\n' > "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
@@ -1240,5 +1240,15 @@ grep -q 'QT_QPA_PLATFORMTHEME=qt5ct' <<<"$(live_env qtct)" \
 # user exported themselves must survive).
 grep -q 'QT_QPA_PLATFORMTHEME' <<<"$(live_env preserve)" \
     && { printf 'Live session env was touched under preserve\n' >&2; exit 1; }
+
+# Backups prefer Dux's state root, but a machine that still only has the
+# pre-2.0 DankMaterialShell directory must keep writing there.
+legacy_home=$(mktemp -d)
+mkdir -p "$legacy_home/.local/state/DankMaterialShell"
+HOME="$legacy_home" "$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-runtime >/dev/null \
+    || { printf 'Snapshot failed with only the legacy state root\n' >&2; exit 1; }
+[[ -d $legacy_home/.local/state/DankMaterialShell/plugins/dmsThemeSync/backups ]] \
+    || { printf 'Legacy state root was not used when it was the only one present\n' >&2; exit 1; }
+rm -rf "$legacy_home"
 
 printf 'helper tests: ok\n'

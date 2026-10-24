@@ -1,9 +1,9 @@
 {
-  "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
+  "$schema": "https://github.com/duxlabs-dev/dux-shell/raw/refs/heads/master/quickshell/PLUGINS/plugin-schema.json",
   "id": "dmsThemeSync",
-  "name": "DMS Theme Sync",
-  "description": "Linux theming is a dozen config systems that never met. This makes one decision - DMS's - reach GTK2/3/4, Qt, Kvantum, KDE, Flatpak, Fontconfig and XSettings, verifies it landed, and picks the GTK-Qt route (theme pairs, Kvantum, qt6ct-kde) that this machine can actually serve",
-  "version": "0.12.6",
+  "name": "Dux Theme Sync",
+  "description": "Linux theming is a dozen config systems that never met. This makes one decision - Dux's - reach GTK2/3/4, Qt, Kvantum, KDE, Flatpak, Fontconfig and XSettings, verifies it landed, and picks the GTK-Qt route (theme pairs, Kvantum, qt6ct-kde, qtengine-aware) that this machine can actually serve",
+  "version": "0.13.0",
   "license": "GPL-3.0-or-later",
   "author": "arqueon",
   "icon": "palette",
@@ -17,7 +17,7 @@
   "category": "appearance",
   "compositors": ["any"],
   "distro": ["any"],
-  "requires": ["bash", "dbus-send"],
+  "dependencies": ["bash", "dbus-send"],
   "requires_dms": ">=1.5.0",
   "permissions": ["process", "settings_read", "settings_write"]
 }
