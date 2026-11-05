@@ -61,6 +61,37 @@ PluginSettings {
     readonly property bool seedColorAvailable: typeof SettingsData.matugenSeedColor !== "undefined" && typeof SettingsData.setMatugenSeedColor === "function"
     readonly property bool customSeed: seedColorAvailable && !!SettingsData.matugenSeedColor
     readonly property bool smartModeAvailable: typeof SettingsData.matugenSmartMode !== "undefined" && typeof SettingsData.setMatugenSmartMode === "function"
+    readonly property bool terminalPaletteAvailable: typeof SettingsData.terminalPalette !== "undefined"
+    readonly property var terminalPaletteOptions: [{
+        "label": "Tonal — distinct ANSI colors (recommended)",
+        "value": "default"
+    }, {
+        "label": "Vibrant — shift ANSI accents toward primary",
+        "value": "high"
+    }]
+    readonly property var terminalPaletteLabels: terminalPaletteOptions.map(function(o) {
+        return o.label;
+    })
+    readonly property bool dms21: typeof SettingsData.interfaceStyle !== "undefined" || typeof SettingsData.density !== "undefined"
+    readonly property bool interfaceStyleAvailable: typeof SettingsData.interfaceStyle !== "undefined"
+    readonly property bool densityAvailable: typeof SettingsData.density !== "undefined"
+    readonly property bool sectionDividerAvailable: typeof SettingsData.sectionDividerOpacity !== "undefined"
+    readonly property var densityOptions: [{
+        "label": "Spacious",
+        "value": "spacious"
+    }, {
+        "label": "Comfortable",
+        "value": "comfortable"
+    }, {
+        "label": "Compact",
+        "value": "compact"
+    }, {
+        "label": "Dense",
+        "value": "dense"
+    }]
+    readonly property var densityLabels: densityOptions.map(function(o) {
+        return o.label;
+    })
     readonly property bool radiusAvailable: typeof SettingsData.radiusMode !== "undefined" && typeof SettingsData.fixedRadius !== "undefined"
     readonly property bool fixedRadiusMode: radiusAvailable && SettingsData.radiusMode === "fixed"
     // Dux 2.0 can write qt5ct/qt6ct/qtengine colour files itself, on every palette
@@ -964,8 +995,149 @@ PluginSettings {
 
     }
 
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.terminalPaletteAvailable
+
+        StyledText {
+            text: "Terminal ANSI palette"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Controls Dux's dank16 ANSI color generator for Kitty, Foot, Alacritty, Ghostty, WezTerm and other terminal templates. 'Tonal' keeps red, green, yellow, blue, magenta and cyan distinct for git diffs and syntax highlighting; 'Vibrant' shifts all ANSI accents toward the primary wallpaper color."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.terminalPaletteOptions, SettingsData.terminalPalette || "default")
+            options: root.terminalPaletteLabels
+            onValueChanged: function(value) {
+                const mode = root.valueForLabel(root.terminalPaletteOptions, value);
+                if (mode && mode !== SettingsData.terminalPalette) {
+                    if (typeof SettingsData.setTerminalPalette === "function")
+                        SettingsData.setTerminalPalette(mode);
+                    else
+                        SettingsData.set("terminalPalette", mode);
+                }
+            }
+        }
+
+    }
+
     SectionHeader {
         text: "Dux shapes"
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.interfaceStyleAvailable
+
+        StyledText {
+            text: "Interface style"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Dux 2.1 shell chrome style. 'Expressive' enables pill controls and press shape-morphing; 'Classic' uses standard rounded controls, stacked settings cards and defaults to a fixed corner radius."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: SettingsData.interfaceStyle === "classic" ? "Classic" : "Expressive"
+            options: ["Expressive", "Classic"]
+            onValueChanged: function(value) {
+                const style = value === "Classic" ? "classic" : "expressive";
+                if (style !== SettingsData.interfaceStyle) {
+                    if (typeof SettingsData.setInterfaceStyle === "function")
+                        SettingsData.setInterfaceStyle(style);
+                    else
+                        SettingsData.set("interfaceStyle", style);
+                }
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.densityAvailable
+
+        StyledText {
+            text: "Interface density"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Spacing and control height inside Dux 2.1 panels and modals. Does not alter GTK or Qt application padding."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DankDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.densityOptions, SettingsData.density || "comfortable")
+            options: root.densityLabels
+            onValueChanged: function(value) {
+                const d = root.valueForLabel(root.densityOptions, value);
+                if (d && d !== SettingsData.density) {
+                    if (typeof SettingsData.setDensity === "function")
+                        SettingsData.setDensity(d);
+                    else
+                        SettingsData.set("density", d);
+                }
+            }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        visible: root.interfaceStyleAvailable && root.sectionDividerAvailable && SettingsData.interfaceStyle === "classic"
+
+        StyledText {
+            text: "Section dividers"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        DankSlider {
+            width: parent.width
+            minimum: 0
+            maximum: 40
+            unit: "%"
+            wheelEnabled: false
+            value: Math.round((SettingsData.sectionDividerOpacity !== undefined ? SettingsData.sectionDividerOpacity : 0.12) * 100)
+            onSliderDragFinished: function(finalValue) {
+                const nextOpacity = finalValue / 100;
+                if (typeof SettingsData.setSectionDividerOpacity === "function")
+                    SettingsData.setSectionDividerOpacity(nextOpacity);
+                else
+                    SettingsData.set("sectionDividerOpacity", nextOpacity);
+            }
+        }
+
     }
 
     Column {

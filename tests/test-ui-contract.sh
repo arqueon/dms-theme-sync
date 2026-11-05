@@ -35,5 +35,10 @@ grep -Fq 'regularFontSizeSlider.value = 11;' "$settings"
 grep -Fq 'monoFontSizeSlider.value = 12;' "$settings"
 grep -Fq 'documentFontSizeSlider.value = 11;' "$settings"
 grep -Fq 'backupRetentionSlider.value = 10;' "$settings"
+grep -Fq 'text: "Terminal ANSI palette"' "$settings"
+grep -Fq 'text: "Interface style"' "$settings"
+grep -Fq 'text: "Interface density"' "$settings"
+grep -Fq 'function onMatugenCompleted(mode, result)' "$service"
+grep -Fq '"dms21": root.dms21' "$service"
 
 printf 'ui capability contract: ok\n'

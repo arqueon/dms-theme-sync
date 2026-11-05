@@ -31,7 +31,7 @@ and includes a standalone **configuration dialog**.
 - [Hot reload for running applications](#hot-reload-for-running-applications)
 - [Install](#install)
 - [Configure](#configure)
-- [Dux 2.0 compatibility](#dux-20-compatibility)
+- [Dux 2.0 and 2.1 compatibility](#dux-20-and-21-compatibility)
 - [Qt synchronization](#qt-synchronization)
 - [Optional integrations](#optional-integrations)
 - [Backups and restore](#backups-and-restore)
@@ -104,11 +104,15 @@ The plugin's **Uniform list backgrounds** option handles every supported Qt
 route:
 
 - it derives a separate `DankUniform.colors` scheme for the KColorScheme route;
+- it unpins `ColorScheme=Dank*` from per-application KDE configs (`~/.config/*rc`
+  such as `dolphinrc` and `okularrc`) so `KColorSchemeManager` follows `System
+  Default` (`kdeglobals`) and never freezes a running window on a cached scheme
+  file;
 - it equalizes the View alternate inside Dux's own `DankMatugen*.colors`
-  exports, so apps pinned to them per-app stay uniform too (Dux regenerates
-  these on every wallpaper or mode change; the plugin re-patches them at the
-  same cadence, and turning the toggle off lets the next regeneration restore
-  the stripes);
+  exports, so apps that still read them directly stay uniform too (Dux
+  regenerates these on every wallpaper or mode change; the plugin re-patches
+  them at the same cadence, and turning the toggle off lets the next
+  regeneration restore the stripes);
 - it makes the alternate color fully transparent in the generated
   `DankMatugen` Kvantum output;
 - when a same-author Kvantum pair is active, it creates a marked user-level
@@ -207,23 +211,59 @@ of a user-maintained configuration is reported instead.
 ## Hot reload for running applications
 
 After every successful apply or restore, the plugin runs
-`scripts/reload-application-theme.sh`. The helper uses only notification paths
-that the receiving toolkit actually implements:
+`scripts/reload-application-theme.sh`. The helper and the apply pipeline combine
+the notification and cache-invalidation steps required for running applications
+to update in place:
 
-| Stack | Live notification | Practical coverage |
+| Stack | Live notification and cache handling | Practical coverage |
 | --- | --- | --- |
-| **KDE Frameworks** | `KGlobalSettings` palette, font, and cursor changes, followed by all six `KIconLoader` groups | Views, toolbars, panels, dialogs, and small/desktop icons can discard shared KDE caches. |
-| **Qt 5/6 through qt5ct/qt6ct** | Touch the existing `qt5ct.conf` and `qt6ct.conf`; their platform-theme watchers emit a Qt `ThemeChange` | Palette, fonts, style hints, and icons can refresh without changing the selected platform-theme route. Symlinks are followed, not replaced. |
+| **KDE Frameworks** | Unpins `ColorScheme=Dank*` in `~/.config/*rc`, copies the active `.colors` sections into `kdeglobals`, and emits `KGlobalSettings.notifyChange` (`PaletteChanged=0`, `FontChanged=1`, `CursorChanged=5`) plus all six `KIconLoader.iconChanged` groups | Open `dolphin`, `krusader`, `okular`, and other KDE windows follow `System Default` (`kdeglobals`) and repaint in hot on every Matugen change. |
+| **Qt 5/6 through qt5ct/qt6ct-kde** | Stages a content-hashed scheme file at `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors`, updates `color_scheme_path=` in `qt5ct.conf`/`qt6ct.conf`, touches `qtXct.conf`, and pulses a transient file (`.dms-reload-$$`) in `~/.config/qt5ct` and `~/.config/qt6ct` | Changing the `.colors` filename busts `KSharedConfig::openConfig`'s per-thread path cache in `qt6ct-kde`, and the directory pulse fires `QFileSystemWatcher::directoryChanged` even when `qtXct.conf` is a dotfile symlink. |
+| **GTK 4.22+** | Pulses `org.gnome.desktop.a11y.interface reduced-motion` for `100 ms` (matching Dux 2.1's `matugen` worker) | Running GTK 4.22+ / libadwaita applications re-parse `~/.config/gtk-4.0/gtk.css` (`@import url("dank-colors.css");`) in hot without restarting or flashing. |
 | **GTK on Wayland** | Real desktop-setting changes arrive through the settings portal | Theme name, font, icon-theme name, cursor, and light/dark preference update when their value actually changes. |
 | **GTK on X11/XWayland** | `xsettingsd` reloads the synchronized XSettings values | The same settings can update in running applications that consume XSettings. |
 
-There is intentionally no fake GTK “reload everything” signal. GTK 3 and GTK
-4 load `$XDG_CONFIG_HOME/gtk-3.0/gtk.css` or `gtk-4.0/gtk.css` into a static
-process-local provider and do not monitor the file. Consequently, a Matugen
-palette rewrite under the same CSS and theme names still requires restarting
-that GTK application. GTK icon themes periodically recheck their search
-directories when another lookup occurs, but already-rendered widgets may keep
-their pixmap.
+### Why Qt/KDE hot reload required four coordinated fixes
+
+Even when `QT_QPA_PLATFORMTHEME=qt6ct` and `qt6ct-kde` are active and `kdeglobals`
+is updated, open Qt/KDE applications normally fail to change colors in hot when
+Matugen rewrites `DankMatugen*.colors` under the same filename. Four mechanisms
+in the plugin work together to solve this:
+
+1. **Busting `KSharedConfig`'s per-thread path cache (`GlobalSharedConfigList`)**:
+   Both `qt6ct-kde` (`Qt6CT::loadColorScheme`) and `KColorSchemeManager` load
+   `.colors` files via `KSharedConfig::openConfig(path)`. `KConfig` caches
+   parsed configurations per thread by canonical file path and never calls
+   `reparseConfiguration()` when the file is overwritten in place. By staging
+   `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors` and updating
+   `color_scheme_path=` in `qt5ct.conf`/`qt6ct.conf` (pruning older hashes for
+   the same stem), every palette change presents a new path to `openConfig()`.
+2. **Unpinning per-app `ColorScheme=Dank*` overrides**: If a KDE application has
+   `ColorScheme=DankMatugen` saved in `~/.config/<app>rc` (for example
+   `dolphinrc` or `okularrc`), `KColorSchemeManager` activates that named file
+   directly instead of following `kdeglobals` (`System Default`), hitting the
+   same `KSharedConfig` cache. `apply-theme.sh` removes `ColorScheme=Dank*`
+   lines from `~/.config/*rc` when `syncKde` is enabled so apps track
+   `kdeglobals` live.
+3. **Triggering `QFileSystemWatcher::directoryChanged` across dotfile symlinks**:
+   `qt5ct` and `qt6ct` watch `~/.config/qt5ct` and `~/.config/qt6ct` with
+   `addPath(dir)` (`directoryChanged`), not `fileChanged` on `qtXct.conf`. When
+   `qt6ct.conf` is a symlink into a dotfile repo (`lnk`, Stow, chezmoi),
+   modifying or touching the target does not modify the directory entry in
+   `~/.config/qt6ct`. `reload-application-theme.sh` creates and removes a
+   transient `.dms-reload-$$` file inside each directory so `inotify` (`IN_CREATE`
+   + `IN_DELETE`) always wakes the watcher.
+4. **Synchronizing with Dux's asynchronous `matugen` worker**: Dux updates
+   `Theme.*` in QML before its `matugen` subprocess finishes writing
+   `dank-colors.css` and `DankMatugen*.colors`. `apply-theme.sh` waits briefly
+   (`wait_for_dms_matugen_export`) until the exported files match the live
+   primary accent, and `ThemeSyncService.qml` listens to `Theme.matugenCompleted`
+   (with a fallback retry timer) so a late export still triggers a follow-up pass.
+
+GTK 3 (and GTK 4 versions prior to 4.22) still load `$XDG_CONFIG_HOME/gtk-3.0/gtk.css`
+once per process unless the GTK theme name changes. GTK icon themes periodically
+recheck their search directories when another lookup occurs, though
+already-rendered widgets may keep their pixmap.
 
 No external notification can invalidate an application's private cache. For
 example, Krusader has caches outside `KIconLoader`; the shared parts refresh,
@@ -280,7 +320,7 @@ is −100 to 100 for Standard and 0 to 100 for Expressive, matching Dux.
 These controls affect generated palettes. Stock and downloaded themes can
 supply their own colors. A fixed GTK/Kvantum pair also keeps its authored
 palette; selecting Expressive does not recolor every application unconditionally.
-See [Dux 2.0 compatibility](#dux-20-compatibility) for the boundaries.
+See [Dux 2.0 and 2.1 compatibility](#dux-20-and-21-compatibility) for the boundaries.
 
 The main IPC commands are:
 
@@ -300,22 +340,27 @@ dms ipc call dmsThemeSync restore SNAPSHOT_ID
 applications; existing Qt/KDE applications may need a restart, and persistent
 session changes may require logging out and back in.
 
-## Dux 2.0 compatibility
+## Dux 2.0 and 2.1 compatibility
 
-The integration below was reviewed against Theme Sync 0.13.0, Dux Shell 2.0.0
-and upstream changes through 22 October 2026. Dux's development branch can
-differ from the installed shell. Controls that depend on newer APIs are shown
-only when those APIs exist; the minimum supported Dux version remains 1.5.0.
+The integration below was reviewed against Theme Sync 0.14.0, Dux Shell 2.0.0
+and **Dux Shell 2.1.0** (released 4 November 2026). Controls that depend on
+newer APIs are shown only when those APIs exist; the minimum supported Dux
+version remains 1.5.0.
 
 | Dux capability | Theme Sync coverage and boundary |
 | --- | --- |
 | Standard / Expressive / Bold palettes and contrast | Mirrors Dux's three Material specifications, scheme and contrast controls. Consumes the resulting colors; does not implement another generator. |
 | Wallpaper, source color, seed and smart mode | Dux owns extraction. Theme Sync mirrors the source-color choice, reports a pinned seed and clears it, and exposes smart mode; the monitor choice stays in Dux. |
-| Separate light/dark icon themes | Mirrors both choices and keeps separate Papirus overlay bases. An overlay is generated when its mode is applied. |
+| Terminal ANSI palette (`dank16`) | Mirrors `SettingsData.terminalPalette` (*Tonal* = `"default"` vs *Vibrant* = `"high"`). *Tonal* keeps red, green, yellow, blue, magenta and cyan distinct for git diffs and syntax highlighting across Kitty, Foot, Alacritty, Ghostty, WezTerm and other `dank16` consumers. |
+| Dux 2.1 interface style, density and section dividers | Mirrors `SettingsData.interfaceStyle` (`Expressive` vs `Classic`), `SettingsData.density` (`Spacious`, `Comfortable`, `Compact`, `Dense`) and `SettingsData.sectionDividerOpacity` (`0%–40%` in Classic mode), and reports them plus `tooltipSurfaceColor` in IPC `status`. |
+| Dux 2.1 GTK 4.22+ live refresh and GTK theme preservation | Dux 2.1 removed `HighContrastInverse` and pulses `org.gnome.desktop.a11y.interface reduced-motion` when `matugen` finishes so GTK 4.22+ apps reload `dank-colors.css` in hot; `reload-application-theme.sh` pulses the same key on manual applies and restores. Dux 2.1 also leaves `org.gnome.desktop.interface gtk-theme` untouched when set to a custom theme (such as `Breeze-Dark`, `Matcha`, or `WhiteSur`). |
+| Dux 2.1 icon-theme backup (`icon-theme.dms-backup`) | Dux 2.1 records the pre-Dux GSettings icon theme in `~/.config/gtk-3.0/icon-theme.dms-backup` and restores it when `"System Default"` is chosen. Theme Sync strips any `-DankFolders` suffix from that backup file so restoring `"System Default"` after disabling folder-color sync always lands on the real base theme. |
+| Dux 2.1 `Theme.matugenCompleted` signal | Connects to `Theme.onMatugenCompleted(mode, result)` so if an apply pass raced Dux's asynchronous `matugen` worker, the follow-up synchronization runs immediately when the worker exits. |
+| Separate light/dark icon themes | Mirrors both choices and keeps separate Papirus overlay bases. An overlay is generated when its mode is applied, and rebuilding is skipped when `X-DmsThemeSync-Signature` already matches. |
 | Per-template export switches | Warns about disabled GTK/KColorScheme exports when Matugen colors are enabled, and about a disabled Niri export when border substitution is enabled. Does not re-enable exports or remove old user CSS automatically. |
-| Qt and KDE colour ownership | Dux 2.0's qt5ct/qt6ct templates only write `colors/matugen.conf`; they never point `qtXct.conf` at a palette, so Theme Sync keeps setting it. When Dux's Qt engine is the active platform theme, the plugin defers the Qt palette (handing a stale `DankUniform` back to Dux) and keeps style, fonts and icons. KDE colours always stay with the plugin: Dux re-applies its KColorScheme only on mode changes. Uniform list backgrounds keep plugin ownership in every case. |
+| Qt and KDE colour ownership | Dux 2.0/2.1's qt5ct/qt6ct templates only write `colors/matugen.conf`; they never point `qtXct.conf` at a palette, so Theme Sync keeps setting it (using content-hashed `.dms-live/<scheme>-<sha8>.colors` copies so `qt6ct-kde` reloads in hot). When Dux's Qt engine is the active platform theme, the plugin defers the Qt palette and keeps style, fonts and icons. KDE colours always stay with the plugin. Uniform list backgrounds keep plugin ownership in every case. |
 | Fonts and typography | Family, mono and document fonts are written to GTK, Qt, KDE, XSettings and Fontconfig. Dux's font weight is converted to Qt's legacy scale; the document font defaults to the regular font (Dux's `displayFontFamily` is a bundled headline face, not exported). Dux's UI scale is not applied to application sizes. |
-| Shapes, spacing, effects and animations | Corner style, strength and fixed radius are mirrored as Dux settings but never exported: GTK and Qt themes keep their own geometry. Spacing, effects and animation timing remain in Dux. |
+| Shapes, spacing, effects and animations | Interface style, density, corner style, strength and fixed radius are mirrored as Dux settings but never exported: GTK and Qt themes keep their own geometry. |
 | Shell surfaces and selection colors | The plugin UI uses Dux widgets and `Theme` colors. GTK/Qt exports and generated Kvantum have their own supported roles; shell surface tint, transparency and every selected-container role do not have a one-to-one application mapping. |
 | Qt engine and other new app templates | Dux owns its Qt engine export. Theme Sync has no dedicated Qt engine route and defers the Qt palette while the Qt engine is the active platform theme. Avoid assigning the same Qt settings to competing managers. |
 
@@ -532,6 +577,31 @@ import = ["~/.config/dms-theme-sync/alacritty.toml"]
 The plugin generates only these includes; it does not inject them into the
 terminal's configuration.
 
+For terminal colors, Dux's built-in templates (`kitty`, `foot`, `alacritty`,
+`ghostty`, `wezterm`) use its `dank16` ANSI palette generator. The **Terminal
+ANSI palette** dropdown under *Dux appearance* switches `SettingsData.terminalPalette`
+between **Tonal** (`"default"`, which preserves distinct red, green, yellow,
+blue, magenta, and cyan hues for git diffs and TUI tools) and **Vibrant**
+(`"high"`, which shifts all ANSI accents toward the primary wallpaper color).
+
+### Companion Matugen integrations (Terminals, TUI multiplexers, Browsers)
+
+Apps outside GTK/Qt/KDE can participate in the same live Matugen cycle through
+Dux's `~/.config/matugen/config.toml` hooks or native toolkit bridges:
+
+- **Herdr (`0.9.5+`)**: point `theme = "dms-matugen"` in `~/.config/herdr/config.toml`
+  at a Matugen template outputting `~/.config/herdr/themes/dms-matugen.toml` with
+  `post_hook = "herdr server reload-config >/dev/null 2>&1 || true"`, using
+  `{{dank16.color*.default.hex}}` for the `[ansi]` section so TUI apps keep
+  distinct ANSI colors and reload live.
+- **Firefox (Pywalfox)**: enable Dux's **Pywal** template (`~/.cache/wal/colors.json`),
+  install `python-pywalfox` (`pipx install pywalfox && pywalfox install`) plus
+  the Pywalfox Firefox add-on, and add `post_hook = "pywalfox update >/dev/null 2>&1 || true"`
+  to a Matugen hook so open Firefox windows update in hot.
+- **Google Chrome / Chromium / Brave**: open `chrome://settings/appearance` and
+  click **Use GTK** (`system_theme: 1`); Chromium's `GtkUi` platform observer
+  tracks the GTK 3/4 theme and Matugen accent colors automatically in hot.
+
 ### Compositor and session environment
 
 Cursor variables and an optional Qt platform theme must reach the process
@@ -631,9 +701,15 @@ options, it may also create:
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
 - `~/.local/share/icons/<base>-DankFolders/`
 - `~/.local/share/color-schemes/DankUniform.colors`
+- `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors` (content-hashed
+  live copy pointed to by `qt5ct.conf` and `qt6ct.conf` so `qt6ct-kde` reloads
+  changed palettes without hitting `KSharedConfig`'s path cache)
 - an equalized View alternate inside Dux's `DankMatugen*.colors` exports
   (while **Uniform list backgrounds** is on; Dux's next regeneration restores
   the original values once the option is off)
+- removal of pinned `ColorScheme=Dank*` lines in per-app `~/.config/*rc` files
+  when `syncKde` is enabled, and stripping of `-DankFolders` from Dux 2.1's
+  `~/.config/gtk-3.0/icon-theme.dms-backup`
 - `~/.config/Kvantum/DankMatugen/`
 - a marked `~/.config/Kvantum/<paired-theme>/` shadow for uniform Dolphin lists
 - `~/.config/environment.d/90-dms-theme-sync.conf`
@@ -677,11 +753,15 @@ components used by the desktop:
 - GTK 4/libadwaita does not honor arbitrary `GTK_THEME` widget themes. Dux's
   generated GTK 4 CSS remains the color source; fonts, icons, cursor, and the
   light/dark preference can still be synchronized.
-- GTK 3/4 do not monitor their user `gtk.css`; restart running GTK applications
-  after a same-name Matugen CSS palette change.
-- The KDE/Qt palette, font, cursor, and icon reload is best effort. Restart
-  applications after changing the widget style or platform-theme route, or
-  when an application keeps a private cache.
+- Running **GTK 4.22+** applications reload `~/.config/gtk-4.0/gtk.css` in hot
+  when `org.gnome.desktop.a11y.interface reduced-motion` is pulsed (performed by
+  both Dux 2.1 and `reload-application-theme.sh`). **GTK 3** still loads
+  `~/.config/gtk-3.0/gtk.css` once per process, so a same-name Matugen CSS
+  update in GTK 3 requires restarting that GTK 3 application.
+- Running **Qt 5/6 (`qt6ct-kde`) and KDE Frameworks** applications reload
+  palettes, fonts, cursors, and icons in hot. Changing the Qt widget style
+  (`Fusion` ↔ `Breeze` ↔ `kvantum`) or platform-theme route still requires
+  restarting open Qt applications.
 - Persistent environment changes may require logging out and back in.
 - Flatpak synchronization is opt-in, and not every Electron or Java
   application follows the same host-theme conventions.

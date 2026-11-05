@@ -661,6 +661,10 @@ build_folder_overlay() {
     fi
     FOLDER_OVERLAY_CHANGED=false
     [[ $old_signature == "$desired_signature" ]] || FOLDER_OVERLAY_CHANGED=true
+    if ! $FOLDER_OVERLAY_CHANGED && [[ -d $out ]] && \
+        ! find "$out" -xtype l -print -quit 2>/dev/null | grep -q .; then
+        return 0
+    fi
     mkdir -p "$(dirname "$out")"
     build=$(mktemp -d "$(dirname "$out")/.${theme_name}.tmp.XXXXXX") || return 1
     local -a dirs=()
@@ -860,6 +864,20 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
 elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
     rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
     log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
+fi
+
+# Dux 2.1 records the pre-Dux GSettings icon theme in
+# ~/.config/gtk-3.0/icon-theme.dms-backup and restores it when the user picks
+# "System Default". If that backup captured a transient *-DankFolders overlay,
+# strip the suffix so restoring "System Default" after disabling folder accent
+# sync always lands on the real base theme rather than a deleted directory.
+dms_icon_backup="$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-backup"
+if [[ -f $dms_icon_backup ]] && ! $DRY_RUN; then
+    backup_icon_val=$(tr -d '\r\n' < "$dms_icon_backup" 2>/dev/null || true)
+    if [[ $backup_icon_val == *"$OVERLAY_SUFFIX" ]]; then
+        printf '%s' "${backup_icon_val%"$OVERLAY_SUFFIX"}" > "$dms_icon_backup"
+        log "folder-color: stripped $OVERLAY_SUFFIX from $dms_icon_backup"
+    fi
 fi
 
 # --- Cursor accent variant ----------------------------------------------------

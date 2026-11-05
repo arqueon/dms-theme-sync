@@ -1,5 +1,20 @@
 # Change history
 
+## 0.14.0 — 2026-11-04
+
+- Achieve reliable **live Qt/KDE palette hot-reload** across running Qt 5/6 and KDE Frameworks applications (`dolphin`, `krusader`, `okular`, etc.) on every wallpaper or Matugen palette change without restarting the application:
+  - Stage a content-hashed live copy of the active `.colors` file under `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors` and point `qt5ct.conf` / `qt6ct.conf` `color_scheme_path=` at that path. `qt6ct-kde` loads the scheme through `KSharedConfig::openConfig(path)`, which caches parsed `KSharedConfig` instances per thread by canonical file path and never calls `reparseConfiguration()` when the same path is rewritten in place; changing the filename on content change forces a fresh read on every `ThemeChange` event while pruning older hashes for the same scheme stem.
+  - Automatically unpin `ColorScheme=Dank*` from per-application KDE configs (`~/.config/*rc` such as `dolphinrc` and `okularrc`) while `syncKde` is enabled. When a KDE app has an explicit `ColorScheme=DankMatugen` entry in its own `*rc`, `KColorSchemeManager` activates that named scheme instead of following `System Default` (`kdeglobals`) and suffers from the same `KSharedConfig` path cache.
+  - Pulse a transient file (`.dms-reload-$$`) inside `~/.config/qt5ct` and `~/.config/qt6ct` in `scripts/reload-application-theme.sh`. `qt5ct` and `qt6ct` register their config directory with `QFileSystemWatcher::addPath(dir)` and listen to `directoryChanged`, which `touch` on a symlinked `qtXct.conf` (e.g. managed by `lnk` or Stow) does not trigger.
+  - Wait briefly in `scripts/apply-theme.sh` (`wait_for_dms_matugen_export`) when Dux's asynchronous `matugen` worker has not yet finished writing `dank-colors.css` and `DankMatugen*.colors`, and schedule a single automatic catch-up pass in `ThemeSyncService.qml` (accelerated via `Theme.matugenCompleted` on Dux 2.1) if the export finishes after the initial apply.
+- Skip rebuilding the Papirus `*-DankFolders` symlink tree (~1,500 symlinks) when `X-DmsThemeSync-Signature` (`<base>:<color>`) in `index.theme`already matches and no broken symlinks exist, cutting no-op apply latency from ~2.7 s to ~0.2 s.
+- Support **Dux Shell 2.1.0**:
+  - Pulse `org.gnome.desktop.a11y.interface reduced-motion` in `scripts/reload-application-theme.sh` so running **GTK 4.22+** applications re-parse `~/.config/gtk-4.0/gtk.css` (`@import url("dank-colors.css");`) in hot during manual applies and snapshot restores, matching Dux 2.1's `matugen` worker.
+  - Sanitize `~/.config/gtk-3.0/icon-theme.dms-backup` (introduced in Dux 2.1) by stripping any `-DankFolders` suffix so Dux 2.1's "System Default" icon restore always points to the underlying base theme rather than a deleted overlay.
+  - Connect to `Theme.matugenCompleted(mode, result)` in `ThemeSyncService.qml` so any pending post-export retry runs as soon as Dux 2.1's `matugen` worker exits.
+  - Mirror Dux 2.1's shell appearance controls in `ThemeSyncSettings.qml` when supported by the running shell (`Interface style`: Expressive vs Classic, `Interface density`, and `Section dividers` opacity) and expose `dms21`, `interfaceStyle`, `density`, `sectionDividerOpacity`, and `tooltipSurfaceColor` in IPC `status`.
+- Add the **Terminal ANSI palette** selector (`SettingsData.terminalPalette`: *Tonal — distinct ANSI colors* vs *Vibrant — shift ANSI accents toward primary*) under *Dux appearance* so users can keep red/green/yellow/blue ANSI colors distinct in terminal applications (`kitty`, `herdr`, `alacritty`, `ghostty`, `foot`, `wezterm`).
+
 ## 0.13.0 — 2026-10-22
 
 - Support Dux Shell 2.0's third Material specification (`matugenSpec = "dms"`, the bold palette): the panel now offers Standard, Expressive and Bold, applies the 0..100 contrast range to both 2025 generators, and reports the value it reads instead of collapsing it to 2021.

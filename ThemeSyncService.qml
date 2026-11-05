@@ -151,6 +151,9 @@ PluginComponent {
     // Dux 2.0 ("dux") moved Qt and KDE colour export into the shell. Probing for
     // a settings key introduced in 2.0 keeps this loadable on 1.5/1.6.
     readonly property bool dms20: typeof SettingsData.containerSaturation !== "undefined" || typeof Theme.selectedContainer !== "undefined"
+    // Dux 2.1 added interfaceStyle ("expressive"/"classic"), density,
+    // sectionDividerOpacity, tooltipSurfaceColor, and Theme.matugenCompleted.
+    readonly property bool dms21: typeof SettingsData.interfaceStyle !== "undefined" || typeof SettingsData.density !== "undefined"
     // Dux 2.0 can write qt5ct/qt6ct/qtengine colour files itself, on every palette
     // regeneration. Its qtXct templates only produce colors/matugen.conf (the
     // [Appearance] palette keys are written only by its manual "Apply Qt colors"
@@ -446,6 +449,27 @@ PluginComponent {
         }
     }
 
+    // Dux 2.1 emits Theme.matugenCompleted(mode, result) as soon as its async
+    // matugen worker finishes writing dank-colors.css and DankMatugen*.colors.
+    // If an apply pass noticed stale export files and scheduled a retry, fire
+    // it immediately instead of waiting for the fallback timer.
+    Connections {
+        target: Theme
+        ignoreUnknownSignals: true
+
+        function onMatugenCompleted(mode, result) {
+            if (result !== "success" || !root.autoSync || !root.ready)
+                return;
+            if (matugenExportRetryTimer.running) {
+                matugenExportRetryTimer.stop();
+                if (!root.applying)
+                    root.runApply();
+                else
+                    root.pendingApply = true;
+            }
+        }
+    }
+
     Process {
         id: applyProcess
 
@@ -572,6 +596,11 @@ PluginComponent {
                 "qtColorOwner": root.qtColorOwner,
                 "kdeColorOwner": root.kdeColorOwner,
                 "dms20": root.dms20,
+                "dms21": root.dms21,
+                "interfaceStyle": typeof SettingsData.interfaceStyle !== "undefined" ? SettingsData.interfaceStyle : null,
+                "density": typeof SettingsData.density !== "undefined" ? SettingsData.density : null,
+                "sectionDividerOpacity": typeof SettingsData.sectionDividerOpacity !== "undefined" ? SettingsData.sectionDividerOpacity : null,
+                "tooltipSurfaceColor": typeof SettingsData.tooltipSurfaceColor !== "undefined" ? SettingsData.tooltipSurfaceColor : null,
                 "fontWeight": typeof SettingsData.fontWeight !== "undefined" ? SettingsData.fontWeight : null,
                 "qtFontWeight": root.qtFontWeight,
                 "fontScale": typeof SettingsData.fontScale !== "undefined" ? SettingsData.fontScale : null,

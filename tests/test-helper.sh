@@ -1260,4 +1260,15 @@ HOME="$legacy_home" "$ROOT/scripts/theme-snapshot.sh" backup --retention 1 --no-
     || { printf 'Legacy state root was not used when it was the only one present\n' >&2; exit 1; }
 rm -rf "$legacy_home"
 
+# Dux 2.1's gtk-3.0/icon-theme.dms-backup must never retain a transient
+# *-DankFolders overlay suffix, or restoring "System Default" after turning
+# folder accent sync off would restore a deleted overlay directory.
+printf 'Papirus-Dark-DankFolders\n' > "$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-backup"
+"$ROOT/scripts/apply-theme.sh" --compositor generic --qt-platform-theme preserve \
+    --qt-style preserve --sync-folder-color false --sync-kde false \
+    --sync-xsettingsd false --backup-enabled false --no-runtime >/dev/null 2>&1
+[[ $(cat "$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-backup") == "Papirus-Dark" ]] \
+    || { printf 'icon-theme.dms-backup retained -DankFolders suffix\n' >&2; exit 1; }
+rm -f "$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-backup"
+
 printf 'helper tests: ok\n'

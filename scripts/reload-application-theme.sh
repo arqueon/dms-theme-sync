@@ -47,4 +47,21 @@ for config in "$config_home/qt5ct/qt5ct.conf" "$config_home/qt6ct/qt6ct.conf"; d
     fi
 done
 
+# GTK 4.22+ re-parses ~/.config/gtk-4.0/gtk.css (@import url("dank-colors.css"))
+# when org.gnome.desktop.a11y.interface reduced-motion toggles. Dux 2.1 pulses
+# this inside its matugen worker; pulsing it here too covers manual apply and
+# snapshot restore runs where matugen did not just exit.
+if [[ -z ${DMS_THEME_RELOAD_TEST_LOG:-} ]] && command -v gsettings >/dev/null 2>&1; then
+    current_rm=$(gsettings get org.gnome.desktop.a11y.interface reduced-motion 2>/dev/null || true)
+    if [[ $current_rm == "'reduce'" || $current_rm == "'no-preference'" ]]; then
+        flipped_rm="'reduce'"
+        [[ $current_rm == "'reduce'" ]] && flipped_rm="'no-preference'"
+        (
+            gsettings set org.gnome.desktop.a11y.interface reduced-motion "$flipped_rm" >/dev/null 2>&1 || true
+            sleep 0.1
+            gsettings set org.gnome.desktop.a11y.interface reduced-motion "$current_rm" >/dev/null 2>&1 || true
+        ) >/dev/null 2>&1 &
+    fi
+fi
+
 exit "$exit_code"
