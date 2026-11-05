@@ -986,11 +986,12 @@ run_uniform() {
         --sync-xsettingsd false --backup-enabled false --no-runtime "$@" 2>&1
 }
 
-# off (default): no derived scheme, qt6ct points at Dux's own file
+# off (default): no derived scheme, qt6ct points at a content-hashed live copy of Dux's file
 run_uniform --sync-kde true --qt-style Fusion >/dev/null
 [[ ! -e $SCHEMES/DankUniform.colors ]] \
     || { printf 'Derived scheme written while the toggle was off\n' >&2; exit 1; }
-assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankMatugen.colors"
+dm_hash=$(sha256sum "$SCHEMES/DankMatugen.colors" | awk '{print substr($1, 1, 8)}')
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/.dms-live/DankMatugen-$dm_hash.colors"
 # ...but kdeglobals still gets the fresh [Colors:*] copy (the staleness fix)
 assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=10,20,30"
 assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankMatugen'
@@ -1003,7 +1004,10 @@ grep -A2 '\[Colors:View\]' "$SCHEMES/DankUniform.colors" | grep -Fqx 'Background
     || { printf 'Derived scheme did not equalise the View alternate\n' >&2; exit 1; }
 grep -Fqx 'ColorScheme=DankUniform' "$SCHEMES/DankUniform.colors" \
     || { printf 'Derived scheme kept the original ColorScheme name\n' >&2; exit 1; }
-assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankUniform.colors"
+du_hash=$(sha256sum "$SCHEMES/DankUniform.colors" | awk '{print substr($1, 1, 8)}')
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/.dms-live/DankUniform-$du_hash.colors"
+[[ ! -e $SCHEMES/.dms-live/DankMatugen-$dm_hash.colors ]] \
+    || { printf 'Previous live scheme was not swept when switching to DankUniform\n' >&2; exit 1; }
 assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankUniform'
 assert_line "$XDG_CONFIG_HOME/kdeglobals" "BackgroundAlternate=1,2,3"
 # untouched sections still arrive verbatim
@@ -1064,11 +1068,16 @@ run_uniform --sync-kde false --qt-style Fusion >/dev/null
 rm -rf "$XDG_CONFIG_HOME/Kvantum"
 
 # off again: the derived scheme is removed and the pointers return to Dux's file
+printf '[UiSettings]\nColorScheme=DankMatugen\n' > "$XDG_CONFIG_HOME/dolphinrc"
 run_uniform --sync-kde true --qt-style Fusion >/dev/null
 [[ ! -e $SCHEMES/DankUniform.colors ]] \
     || { printf 'Derived scheme survived the toggle being turned off\n' >&2; exit 1; }
-assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/DankMatugen.colors"
+dm_hash2=$(sha256sum "$SCHEMES/DankMatugen.colors" | awk '{print substr($1, 1, 8)}')
+assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "color_scheme_path=$SCHEMES/.dms-live/DankMatugen-$dm_hash2.colors"
 assert_line "$XDG_CONFIG_HOME/kdeglobals" 'ColorScheme=DankMatugen'
+! grep -q '^ColorScheme=Dank' "$XDG_CONFIG_HOME/dolphinrc" \
+    || { printf 'Pinned ColorScheme=DankMatugen in dolphinrc was not unpinned\n' >&2; exit 1; }
+rm -f "$XDG_CONFIG_HOME/dolphinrc"
 
 # reconcile names a stale kdeglobals copy (another writer rewrote it behind us)
 sed -i 's/^BackgroundNormal=1,2,3/BackgroundNormal=9,9,9/' "$XDG_CONFIG_HOME/kdeglobals"

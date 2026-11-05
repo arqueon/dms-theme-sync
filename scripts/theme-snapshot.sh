@@ -91,6 +91,7 @@ TARGETS=(
     "$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
     "$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
     "$XDG_DATA_HOME/color-schemes/DankUniform.colors"
+    "$XDG_DATA_HOME/color-schemes/.dms-live"
 )
 
 GSETTINGS=(

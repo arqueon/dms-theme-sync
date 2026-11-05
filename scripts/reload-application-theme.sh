@@ -30,15 +30,19 @@ if command -v dbus-send >/dev/null 2>&1; then
     done
 fi
 
-# qt5ct and qt6ct watch their configuration files and turn a change into a Qt
-# ThemeChange event for already-running applications. That event covers the
-# platform theme's palette, fonts, style hints, and icons. Touch only existing
-# files: this preserves dot-manager symlinks and never invents a configuration
-# for a toolkit the user does not have.
+# qt5ct and qt6ct watch their configuration directory via QFileSystemWatcher's
+# directoryChanged signal (not fileChanged on qtXct.conf) and turn a change
+# into a Qt ThemeChange event for already-running applications. Touch the
+# config file for mtime consumers AND pulse a transient file in the directory
+# so directoryChanged always fires even when qtXct.conf is a symlink into a
+# dotfile manager outside ~/.config/qtXct.
 config_home=${XDG_CONFIG_HOME:-${HOME:?}/.config}
 for config in "$config_home/qt5ct/qt5ct.conf" "$config_home/qt6ct/qt6ct.conf"; do
     [[ -e $config ]] || continue
-    if ! touch -- "$config"; then
+    config_dir=$(dirname "$config")
+    pulse_file="$config_dir/.dms-reload-$$"
+    if ! touch -- "$config" || ! : > "$pulse_file" || ! rm -f -- "$pulse_file"; then
+        rm -f -- "$pulse_file" 2>/dev/null || true
         exit_code=1
     fi
 done

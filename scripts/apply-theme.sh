@@ -788,6 +788,36 @@ if ! $DRY_RUN; then
     done
 fi
 
+# Dux updates Theme.* in QML before its asynchronous matugen export finishes
+# writing dank-colors.css and DankMatugen*.colors on disk. Wait briefly when
+# the live primary colour from --kvantum-colors has not landed in those files
+# yet, so folder/cursor accents, DankUniform.colors, qt6ct.conf, and kdeglobals
+# all consume the fresh palette in a single pass.
+wait_for_dms_matugen_export() {
+    [[ $DRY_RUN == true || $NO_RUNTIME == true || $APPLY_MATUGEN_COLORS != true ]] && return 0
+    local kv_primary want_rgb scheme_mode css_file got_css got_scheme i
+    kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
+    [[ $kv_primary =~ ^#[0-9a-fA-F]{6}$ ]] || return 0
+    want_rgb=$(printf '%d,%d,%d' \
+        "0x${kv_primary:1:2}" "0x${kv_primary:3:2}" "0x${kv_primary:5:2}")
+    scheme_mode="$XDG_DATA_HOME/color-schemes/DankMatugenDark.colors"
+    [[ $MODE == light ]] && scheme_mode="$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
+    [[ -f $scheme_mode ]] || scheme_mode="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
+    css_file="$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+
+    for (( i = 0; i < 16; i++ )); do
+        got_css=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' "$css_file" 2>/dev/null \
+            | grep -oE '#[0-9a-fA-F]{6}' || true)
+        got_scheme=$(grep -m1 '^DecorationFocus=' "$scheme_mode" 2>/dev/null | cut -d= -f2 || true)
+        if [[ ( -z $got_css || ${got_css,,} == "${kv_primary,,}" ) && \
+              ( -z $got_scheme || $got_scheme == "$want_rgb" ) ]]; then
+            return 0
+        fi
+        sleep 0.15
+    done
+}
+wait_for_dms_matugen_export
+
 if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
     base_dir=$(icon_theme_dir "$folder_source" || true)
     places_dir="$base_dir/64x64/places"
@@ -1283,6 +1313,37 @@ elif [[ -f $UNIFORM_SCHEME ]] && ! $DRY_RUN; then
 fi
 $DRY_RUN || rm -f "$LEGACY_UNIFORM_SCHEME"
 
+# KSharedConfig::openConfig (in libKF6ConfigCore, called by qt6ct-kde's
+# Qt6CT::loadColorScheme) and libKF6ColorScheme's defaultConfig() (used by
+# Breeze, KColorScheme, KStatefulBrush, and KIconLoader) cache opened .colors
+# files in thread-local storage keyed by file path and never reparse them from
+# disk if color_scheme_path in qt6ct.conf stays the same path string. Stage a
+# content-hashed copy under a hidden subdirectory (so KColorSchemeManager does
+# not list duplicate entries in KDE's Color Scheme menu) and point qt5ct/qt6ct
+# at that hashed file. When the palette changes, the hash and path change,
+# forcing running Qt/KDE apps to open the fresh .colors file on hot reload.
+LIVE_SCHEME_DIR="$XDG_DATA_HOME/color-schemes/.dms-live"
+QT_SCHEME_TARGET="$SCHEME_SOURCE"
+if [[ $APPLY_MATUGEN_COLORS == true && $DEFER_QT_COLORS != true && -f $SCHEME_SOURCE ]]; then
+    scheme_stem=$(basename "$SCHEME_SOURCE" .colors)
+    scheme_hash=$(sha256sum "$SCHEME_SOURCE" | awk '{print substr($1, 1, 8)}')
+    QT_SCHEME_TARGET="$LIVE_SCHEME_DIR/${scheme_stem}-${scheme_hash}.colors"
+    if $DRY_RUN; then
+        log "DRY-RUN: stage live Qt colour scheme ${QT_SCHEME_TARGET##*/}"
+    else
+        mkdir -p "$LIVE_SCHEME_DIR"
+        if [[ ! -f $QT_SCHEME_TARGET ]] || ! cmp -s "$SCHEME_SOURCE" "$QT_SCHEME_TARGET"; then
+            cp -f -- "$SCHEME_SOURCE" "$QT_SCHEME_TARGET.tmp.$$" \
+                && mv -f -- "$QT_SCHEME_TARGET.tmp.$$" "$QT_SCHEME_TARGET"
+        fi
+        for stale_scheme in "$LIVE_SCHEME_DIR"/*.colors; do
+            [[ -f $stale_scheme && $stale_scheme != "$QT_SCHEME_TARGET" ]] && rm -f -- "$stale_scheme"
+        done
+    fi
+elif ! $DRY_RUN && [[ -d $LIVE_SCHEME_DIR ]]; then
+    rm -rf -- "$LIVE_SCHEME_DIR"
+fi
+
 # The 10-field font string is Qt5's legacy QFont::toString format, and its
 # weight field uses Qt5's 0-99 scale (50 = normal). Qt6 detects the legacy field
 # count and converts — but only if the value IS legacy: writing the OpenType 400
@@ -1308,7 +1369,7 @@ for qt_version in 5 6; do
             # If we were the previous owner, hand the scheme back once instead
             # of leaving Qt pointed at DankUniform forever.
             current_path=$(read_ini_value "$qt_file" Appearance color_scheme_path || true)
-            if [[ $current_path == "$UNIFORM_SCHEME" ]]; then
+            if [[ $current_path == "$UNIFORM_SCHEME" || $current_path == "$LIVE_SCHEME_DIR/"* ]]; then
                 update_ini "$qt_file" Appearance color_scheme_path "$DANK_SCHEME"
                 log "qt-colors: handed palette back to Dux (qt${qt_version}ct)"
             else
@@ -1316,7 +1377,7 @@ for qt_version in 5 6; do
             fi
         else
             update_ini "$qt_file" Appearance custom_palette true
-            update_ini "$qt_file" Appearance color_scheme_path "$SCHEME_SOURCE"
+            update_ini "$qt_file" Appearance color_scheme_path "$QT_SCHEME_TARGET"
         fi
     fi
 done
@@ -1350,6 +1411,31 @@ refresh_kdeglobals_colors() {
     commit_staged_file "$tmp" "$kdeglobals"
 }
 
+# KColorSchemeManager in KDE apps (Dolphin, Okular, etc.) reads [UiSettings]
+# ColorScheme=<name> from ~/.config/<app>rc. When set, KColorSchemeManager calls
+# QGuiApplication::setPalette() directly, which sets QGuiApplicationPrivate's
+# app_pal resolveMask to 0xffffffffffffffff and permanently blocks qt6ct from
+# updating the application palette in hot ("en caliente"). Unpin any Dank*
+# scheme from [UiSettings] so KDE apps follow KDE_COLOR_SCHEME_PATH / qt6ct
+# dynamically without needing a restart.
+unpin_kde_app_dank_schemes() {
+    local rc tmp
+    for rc in "$XDG_CONFIG_HOME"/*rc; do
+        [[ -f $rc ]] || continue
+        grep -q '^ColorScheme=Dank' "$rc" 2>/dev/null || continue
+        if $DRY_RUN; then
+            log "DRY-RUN: unpin [UiSettings] ColorScheme=Dank* in ${rc##*/}"
+            continue
+        fi
+        tmp="$rc.tmp.$$"
+        awk '
+            /^\[/ { in_ui = ($0 == "[UiSettings]") }
+            in_ui && /^ColorScheme=Dank/ { next }
+            { print }
+        ' "$rc" > "$tmp" && commit_staged_file "$tmp" "$rc"
+    done
+}
+
 if [[ $SYNC_KDE == true ]]; then
     KDEGLOBALS="$XDG_CONFIG_HOME/kdeglobals"
     update_ini "$KDEGLOBALS" General font "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
@@ -1359,6 +1445,7 @@ if [[ $SYNC_KDE == true ]]; then
     update_ini "$KDEGLOBALS" General smallestReadableFont "$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0"
     [[ -n $ICON_THEME ]] && update_ini "$KDEGLOBALS" Icons Theme "$ICON_THEME"
     if [[ $APPLY_MATUGEN_COLORS == true && -f $SCHEME_SOURCE ]]; then
+        unpin_kde_app_dank_schemes
         if [[ $DEFER_KDE_COLORS == true ]]; then
             # Dux runs plasma-apply-colorscheme with its own per-mode scheme;
             # rewriting General ColorScheme here would undo that on every apply.

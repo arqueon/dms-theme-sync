@@ -14,6 +14,7 @@ PluginComponent {
     property string currentAction: "idle"
     property string appliedSignature: ""
     property string runningSignature: ""
+    property string matugenExportRetrySignature: ""
     property bool ready: false
     property int lastExitCode: -1
     property string lastOutput: "Not applied yet"
@@ -434,6 +435,17 @@ PluginComponent {
         onTriggered: Quickshell.execDetached([root.themeReloadHelperPath()])
     }
 
+    Timer {
+        id: matugenExportRetryTimer
+
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (root.autoSync && !root.applying)
+                root.runApply();
+        }
+    }
+
     Process {
         id: applyProcess
 
@@ -442,6 +454,7 @@ PluginComponent {
             root.lastExitCode = exitCode;
             const output = ((stdoutCollector.text || "") + (stderrCollector.text || "")).trim();
             const qtStyleRestartRequired = output.indexOf("QT_RESTART_REQUIRED:style:") !== -1;
+            const staleExport = output.indexOf("Dux's exported GTK palette") !== -1;
             root.lastOutput = output || (exitCode === 0 ? "Theme synchronized" : "Theme synchronization failed");
             root.applying = false;
             if (exitCode === 0 && root.currentAction === "apply") {
@@ -449,6 +462,10 @@ PluginComponent {
                 root.reconcileIconTheme(output);
                 root.reconcileCursorTheme(output);
                 applicationThemeReloadTimer.restart();
+                if (staleExport && root.matugenExportRetrySignature !== root.runningSignature) {
+                    root.matugenExportRetrySignature = root.runningSignature;
+                    matugenExportRetryTimer.restart();
+                }
             } else if (exitCode === 0 && root.currentAction === "restore") {
                 applicationThemeReloadTimer.restart();
             }
