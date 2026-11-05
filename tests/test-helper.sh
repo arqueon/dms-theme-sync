@@ -651,6 +651,9 @@ if [[ -n $PAPIRUS ]]; then
         || { printf 'Overlay does not inherit from the base theme\n' >&2; exit 1; }
     grep -Fqx "X-DmsThemeSync-Signature=Papirus-Dark:red" "$OVERLAY/index.theme" \
         || { printf 'Overlay signature does not describe its source and colour\n' >&2; exit 1; }
+    [[ $(readlink "$XDG_DATA_HOME/icons/.Papirus-Dark-DankFolders-red") == "Papirus-Dark-DankFolders" ]] \
+        || { printf 'Hidden colour-tagged Qt icon alias symlink was not created\n' >&2; exit 1; }
+    assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "icon_theme=.Papirus-Dark-DankFolders-red"
     # Papirus reaches its folder icons through ~220 relative aliases per size.
     # GTK apps ask for `folder`; KDE apps ask for `inode-directory`. Carry only
     # the former and Thunar and Dolphin show two different folder colours.
@@ -696,6 +699,9 @@ if [[ -n $PAPIRUS ]]; then
     # turning it back off removes the generated theme
     folder_remove_output=$(run_folder --sync-folder-color false)
     [[ ! -d $OVERLAY ]] || { printf 'Overlay survived the toggle being turned off\n' >&2; exit 1; }
+    [[ ! -L "$XDG_DATA_HOME/icons/.Papirus-Dark-DankFolders-red" ]] \
+        || { printf 'Hidden Qt icon alias symlink survived the toggle being turned off\n' >&2; exit 1; }
+    assert_line "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf" "icon_theme=Papirus-Dark"
     grep -Fq "ICON_THEME_RELOAD_REQUIRED:" <<<"$folder_remove_output" \
         || { printf 'Removing the active overlay did not request an icon reload\n' >&2; exit 1; }
     assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-icon-theme-name=Papirus-Dark"
@@ -772,7 +778,8 @@ if [[ -n $PAPIRUS ]]; then
             --no-runtime >/dev/null 2>&1
         [[ $(basename "$(readlink "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders/64x64/places/folder.svg")") == folder-indigo.svg ]] \
             || { printf 'Catppuccin theme without the cat-* folders did not fall back to a plain colour\n' >&2; exit 1; }
-        rm -rf "$NOCAT" "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders"
+        rm -rf "$NOCAT" "$XDG_DATA_HOME/icons/Papirus-NoCat-DankFolders" \
+            "$XDG_DATA_HOME/icons/."*"-DankFolders-"*
 
         rm -rf "$OVERLAY"
         printf '@define-color accent_bg_color #e25252;\n' \

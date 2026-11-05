@@ -1,5 +1,14 @@
 # Change history
 
+## 0.15.0 — 2026-11-05
+
+- Achieve **live hot-reload of accent-colored folder icons (`*-DankFolders`)** in running KDE, Qt 5/6, and GTK 3/4 applications (`krusader`, `dolphin`, `thunar`, `nautilus`, etc.) on every wallpaper or Matugen accent change without restarting the application:
+  - Maintain a hidden dot-prefixed alias symlink `~/.local/share/icons/.<overlay>-<color> -> <overlay>` (e.g. `.Papirus-Dark-DankFolders-green -> Papirus-Dark-DankFolders`) and write `icon_theme=.<overlay>-<color>` to `qt5ct.conf` and `qt6ct.conf` while keeping `kdeglobals`, GSettings, and Dux `SettingsData.iconTheme` pointed at `<overlay>`. Because the symlink starts with `.`, icon pickers (`KIconTheme::list()`, `discoveredIconThemes`) and Dux's `checkIconThemeDrift()` ignore it, while `QIcon::themeName()` changes whenever the folder accent color changes — clearing both Qt's `QIconLoader` cache and Krusader's private static `IconEngine` `QCache` (`s_cache`).
+  - Include the active folder overlay signature (`<source>:<color>`) in the content hash for `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors` so a folder-color change always rotates `color_scheme_path=` in `qt5ct.conf` / `qt6ct.conf` and triggers `QEvent::PaletteChange`.
+  - Read the live primary accent directly from `--kvantum-colors` (`Theme.primary`) during runtime applies so folder and cursor accent selection never lags behind an asynchronous `gtk-4.0/dank-colors.css` write.
+  - Update the GTK icon cache (`gtk-update-icon-cache`) on the generated overlay, pulse `org.gnome.desktop.interface icon-theme` in `scripts/reload-application-theme.sh` when a `*-DankFolders` overlay is active, and re-emit `KIconLoader.iconChanged` right before (`2.5s`) and right after (`3.2s`) `qt6ct`'s `3000 ms` `QTimer` window so `KIconLoader`'s process-local `imgDict` is empty at the exact moment `DolphinView` and `KrView` process `QEvent::PaletteChange`.
+- Match Dux 2.1's `SettingsData.resolveIconTheme()` contract in `ThemeSyncService.qml` (`lightIconMode = iconThemePerMode && colorMode === "light"`), ensuring light-mode icon overlay reconciliation writes to `iconThemeLight` only when separate per-mode icon themes are enabled.
+
 ## 0.14.0 — 2026-11-04
 
 - Achieve reliable **live Qt/KDE palette hot-reload** across running Qt 5/6 and KDE Frameworks applications (`dolphin`, `krusader`, `okular`, etc.) on every wallpaper or Matugen palette change without restarting the application:

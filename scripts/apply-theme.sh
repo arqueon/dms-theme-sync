@@ -748,6 +748,9 @@ build_folder_overlay() {
         rm -rf "$build"
         return 1
     fi
+    if [[ $NO_RUNTIME != true ]] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -f -t "$out" 2>/dev/null || true
+    fi
 }
 
 icons_home="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
@@ -822,12 +825,27 @@ wait_for_dms_matugen_export() {
 }
 wait_for_dms_matugen_export
 
+resolve_matugen_accent() {
+    local css_accent kv_primary
+    css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
+        | grep -oE '#[0-9a-fA-F]{6}' || true)
+    kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
+    if [[ $NO_RUNTIME != true && $kv_primary =~ ^#[0-9a-fA-F]{6}$ ]]; then
+        printf '%s' "$kv_primary"
+    elif [[ -n $css_accent ]]; then
+        printf '%s' "$css_accent"
+    elif [[ $kv_primary =~ ^#[0-9a-fA-F]{6}$ ]]; then
+        printf '%s' "$kv_primary"
+    fi
+}
+
+QT_ICON_THEME=$ICON_THEME
+FOLDER_OVERLAY_SIG=""
 if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
     base_dir=$(icon_theme_dir "$folder_source" || true)
     places_dir="$base_dir/64x64/places"
-    accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
-        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
-        | grep -oE '#[0-9a-fA-F]{6}' || true)
+    accent=$(resolve_matugen_accent)
 
     if [[ -z $base_dir || ! -d $places_dir ]]; then
         log "folder-color: '$folder_source' has no Places icons; skipping"
@@ -842,6 +860,24 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
         elif build_folder_overlay "$base_dir" "$color" "$overlay_dir"; then
             if [[ $folder_source != "$folder_base" ]]; then
                 log "folder-color: deriving from $folder_source ($MODE-mode variant of $folder_base)"
+            fi
+            FOLDER_OVERLAY_SIG="${folder_source}:${color}"
+            # Maintain a hidden colour-tagged alias symlink in ~/.local/share/icons
+            # (.Papirus-Dark-DankFolders-<color> -> Papirus-Dark-DankFolders) for
+            # qt5ct/qt6ct. Krusader's custom IconEngine caches rendered folder
+            # pixmaps in a static QCache keyed without palette/colour and only
+            # clears that cache when QIcon::themeName() changes to a new string;
+            # Qt's own QIconLoader does the same. Because the alias starts with a
+            # dot, icon theme pickers (and Dux's drift check) ignore it while Qt
+            # resolves icons through the symlink and busts its cache on every
+            # accent change.
+            qt_icon_alias=".${overlay_dir##*/}-${color}"
+            ln -sfn "${overlay_dir##*/}" "$icons_home/$qt_icon_alias"
+            for stale_alias in "$icons_home/."*"$OVERLAY_SUFFIX"-*; do
+                [[ -L $stale_alias && ${stale_alias##*/} != "$qt_icon_alias" ]] && rm -f "$stale_alias"
+            done
+            if [[ $ICON_THEME == "${overlay_dir##*/}" || $ICON_THEME == "$folder_base" ]]; then
+                QT_ICON_THEME=$qt_icon_alias
             fi
             # The overlay is a derived asset, not a decision. We build it and
             # name it; Dux decides whether it becomes the icon theme, so its own
@@ -861,9 +897,14 @@ if [[ $SYNC_FOLDER_COLOR == true && -n $folder_base ]]; then
             log "folder-color: overlay build failed; keeping $folder_base"
         fi
     fi
-elif [[ $SYNC_FOLDER_COLOR != true && -d $overlay_dir ]] && ! $DRY_RUN; then
-    rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
-    log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
+elif [[ $SYNC_FOLDER_COLOR != true ]] && ! $DRY_RUN; then
+    for stale_alias in "$icons_home/."*"$OVERLAY_SUFFIX"-*; do
+        [[ -L $stale_alias ]] && rm -f "$stale_alias"
+    done
+    if [[ -d $overlay_dir ]]; then
+        rm -rf "$overlay_dir"   # toggle turned off: leave no orphan theme behind
+        log "ICON_THEME_RELOAD_REQUIRED:${overlay_dir##*/}"
+    fi
 fi
 
 # Dux 2.1 records the pre-Dux GSettings icon theme in
@@ -962,9 +1003,7 @@ nearest_material_cursor() {
 }
 
 if [[ $SYNC_CURSOR_COLOR == true ]]; then
-    cursor_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
-        "${XDG_CONFIG_HOME:-$HOME/.config}/gtk-4.0/dank-colors.css" 2>/dev/null \
-        | grep -oE '#[0-9a-fA-F]{6}' || true)
+    cursor_accent=$(resolve_matugen_accent)
     if [[ -z $cursor_accent ]]; then
         log "cursor-color: no Matugen accent found; skipping"
     elif cursor_variant=$(nearest_material_cursor "$cursor_accent"); then
@@ -1344,7 +1383,11 @@ LIVE_SCHEME_DIR="$XDG_DATA_HOME/color-schemes/.dms-live"
 QT_SCHEME_TARGET="$SCHEME_SOURCE"
 if [[ $APPLY_MATUGEN_COLORS == true && $DEFER_QT_COLORS != true && -f $SCHEME_SOURCE ]]; then
     scheme_stem=$(basename "$SCHEME_SOURCE" .colors)
-    scheme_hash=$(sha256sum "$SCHEME_SOURCE" | awk '{print substr($1, 1, 8)}')
+    if [[ -n $FOLDER_OVERLAY_SIG ]]; then
+        scheme_hash=$({ cat "$SCHEME_SOURCE"; printf '\n%s\n' "$FOLDER_OVERLAY_SIG"; } | sha256sum | awk '{print substr($1, 1, 8)}')
+    else
+        scheme_hash=$(sha256sum "$SCHEME_SOURCE" | awk '{print substr($1, 1, 8)}')
+    fi
     QT_SCHEME_TARGET="$LIVE_SCHEME_DIR/${scheme_stem}-${scheme_hash}.colors"
     if $DRY_RUN; then
         log "DRY-RUN: stage live Qt colour scheme ${QT_SCHEME_TARGET##*/}"
@@ -1377,7 +1420,7 @@ for qt_version in 5 6; do
         fi
     fi
     [[ $QT_STYLE != preserve ]] && update_ini "$qt_file" Appearance style "$QT_STYLE"
-    [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "$ICON_THEME"
+    [[ -n $ICON_THEME ]] && update_ini "$qt_file" Appearance icon_theme "${QT_ICON_THEME:-$ICON_THEME}"
     update_ini "$qt_file" Fonts general "\"$FONT,$FONT_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0\""
     update_ini "$qt_file" Fonts fixed "\"$MONO_FONT,$MONO_SIZE,-1,5,$FONT_WEIGHT,0,0,0,0,0\""
     if [[ $APPLY_MATUGEN_COLORS == true && -f $SCHEME_SOURCE ]]; then

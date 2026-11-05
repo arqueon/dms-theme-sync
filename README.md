@@ -218,8 +218,8 @@ to update in place:
 | Stack | Live notification and cache handling | Practical coverage |
 | --- | --- | --- |
 | **KDE Frameworks** | Unpins `ColorScheme=Dank*` in `~/.config/*rc`, copies the active `.colors` sections into `kdeglobals`, and emits `KGlobalSettings.notifyChange` (`PaletteChanged=0`, `FontChanged=1`, `CursorChanged=5`) plus all six `KIconLoader.iconChanged` groups | Open `dolphin`, `krusader`, `okular`, and other KDE windows follow `System Default` (`kdeglobals`) and repaint in hot on every Matugen change. |
-| **Qt 5/6 through qt5ct/qt6ct-kde** | Stages a content-hashed scheme file at `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors`, updates `color_scheme_path=` in `qt5ct.conf`/`qt6ct.conf`, touches `qtXct.conf`, and pulses a transient file (`.dms-reload-$$`) in `~/.config/qt5ct` and `~/.config/qt6ct` | Changing the `.colors` filename busts `KSharedConfig::openConfig`'s per-thread path cache in `qt6ct-kde`, and the directory pulse fires `QFileSystemWatcher::directoryChanged` even when `qtXct.conf` is a dotfile symlink. |
-| **GTK 4.22+** | Pulses `org.gnome.desktop.a11y.interface reduced-motion` for `100 ms` (matching Dux 2.1's `matugen` worker) | Running GTK 4.22+ / libadwaita applications re-parse `~/.config/gtk-4.0/gtk.css` (`@import url("dank-colors.css");`) in hot without restarting or flashing. |
+| **Qt 5/6 through qt5ct/qt6ct-kde** | Stages a content-hashed scheme file at `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors`, maintains a hidden color-tagged icon alias symlink (`.Papirus-Dark-DankFolders-<color> -> Papirus-Dark-DankFolders`) for `qt5ct.conf`/`qt6ct.conf` `icon_theme=`, touches `qtXct.conf`, and pulses a transient file (`.dms-reload-$$`) in `~/.config/qt5ct` and `~/.config/qt6ct` | Changing the `.colors` filename busts `KSharedConfig::openConfig`'s per-thread path cache in `qt6ct-kde`, changing `QIcon::themeName()` via the hidden color-tagged alias clears `QIconLoader` and Krusader's static `IconEngine` `QCache`, and the directory pulse fires `QFileSystemWatcher::directoryChanged` even when `qtXct.conf` is a dotfile symlink. |
+| **GTK 4.22+** | Pulses `org.gnome.desktop.a11y.interface reduced-motion` for `100 ms` (matching Dux 2.1's `matugen` worker) and pulses `org.gnome.desktop.interface icon-theme` when a `*-DankFolders` overlay is active | Running GTK 4.22+ / libadwaita applications re-parse `~/.config/gtk-4.0/gtk.css` (`@import url("dank-colors.css");`) and refresh folder icons in hot without restarting or flashing. |
 | **GTK on Wayland** | Real desktop-setting changes arrive through the settings portal | Theme name, font, icon-theme name, cursor, and light/dark preference update when their value actually changes. |
 | **GTK on X11/XWayland** | `xsettingsd` reloads the synchronized XSettings values | The same settings can update in running applications that consume XSettings. |
 
@@ -255,21 +255,29 @@ in the plugin work together to solve this:
    + `IN_DELETE`) always wakes the watcher.
 4. **Synchronizing with Dux's asynchronous `matugen` worker**: Dux updates
    `Theme.*` in QML before its `matugen` subprocess finishes writing
-   `dank-colors.css` and `DankMatugen*.colors`. `apply-theme.sh` waits briefly
-   (`wait_for_dms_matugen_export`) until the exported files match the live
-   primary accent, and `ThemeSyncService.qml` listens to `Theme.matugenCompleted`
-   (with a fallback retry timer) so a late export still triggers a follow-up pass.
+   `dank-colors.css` and `DankMatugen*.colors`. `apply-theme.sh` reads the live
+   primary accent directly from `--kvantum-colors` (`Theme.primary`), waits
+   briefly (`wait_for_dms_matugen_export`) until the exported files match, and
+   `ThemeSyncService.qml` listens to `Theme.matugenCompleted` (with a fallback
+   retry timer) so a late export still triggers a follow-up pass.
+5. **Busting Krusader's static `IconEngine` `QCache` and `QIconLoader` on folder accent changes**:
+   Krusader wraps every icon in its own `QIconEngine` subclass (`IconEngine`)
+   backed by a process-wide static `QCache` (`s_cache`) that ignores both
+   `KIconLoader.iconChanged` and `QEvent::PaletteChange`, clearing `s_cache`
+   only when `QIcon::themeName()` changes to a different string. When
+   `syncFolderColor` is active, `apply-theme.sh` maintains a dot-prefixed
+   symlink `~/.local/share/icons/.<overlay>-<color> -> <overlay>` (invisible to
+   icon theme pickers and Dux's drift check) and writes `icon_theme=.<overlay>-<color>`
+   into `qt5ct.conf`/`qt6ct.conf` while folding the overlay signature into the
+   `.dms-live` `.colors` hash and re-emitting `KIconLoader.iconChanged` around
+   `qt6ct`'s 3000 ms `QTimer` window. Both Dolphin and Krusader therefore
+   hot-reload their accent-colored folder icons in place.
 
 GTK 3 (and GTK 4 versions prior to 4.22) still load `$XDG_CONFIG_HOME/gtk-3.0/gtk.css`
-once per process unless the GTK theme name changes. GTK icon themes periodically
-recheck their search directories when another lookup occurs, though
-already-rendered widgets may keep their pixmap.
+once per process unless the GTK theme name changes.
 
-No external notification can invalidate an application's private cache. For
-example, Krusader has caches outside `KIconLoader`; the shared parts refresh,
-while its directory-view cache can survive until the view or process is
-recreated. A live Matcha → Fusion → Breeze test also showed the boundary at the
-widget level: Krusader repainted most shared controls, while one Dolphin window
+A live Matcha → Fusion → Breeze test showed the boundary at the
+widget-style level: Krusader repainted most shared controls, while one Dolphin window
 adopted Fusion and then remained pixel-identical through Breeze and the Matcha
 restore. The process had loaded both style plugins; the window simply did not
 rebuild again. The helper therefore does not broadcast `StyleChanged` as a safe

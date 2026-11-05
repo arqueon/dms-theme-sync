@@ -51,17 +51,51 @@ done
 # when org.gnome.desktop.a11y.interface reduced-motion toggles. Dux 2.1 pulses
 # this inside its matugen worker; pulsing it here too covers manual apply and
 # snapshot restore runs where matugen did not just exit.
-if [[ -z ${DMS_THEME_RELOAD_TEST_LOG:-} ]] && command -v gsettings >/dev/null 2>&1; then
-    current_rm=$(gsettings get org.gnome.desktop.a11y.interface reduced-motion 2>/dev/null || true)
-    if [[ $current_rm == "'reduce'" || $current_rm == "'no-preference'" ]]; then
-        flipped_rm="'reduce'"
-        [[ $current_rm == "'reduce'" ]] && flipped_rm="'no-preference'"
-        (
-            gsettings set org.gnome.desktop.a11y.interface reduced-motion "$flipped_rm" >/dev/null 2>&1 || true
-            sleep 0.1
-            gsettings set org.gnome.desktop.a11y.interface reduced-motion "$current_rm" >/dev/null 2>&1 || true
-        ) >/dev/null 2>&1 &
-    fi
+#
+# Likewise, open GTK 3/4 apps only invalidate their icon theme cache when
+# org.gnome.desktop.interface icon-theme transitions, and qt6ct-kde delays its
+# QFileSystemWatcher updateSettings() -> QEvent::PaletteChange broadcast by
+# 3000 ms. Re-emitting KIconLoader.iconChanged right before (2.6s) and right
+# after (3.3s) qt6ct's 3.0s timer guarantees KIconLoader's process-local
+# imgDict is empty at the exact instant Dolphin and Krusader handle
+# QEvent::PaletteChange.
+if [[ -z ${DMS_THEME_RELOAD_TEST_LOG:-} ]]; then
+    (
+        if command -v gsettings >/dev/null 2>&1; then
+            current_rm=$(gsettings get org.gnome.desktop.a11y.interface reduced-motion 2>/dev/null || true)
+            if [[ $current_rm == "'reduce'" || $current_rm == "'no-preference'" ]]; then
+                flipped_rm="'reduce'"
+                [[ $current_rm == "'reduce'" ]] && flipped_rm="'no-preference'"
+                gsettings set org.gnome.desktop.a11y.interface reduced-motion "$flipped_rm" >/dev/null 2>&1 || true
+                sleep 0.1
+                gsettings set org.gnome.desktop.a11y.interface reduced-motion "$current_rm" >/dev/null 2>&1 || true
+            fi
+            current_icon=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'" || true)
+            if [[ $current_icon == *-DankFolders ]]; then
+                base_icon=${current_icon%-DankFolders}
+                gsettings set org.gnome.desktop.interface icon-theme "$base_icon" >/dev/null 2>&1 || true
+                sleep 0.15
+                gsettings set org.gnome.desktop.interface icon-theme "$current_icon" >/dev/null 2>&1 || true
+            fi
+        fi
+        if command -v dbus-send >/dev/null 2>&1; then
+            sleep 2.5
+            for group in 0 1 2 3 4 5; do
+                dbus-send --session --type=signal /KIconLoader \
+                    org.kde.KIconLoader.iconChanged "int32:$group" >/dev/null 2>&1 || true
+            done
+            sleep 0.7
+            for group in 0 1 2 3 4 5; do
+                dbus-send --session --type=signal /KIconLoader \
+                    org.kde.KIconLoader.iconChanged "int32:$group" >/dev/null 2>&1 || true
+            done
+            for change_type in 0 4; do
+                dbus-send --session --type=signal /KGlobalSettings \
+                    org.kde.KGlobalSettings.notifyChange \
+                    "int32:$change_type" int32:0 >/dev/null 2>&1 || true
+            done
+        fi
+    ) >/dev/null 2>&1 &
 fi
 
 exit "$exit_code"

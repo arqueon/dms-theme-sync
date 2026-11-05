@@ -59,7 +59,7 @@ PluginComponent {
     readonly property string cursorTheme: (SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"
     readonly property int cursorSize: Number((SettingsData.cursorSettings && SettingsData.cursorSettings.size) || 24)
     readonly property string colorMode: Theme.isLightMode ? "light" : "dark"
-    readonly property bool lightIconMode: colorMode === "light"
+    readonly property bool lightIconMode: iconThemePerMode && colorMode === "light"
     readonly property string gtkThemeLight: pluginData.gtkThemeLight || "auto"
     readonly property string gtkThemeDark: pluginData.gtkThemeDark || "auto"
     readonly property string qtPlatformTheme: pluginData.qtPlatformTheme || "preserve"
