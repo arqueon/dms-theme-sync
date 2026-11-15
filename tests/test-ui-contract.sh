@@ -38,6 +38,7 @@ grep -Fq 'backupRetentionSlider.value = 10;' "$settings"
 grep -Fq 'text: "Terminal ANSI palette"' "$settings"
 grep -Fq 'text: "Interface style"' "$settings"
 grep -Fq 'text: "Interface density"' "$settings"
+grep -Fq 'text: "Companion assets"' "$settings"
 grep -Fq 'function onMatugenCompleted(mode, result)' "$service"
 grep -Fq '"dms21": root.dms21' "$service"
 
