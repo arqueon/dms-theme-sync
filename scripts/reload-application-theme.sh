@@ -61,6 +61,10 @@ done
 # QEvent::PaletteChange.
 if [[ -z ${DMS_THEME_RELOAD_TEST_LOG:-} ]]; then
     (
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsS -m 1 -X POST -H 'Content-Type: application/json' -d '{}' \
+                http://127.0.0.1:23119/dux-theme/reload >/dev/null 2>&1 || true
+        fi
         if command -v gsettings >/dev/null 2>&1; then
             current_rm=$(gsettings get org.gnome.desktop.a11y.interface reduced-motion 2>/dev/null || true)
             if [[ $current_rm == "'reduce'" || $current_rm == "'no-preference'" ]]; then
