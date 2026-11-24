@@ -7,6 +7,7 @@ DOCUMENT_FONT=""
 FONT_SIZE=11
 MONO_SIZE=12
 DOCUMENT_SIZE=11
+FONT_SCALE=1
 ICON_THEME="System Default"
 CURSOR_THEME="System Default"
 CURSOR_SIZE=24
@@ -41,6 +42,7 @@ while (( $# )); do
         --mono-font) MONO_FONT=${2:?}; shift 2 ;;
         --document-font) DOCUMENT_FONT=${2-}; shift 2 ;;
         --font-size) FONT_SIZE=${2:?}; shift 2 ;;
+        --font-scale) FONT_SCALE=${2:?}; shift 2 ;;
         --font-weight) FONT_WEIGHT=${2:?}; shift 2 ;;
         --defer-qt-colors) DEFER_QT_COLORS=${2:?}; shift 2 ;;
         --defer-kde-colors) DEFER_KDE_COLORS=${2:?}; shift 2 ;;
@@ -104,6 +106,21 @@ esac
     printf 'Font and cursor sizes must be integers\n' >&2
     exit 2
 }
+[[ $FONT_SCALE =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    printf 'Invalid font scale: %s\n' "$FONT_SCALE" >&2
+    exit 2
+}
+# Dux's UI scale, applied on request ("apply Dux font scale" toggle). Rounded
+# to whole points before use: Qt's qtXct font format and several downstream
+# parsers expect integer point sizes.
+if [[ $FONT_SCALE != 1 ]]; then
+    scale_size() {
+        awk -v s="$FONT_SCALE" -v v="$1" 'BEGIN { printf "%d", int(s * v + 0.5) }'
+    }
+    FONT_SIZE=$(scale_size "$FONT_SIZE")
+    MONO_SIZE=$(scale_size "$MONO_SIZE")
+    DOCUMENT_SIZE=$(scale_size "$DOCUMENT_SIZE")
+fi
 [[ $FONT_WEIGHT =~ ^[0-9]+$ && $FONT_WEIGHT -le 99 ]] || {
     printf 'Font weight must be an integer from 0 to 99 (Qt legacy scale)\n' >&2
     exit 2
@@ -2107,22 +2124,24 @@ write_niri_env_include() {
 # --- Niri focused-border dimming ----------------------------------------------
 #
 # Reuse the highlight from Dux's Niri template (primary_container.dark).
-# Standard palettes often make it darker than primary; Expressive palettes
-# may keep it vivid, similar in brightness, or even brighter. This is a role
-# substitution, not fixed dimming. The dark role is used in either mode.
+# Softened primary for the focused border. Dux's template always writes
+# `primary` as the active color, which reads as a neon ring with vibrant
+# palettes. Instead of substituting a container role (whose distance to
+# primary is unpredictable across palettes), the override now reuses that
+# same primary with alpha: niri composites the translucent color over
+# whatever sits behind the border, keeping the hue but dialing the punch
+# down in both modes. niri validates #RRGGBBAA.
 # Only the plugin include changes; switching off removes its override on the
 # next apply. Dux's generated file and later user overrides remain authoritative.
 NIRI_BORDER_DIM_COLOR=""
 if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
-    dim_color=$(niri_dms_active_color highlight)
-    bright_color=$(niri_dms_active_color border)
-    if [[ ! $dim_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
-        log "niri-border: no primary_container tone found in niri/dms/colors.kdl; skipping"
-    elif [[ $dim_color == "$bright_color" ]]; then
-        log "niri-border: accent $bright_color already matches the container tone; skipping"
+    primary_color=$(niri_dms_active_color border)
+    if [[ ! $primary_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
+        log "niri-border: no primary active-color found in niri/dms/colors.kdl; skipping"
     else
-        NIRI_BORDER_DIM_COLOR=$dim_color
-        log "niri-border: active border ${bright_color:-unknown} -> $dim_color (Dux highlight; brightness depends on palette)"
+        # 0xb3 ≈ 70% opacity: present on dark and light surfaces alike.
+        NIRI_BORDER_DIM_COLOR="${primary_color}b3"
+        log "niri-border: active border $primary_color -> $NIRI_BORDER_DIM_COLOR (softened primary, 70% alpha)"
     fi
 fi
 

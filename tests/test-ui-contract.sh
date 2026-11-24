@@ -41,5 +41,13 @@ grep -Fq 'text: "Interface density"' "$settings"
 grep -Fq 'text: "Companion assets"' "$settings"
 grep -Fq 'function onMatugenCompleted(mode, result)' "$service"
 grep -Fq '"dms21": root.dms21' "$service"
+grep -Fq '"dms22Icons": root.dms22Icons' "$service"
+grep -Fq '"folderColorDeferred": root.folderColorDeferred' "$service"
+grep -Fq '"cursorColorDeferred": root.cursorColorDeferred' "$service"
+grep -Fq '"applyFontScale": root.applyFontScale' "$service"
+grep -Fq 'settingKey: "applyFontScale"' "$settings"
+grep -Fq 'Niri border: soften Dux primary' "$settings"
+grep -Fq '"value": "low"' "$settings"
+grep -Fq '"value": "medium"' "$settings"
 
 printf 'ui capability contract: ok\n'

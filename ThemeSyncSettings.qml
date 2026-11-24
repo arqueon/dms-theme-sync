@@ -62,9 +62,17 @@ PluginSettings {
     readonly property bool customSeed: seedColorAvailable && !!SettingsData.matugenSeedColor
     readonly property bool smartModeAvailable: typeof SettingsData.matugenSmartMode !== "undefined" && typeof SettingsData.setMatugenSmartMode === "function"
     readonly property bool terminalPaletteAvailable: typeof SettingsData.terminalPalette !== "undefined"
+    // Dux exposes the wallpaper tint as an intensity ladder (Low/Medium/High
+    // next to the untinted default) since 2.1; the plugin mirrors all four.
     readonly property var terminalPaletteOptions: [{
         "label": "Tonal — distinct ANSI colors (recommended)",
         "value": "default"
+    }, {
+        "label": "Soft — slight wallpaper tint (low)",
+        "value": "low"
+    }, {
+        "label": "Medium — moderate wallpaper tint",
+        "value": "medium"
     }, {
         "label": "Vibrant — shift ANSI accents toward primary",
         "value": "high"
@@ -73,6 +81,10 @@ PluginSettings {
         return o.label;
     })
     readonly property bool dms21: typeof SettingsData.interfaceStyle !== "undefined" || typeof SettingsData.density !== "undefined"
+    // Dux 2.2 ships its own icon-folder and cursor-theme pipeline; while it is
+    // present, the plugin's folder-color overlay and Bibata variant picking
+    // defer to it automatically.
+    readonly property bool dux22Icons: typeof SettingsData.iconFolderRecolor !== "undefined"
     readonly property bool interfaceStyleAvailable: typeof SettingsData.interfaceStyle !== "undefined"
     readonly property bool densityAvailable: typeof SettingsData.density !== "undefined"
     readonly property bool sectionDividerAvailable: typeof SettingsData.sectionDividerOpacity !== "undefined"
@@ -1824,6 +1836,13 @@ PluginSettings {
         text: "Font sizes"
     }
 
+    ToggleSetting {
+        settingKey: "applyFontScale"
+        label: "Scale app fonts with Dux's font scale"
+        description: "Dux's UI scale (Settings → Appearance → Fonts) normally only resizes the shell. With this on, the plugin multiplies the three sizes below by that scale before applying them to GTK, Qt, KDE and terminals, rounded to whole points. Off (default) keeps the sliders as absolute point sizes."
+        defaultValue: false
+    }
+
     Column {
         width: parent.width
         spacing: Theme.spacingS
@@ -2074,7 +2093,16 @@ PluginSettings {
         label: "Sync icon folder color (requires Papirus)"
         description: "Recolors the folder icons to follow the Material You accent. Only Papirus ships the ~80 folder color variants this needs, so the toggle does nothing with any other icon theme — yours is kept exactly as you set it. When on, the plugin generates a small overlay theme in ~/.local/share/icons that inherits Papirus and only overrides the folders (about 4 MB of symlinks, no root needed, and Papirus updates are inherited). The accent is matched by hue, not by nearest RGB, because Material You hands out pastel tints in dark mode."
         defaultValue: false
-        enabled: root.anyIconModeSupportsFolderColor
+        enabled: root.anyIconModeSupportsFolderColor && !root.dux22Icons
+    }
+
+    StyledText {
+        width: parent.width
+        visible: root.dux22Icons
+        text: "Dux 2.2+ now manages icon folders natively (Settings → Appearance → Dux Icons). This overlay defers to it automatically and any previously generated overlay is reverted on the next apply; prefer Dux's own recolor."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.warning
+        wrapMode: Text.WordWrap
     }
 
     Column {
@@ -2104,20 +2132,30 @@ PluginSettings {
         label: "Sync cursor color (requires Bibata-Material-* cursors)"
         description: "Selects the installed Bibata-Material-* cursor variant nearest to the Material You accent on every apply, matched by hue like the folder color. The variants are built once with material-bibata-cursor (28 accents, installed to ~/.icons); the plugin never builds cursors itself, it only chooses among the ones present and hands the choice to Dux's own cursor setting. A neutral accent picks a neutral variant (Grey, Slate, Cloud…). Turning this off returns the cursor to the theme you had before."
         defaultValue: false
+        enabled: !root.dux22Icons
+    }
+
+    StyledText {
+        width: parent.width
+        visible: root.dux22Icons
+        text: "Dux 2.2+ now installs and manages cursor themes on its own (Settings → Appearance → Cursor). This picker defers to it automatically."
+        font.pixelSize: Theme.fontSizeSmall
+        color: Theme.warning
+        wrapMode: Text.WordWrap
     }
 
     ToggleSetting {
         id: niriBorderToggle
         settingKey: "dimNiriBorder"
-        label: "Niri border: use Dux highlight color"
-        description: "Uses the recent-windows highlight color for the focused border and focus ring. Dux exports this as primary_container from its dark palette, even in light mode. It often looks darker than the main accent, but this is a color substitution, not a brightness slider. Width, inactive and urgent colors stay unchanged. Turning it off removes the plugin override on the next apply; later user overrides still take precedence. Niri only."
+        label: "Niri border: soften Dux primary"
+        description: "Reuses Dux's exported primary for the focused border and focus ring, with ~70% alpha so niri composites it over whatever sits behind. The hue keeps following the palette; only the punch is dialed down — Dux's template always writes the full-strength primary, which reads as a neon ring with vibrant palettes. Width, inactive and urgent colors stay unchanged. Turning it off removes the plugin override on the next apply; later user overrides still take precedence. Niri only."
         defaultValue: false
     }
 
     StyledText {
         width: parent.width
-        visible: niriBorderToggle.value && root.modernSpec
-        text: "With Expressive (2025), the highlight can stay vivid or close to the main accent. A subtle change is expected for some palettes; it does not by itself mean synchronization failed. Dux surface colors and the exported Niri highlight can also differ."
+        visible: niriBorderToggle.value
+        text: "This is an alpha overlay over the surface or wallpaper behind the border, not a palette-role swap: light and dark modes both stay legible, and the result no longer depends on how far a palette's container tones sit from its primary."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap

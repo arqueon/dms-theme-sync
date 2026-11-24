@@ -147,13 +147,16 @@ verify that another writer did not immediately undo it.
 | **Icons** | Optional Papirus folder overlay matched to the current Matugen accent |
 | **Cursor** | Optional Bibata-Material variant matched to the current Matugen accent |
 | **Terminals** | Optional font includes for kitty, Alacritty, and Ghostty |
-| **Niri borders** | Optional substitution of the focused border and focus-ring color with Dux's exported recent-windows highlight |
+| **Niri borders** | Optional softening of the focused border and focus-ring: Dux's exported primary reused with ~70% alpha |
 | **Session environment** | Live systemd user environment plus persistent compositor/session configuration |
 
 The configuration dialog also mirrors Dux appearance controls—color theme,
 light/dark mode, Matugen scheme and contrast, fonts, icons, cursor, and cursor
 size—so the canonical settings and the plugin-specific choices are available
-in one place.
+in one place. The terminal ANSI palette mirror offers Dux's full intensity
+ladder (Tonal, Soft, Medium, Vibrant), and the optional **Scale app fonts
+with Dux's font scale** toggle multiplies the three point sizes by Dux's UI
+scale (rounded to whole points) before applying them everywhere.
 
 ## How synchronization works
 
@@ -499,6 +502,15 @@ When the GTK theme is Catppuccin and
 is installed, the plugin selects the matching flavor and accent instead of a
 plain nearest-color approximation.
 
+**Dux 2.2+ defers this option automatically.** Dux 2.2 ships its own icon
+pipeline — folder recoloring with staged generated themes, app-icon tinting and
+an `icon-folders.json` state export. When the shell exposes
+`iconFolderRecolor`, Theme Sync disables its overlay (the settings page shows a
+deprecation notice), and the next apply reverts any previously generated
+overlay to the remembered base theme so only one system manages icon colors.
+The plugin's icon-theme reconciliation itself stays: mirroring Dux's canonical
+icon-theme choice remains useful on every version.
+
 ### Cursor accent
 
 The cursor-color option applies the same idea to the pointer. Build the
@@ -513,47 +525,64 @@ landing on an arbitrary hue. The plugin never builds cursors itself and only
 chooses among variants that are actually installed; turning the option off
 returns the cursor to the theme recorded before the first switch.
 
+**Dux 2.2+ defers this option automatically too.** The same 2.2 pipeline
+family adds a cursor-theme install/remove manager
+(`dms cursor-theme install|remove`) with the settings UI to drive it; when
+`iconFolderRecolor` is present the variant picker stands down and the settings
+page points at Dux's own cursor manager instead.
+
+**KDE color-scheme overlap (Dux 2.2+).** Dux's own matugen Qt template run can
+now write `ColorScheme=DankMatugen` and the icon-theme name into `kdeglobals`.
+Theme Sync writes the same scheme name plus fonts, menu/toolBar fonts, full
+`[Colors:*]`/`[ColorEffects:*]` sections and its `DankUniform` scheme, so both
+writers converge on the same palette: the plugin stays the reconciliation
+authority (it writes strictly more), and a template run that interleaves with
+an apply can only re-state values the plugin will restate on the next apply.
+`reconcile` reports kdeglobals drift the same way either way.
+
 ### Focused-border contrast (Niri)
 
-**Niri border: use Dux highlight color** (previously **Dim the focused-window
-border**) replaces only the focused `border` and `focus-ring` active colors.
-It reads the recent-windows highlight from Dux's generated `dms/colors.kdl`.
-The Dux template maps this to **`primary_container.dark`**, including when the
-current appearance mode is light. The setting key remains `dimNiriBorder`, so
-existing preferences keep working.
+**Niri border: soften Dux primary** (previously **Dim the focused-window
+border**, then **Niri border: use Dux highlight color**) replaces only the
+focused `border` and `focus-ring` active colors. It reads the primary that
+Dux's template writes as the border `active-color` in `dms/colors.kdl` and
+reuses it with **~70% alpha** (`#RRGGBBAA`): Niri composites the translucent
+color over whatever sits behind the border, keeping the hue while dialing
+the punch down. Dux's template always writes the full-strength primary, which
+reads as a neon ring with vibrant palettes. The setting key remains
+`dimNiriBorder`, so existing preferences keep working.
 
-This is a palette-role substitution, not a brightness slider or a fixed
-reduction. Standard palettes often produce a darker border. With Expressive
-(2025), the highlight may remain saturated, lie close to the main accent, or
-have a different brightness relationship. A small visual change can therefore
-be correct. For example, a vibrant Expressive palette can replace `#ff9061`
-with `#ff793b`: the second color is darker but still a strong orange. There is
-no guaranteed number of tone steps, and the plugin does not test contrast
-against the content of the focused window.
+This is an alpha overlay over the surface or wallpaper behind the border, not
+a palette-role swap and not a brightness slider. Both modes stay legible, and
+the result no longer depends on how far a palette's container tones sit from
+its primary — the earlier role substitution (Expressive 2025 palettes could
+turn a bright orange border into a nearly invisible dark brown) is why the
+source changed.
 
 Dux's own shell surfaces may use additional derived colors. Those surfaces
-are not the source of this option: it follows the **exported Niri highlight**.
-It leaves border width, inactive and urgent colors, tabs, icons and text alone.
+are not the source of this option: it follows the **exported Niri primary**.
+It leaves border width, inactive and urgent colors, tabs, icons and text
+alone.
 
 The override lives in `dms-theme-sync.kdl`, after Dux's color include and before
 user overrides on a fresh configuration. Existing include placement is
 respected; later includes and window rules can supersede the result. Disabling
 the option removes the plugin's color block on the next apply, returning control
 to the remaining Niri configuration. The combined configuration is validated
-with `niri validate`; invalid writes are rolled back. Other compositors are
-unaffected.
+with `niri validate` (which accepts `#RRGGBBAA`); invalid writes are rolled
+back. Other compositors are unaffected.
 
 Keep Dux's **Run DMS templates** and **Niri** export enabled to follow palette
 changes. If the generated file is missing or unreadable, the helper skips the
-color override and reports it. If the highlight already matches the border,
-there is no additional override. A disabled export with a surviving file can
+color override and reports it. A disabled export with a surviving file can
 reuse an older color; the settings panel warns about that configuration.
 
-To inspect a suspected failure, compare the `border` and recent-windows
-`highlight` in `~/.config/niri/dms/colors.kdl` with the active colors in
-`~/.config/niri/dms-theme-sync.kdl`, then check the `niri-border:` line in
-`dms ipc call dmsThemeSync status`. `reconcile: clean` alone is not a visual
-contrast check or a confirmation that no later Niri rule overrides the color.
+To inspect a suspected failure, compare the `border` `active-color` in
+`~/.config/niri/dms/colors.kdl` with the active colors in
+`~/.config/niri/dms-theme-sync.kdl` (same hex plus `b3`), then check the
+`niri-border:` line in `dms ipc call dmsThemeSync status`. `reconcile: clean`
+alone is not a visual contrast check or a confirmation that no later Niri
+rule overrides the color.
 
 ### Terminal fonts
 

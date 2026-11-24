@@ -27,6 +27,13 @@ PluginComponent {
     // GTK/Qt. The settings panel promises "Same as regular font".
     readonly property string documentFont: pluginData.documentFontFamily || regularFont
     readonly property real fontScale: Number(SettingsData.fontScale || 1)
+    // Optional coupling (approved 2026-11-24): apply Dux's UI scale to
+    // application font sizes too. Off by default — the plugin's sliders stay
+    // absolute points unless the user opts in. The helper rounds the scaled
+    // sizes to whole points because Qt's font strings and several parsers
+    // expect integers.
+    readonly property bool applyFontScale: pluginData.applyFontScale !== undefined ? pluginData.applyFontScale : false
+    readonly property real fontScaleEffective: applyFontScale ? fontScale : 1
     // Dux publishes the OpenType weight (100-900); Qt's legacy QFont string
     // stores 0-99, where 50 is normal. Passing 400 straight through makes Qt6
     // clamp it to Black, so convert instead of copying. The scale is not
@@ -87,7 +94,15 @@ PluginComponent {
     })
     readonly property string folderColorCapability: iconThemeSupportsFolderColor ? "ready" : "blocked"
     readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but Dux uses " + iconTheme : "Papirus not installed")
-    readonly property bool syncFolderColorRequested: pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false
+    readonly property bool syncFolderColorRequestedRaw: pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false
+    // Dux 2.2 ships its own icon-folder pipeline (iconFolderRecolor + a
+    // staged generated theme + icon-folders.json state). While it is present
+    // the plugin's Papirus overlay defers — it would fight the shell's own
+    // recolor and its drift checks — and the reconcile below reverts any
+    // overlay from earlier runs to the saved base theme.
+    readonly property bool dms22Icons: typeof SettingsData.iconFolderRecolor !== "undefined"
+    readonly property bool folderColorDeferred: syncFolderColorRequestedRaw && dms22Icons
+    readonly property bool syncFolderColorRequested: syncFolderColorRequestedRaw && !dms22Icons
     readonly property bool syncFolderColor: syncFolderColorRequested && iconThemeSupportsFolderColor
     readonly property string folderOverlayTheme: folderBaseTheme + overlaySuffix
     // Cursor accent variants only exist for material-bibata-cursor's
@@ -97,11 +112,16 @@ PluginComponent {
     // to has to be remembered rather than inferred.
     readonly property string materialCursorPrefix: "Bibata-Material-"
     readonly property string cursorBaseTheme: cursorTheme.indexOf(materialCursorPrefix) === 0 ? (pluginData.cursorColorBaseTheme || "System Default") : cursorTheme
-    readonly property bool syncCursorColor: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
-    // Reuses the exported dark primary_container for the focused border/focus
-    // ring, through the plugin's own Niri include. Expressive palettes do not
-    // guarantee a darker or muted result. The helper writes or removes the
-    // block, and Niri reloads its configuration without a Dux setting change.
+    // Same 2.2 defer for the cursor: Dux's icons/cursors pipeline family
+    // (same feature probe) installs and manages cursor themes on its own.
+    readonly property bool syncCursorColorRequestedRaw: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
+    readonly property bool cursorColorDeferred: syncCursorColorRequestedRaw && dms22Icons
+    readonly property bool syncCursorColor: syncCursorColorRequestedRaw && !dms22Icons
+    // Softens the focused border/focus ring by reusing Dux's primary with
+    // alpha (the helper derives it from the exported niri colors), through
+    // the plugin's own Niri include. The hue follows the palette; only the
+    // punch is dialed down. The helper writes or removes the block, and Niri
+    // reloads its configuration without a Dux setting change.
     readonly property bool dimNiriBorder: pluginData.dimNiriBorder !== undefined ? pluginData.dimNiriBorder : false
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
@@ -186,7 +206,7 @@ PluginComponent {
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, qtFontWeight, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, fontScaleEffective, qtFontWeight, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, dms22Icons, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. Dux
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -298,7 +318,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-scale", String(fontScaleEffective), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -579,6 +599,11 @@ PluginComponent {
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
                 "dimNiriBorder": root.dimNiriBorder,
+                "dms22Icons": root.dms22Icons,
+                "folderColorDeferred": root.folderColorDeferred,
+                "cursorColorDeferred": root.cursorColorDeferred,
+                "applyFontScale": root.applyFontScale,
+                "fontScaleEffective": root.fontScaleEffective,
                 "materialSpec": root.materialSpec,
                 "matugenScheme": SettingsData.matugenScheme,
                 "matugenContrast": SettingsData.matugenContrast,

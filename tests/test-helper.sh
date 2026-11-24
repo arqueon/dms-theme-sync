@@ -371,10 +371,11 @@ run_niri
 grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override written without opt-in\n' >&2; exit 1; }
 
-# on: border and focus-ring take the darker container tone — and nothing else.
-# The inactive/urgent colours must stay Dux's, so they never appear here.
+# on: border and focus-ring take the softened primary (same hex + alpha) —
+# and nothing else. The inactive/urgent colours must stay Dux's, so they never
+# appear here.
 run_niri --dim-niri-border true
-[[ $(grep -c 'active-color "#6d9f00"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+[[ $(grep -c 'active-color "#9ee600b3"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
     || { printf 'Border override missing or incomplete:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
 grep -Eq 'inactive-color|urgent-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override leaked beyond the active colours\n' >&2; exit 1; }
@@ -396,11 +397,31 @@ dim_out=$("$ROOT/scripts/apply-theme.sh" \
     --backup-enabled false --backup-retention 10 \
     --sync-kde true --sync-xsettingsd true --no-runtime \
     --compositor niri --dim-niri-border true 2>&1)
-printf '%s\n' "$dim_out" | grep -q 'niri-border: no primary_container tone' \
+printf '%s\n' "$dim_out" | grep -q 'niri-border: no primary active-color' \
     || { printf 'Missing palette not reported:\n%s\n' "$dim_out" >&2; exit 1; }
 grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override written from a missing palette\n' >&2; exit 1; }
 mv "$NIRI_DIR/dms/colors.kdl.away" "$NIRI_DIR/dms/colors.kdl"
+
+# --- Dux font scale: multiplies the three sizes, rounded to whole points ----
+run_niri --font-scale 1.25
+assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-font-name=Archivo 14"
+assert_line "$XDG_CONFIG_HOME/qt5ct/qt5ct.conf" 'general="Archivo,14,-1,5,50,0,0,0,0,0"'
+run_niri
+assert_line "$XDG_CONFIG_HOME/gtk-3.0/settings.ini" "gtk-font-name=Archivo 11"
+if "$ROOT/scripts/apply-theme.sh" \
+    --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+    --font-size 11 --mono-size 12 --document-size 13 --font-scale 1.1.2 \
+    --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+    --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+    --qt-platform-theme qtct --qt-style Fusion \
+    --apply-matugen-colors true \
+    --backup-enabled false --backup-retention 10 \
+    --sync-kde true --sync-xsettingsd true --no-runtime \
+    --compositor niri >/dev/null 2>&1; then
+    printf 'Invalid font scale was not rejected\n' >&2
+    exit 1
+fi
 
 # --- Terminal font includes: off by default, generated only when opted in ---
 TERMINAL_DIR="$XDG_CONFIG_HOME/dms-theme-sync"
