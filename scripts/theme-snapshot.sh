@@ -92,6 +92,9 @@ TARGETS=(
     "$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
     "$XDG_DATA_HOME/color-schemes/DankUniform.colors"
     "$XDG_DATA_HOME/color-schemes/.dms-live"
+    "$XDG_CONFIG_HOME/gtk-3.0/dms-theme-sync-surfaces.css"
+    "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css"
+    "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors"
 )
 
 GSETTINGS=(

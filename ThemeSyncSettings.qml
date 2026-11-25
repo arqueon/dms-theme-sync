@@ -179,6 +179,8 @@ PluginSettings {
     property int niriBorderOpacityValue: 70
     property string niriBorderRoleValue: "secondary"
     property string niriBorderGradientToValue: "secondary"
+    property string appSurfaceDepthValue: "dux"
+    property string appSurfaceTintValue: "dux"
     // What the --probe-qt run found on this machine; drives the route
     // descriptions so the user picks between things that actually exist here.
     property string probeQt6ct: ""
@@ -388,6 +390,44 @@ PluginSettings {
         "label": "Outline",
         "value": "outline",
         "color": Theme.outline
+    }]
+    readonly property var appSurfaceDepthOptions: [{
+        "label": "Dux default",
+        "value": "dux"
+    }, {
+        "label": "Balanced (Adwaita / 2021)",
+        "value": "balanced"
+    }, {
+        "label": "Charcoal (Breeze Dark)",
+        "value": "charcoal"
+    }, {
+        "label": "Deep (OLED)",
+        "value": "deep"
+    }]
+    readonly property var appSurfaceTintOptions: [{
+        "label": "Dux default",
+        "value": "dux",
+        "color": Theme.surfaceContainer
+    }, {
+        "label": "Neutral (remove 2025 tint)",
+        "value": "neutral",
+        "color": "#88888c"
+    }, {
+        "label": "Subtle (soft accent wash)",
+        "value": "subtle",
+        "color": Theme.primaryContainer
+    }, {
+        "label": "Expressive (2025 style)",
+        "value": "expressive",
+        "color": Theme.primary
+    }, {
+        "label": "Secondary",
+        "value": "secondary",
+        "color": Theme.secondary
+    }, {
+        "label": "Tertiary",
+        "value": "tertiary",
+        "color": Theme.tertiary
     }]
     readonly property var shellButtonColorOptions: [{
         "label": "Primary",
@@ -643,6 +683,10 @@ PluginSettings {
         niriBorderOpacityValue = (isFinite(savedOpacity) && savedOpacity >= 30 && savedOpacity <= 100) ? Math.round(savedOpacity) : 70;
         niriBorderRoleValue = String(root.loadValue("niriBorderRole", "secondary") || "secondary");
         niriBorderGradientToValue = String(root.loadValue("niriBorderGradientTo", "secondary") || "secondary");
+        const savedSurfaceDepth = String(root.loadValue("appSurfaceDepth", "dux") || "dux");
+        appSurfaceDepthValue = (savedSurfaceDepth === "balanced" || savedSurfaceDepth === "charcoal" || savedSurfaceDepth === "deep") ? savedSurfaceDepth : "dux";
+        const savedSurfaceTint = String(root.loadValue("appSurfaceTint", "dux") || "dux");
+        appSurfaceTintValue = (savedSurfaceTint === "neutral" || savedSurfaceTint === "subtle" || savedSurfaceTint === "expressive" || savedSurfaceTint === "secondary" || savedSurfaceTint === "tertiary") ? savedSurfaceTint : "dux";
     }
 
     function parseFonts(text) {
@@ -2872,6 +2916,84 @@ PluginSettings {
                 text: "Enable KDE ColorScheme template"
                 onClicked: SettingsData.set("matugenTemplateKcolorscheme", true)
             }
+        }
+
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.spacingS
+        enabled: matugenColorsToggle.value
+        opacity: enabled ? 1 : 0.45
+
+        StyledText {
+            text: "Dark surface depth"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Adjust dark-mode application backgrounds across GTK 3/4, Flatpak, Qt 5/6, KDE, and Kvantum. Fixes very dark Tone 4–12 surfaces in Expressive/Bold (2025/Dux) and flattens KDE's Tone 4 surfaces into a clear View < Window/Header < Button/Card hierarchy without affecting Light mode."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.appSurfaceDepthOptions, root.appSurfaceDepthValue)
+            options: root.appSurfaceDepthOptions.map(function(o) {
+                return o.label;
+            })
+            onValueChanged: function(label) {
+                const depth = root.valueForLabel(root.appSurfaceDepthOptions, label);
+                if (depth && depth !== root.appSurfaceDepthValue) {
+                    root.appSurfaceDepthValue = depth;
+                    root.saveValue("appSurfaceDepth", depth);
+                }
+            }
+        }
+
+        StyledText {
+            text: "App background tint"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            width: parent.width
+            text: "Control chroma and tint source for application surfaces in both dark and light modes (for example, give Bold/2021 an Expressive 2025 wash, neutralize 2025's tint, or tint using Secondary/Tertiary) while keeping Material palette and text contrast intact."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+
+        DDropdown {
+            width: parent.width
+            currentValue: root.labelForValue(root.appSurfaceTintOptions, root.appSurfaceTintValue)
+            options: root.appSurfaceTintOptions.map(function(o) {
+                return o.label;
+            })
+            optionColorMap: root.colorMapFromOptions(root.appSurfaceTintOptions)
+            onValueChanged: function(label) {
+                const tint = root.valueForLabel(root.appSurfaceTintOptions, label);
+                if (tint && tint !== root.appSurfaceTintValue) {
+                    root.appSurfaceTintValue = tint;
+                    root.saveValue("appSurfaceTint", tint);
+                }
+            }
+        }
+
+        StyledText {
+            width: parent.width
+            visible: root.appSurfaceDepthValue !== "dux" || root.appSurfaceTintValue !== "dux"
+            text: "Active: " + root.labelForValue(root.appSurfaceDepthOptions, root.appSurfaceDepthValue) + " · " + root.labelForValue(root.appSurfaceTintOptions, root.appSurfaceTintValue) + ". Applies via ~/.config/gtk-{3,4}.0/dms-theme-sync-surfaces.css, derived KDE/Qt schemes, and Kvantum without modifying Dux Shell."
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
         }
 
     }

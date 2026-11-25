@@ -1,5 +1,12 @@
 # Change history
 
+## 0.18.0 — 2026-11-24
+
+- **Add configurable App Backgrounds (`appSurfaceDepth` & `appSurfaceTint`)** (approved via `.revision/fondos-apps-material-palette-2026-11-24.md`, 5/5):
+  - **Dark surface depth** (`dux`, `balanced`, `charcoal`, `deep`): adjusts dark-mode application backgrounds in perceptual OKLab without darkening Light mode, lifting `Bold (Dux)` and `Expressive (2025)` off flat Tone 4–12 OLED blacks (`balanced` restores 2021/Adwaita depth; `charcoal` targets Breeze Dark lightness; `deep` lowers 2021 for OLED).
+  - **App background tint** (`dux`, `neutral`, `subtle`, `expressive`, `secondary`, `tertiary`): controls background chroma and tint source in both dark and light modes — allowing `Bold (Dux)` or `Standard (2021)` to adopt an `Expressive (2025)` wash, `Expressive (2025)` to drop its tint cleanly (`neutral`), or surfaces to pick `secondary`/`tertiary` hue.
+  - **Unified propagation without touching Dux Shell or `~/.config/dms/settings.json`**: writes `~/.config/gtk-{3,4}.0/dms-theme-sync-surfaces.css` (inherited automatically by Flatpak), derives `DankThemeSync.colors` / `DankUniform.colors` (and restores a proper `View < Window/Header < Button/Card` KDE/Qt surface hierarchy over Dux's flat Tone 4 `kcolorscheme` mapping), and injects adjusted surface roles into `DankMatugen` Kvantum renders. Snapshots in `scripts/theme-snapshot.sh` capture the new managed files cleanly at the end of `TARGETS`.
+
 ## 0.17.0 — 2026-11-24
 
 - **Evolve the Niri focused border into a configurable control** (approved via `.revision/auditoria-dux-borde-y-opciones-2026-11-24.md`): replace the single boolean toggle with a four-mode selector (`off`, `soften` for translucent primary alpha, `role` for live `secondary`/`tertiary`/`outline`/`primary_container`/`surface_variant` colors, and `gradient` blending `primary` to a second palette role at `45°`), a `30–100%` border opacity slider (default `70%`), and live palette lookup from `dms-colors.json` with `dms/colors.kdl` + `--kvantum-colors` fallbacks. Preserves legacy `dimNiriBorder` compatibility (`--dim-niri-border`), waits for `niri/dms/colors.kdl` during `wait_for_dms_matugen_export()`, flags stale Dux Niri exports in `staleExport`, and clears conflicting local user `active-gradient`/`inactive-gradient` overrides.

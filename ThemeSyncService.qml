@@ -151,6 +151,9 @@ PluginComponent {
     // helper equalises it on every surface the plugin owns (derived .colors,
     // DankMatugen render, pair-theme shadow copy) and reports the rest.
     readonly property bool uniformListBg: pluginData.uniformListBg !== undefined ? pluginData.uniformListBg : false
+    readonly property string appSurfaceDepth: (pluginData.appSurfaceDepth === "balanced" || pluginData.appSurfaceDepth === "charcoal" || pluginData.appSurfaceDepth === "deep") ? pluginData.appSurfaceDepth : "dux"
+    readonly property string appSurfaceTint: (pluginData.appSurfaceTint === "neutral" || pluginData.appSurfaceTint === "subtle" || pluginData.appSurfaceTint === "expressive" || pluginData.appSurfaceTint === "secondary" || pluginData.appSurfaceTint === "tertiary") ? pluginData.appSurfaceTint : "dux"
+    readonly property bool appSurfacesActive: applyMatugenColors && (appSurfaceTint !== "dux" || (appSurfaceDepth !== "dux" && colorMode === "dark"))
 
     // The Kvantum templates want 12 Material roles. Theme exposes most of them
     // as properties; the rest live on currentThemeData, and the fallbacks below
@@ -164,6 +167,8 @@ PluginComponent {
         const pick = (...cs) => hex6(cs.find(c => c) || Theme.surface);
         const roles = {
             primary: Theme.primary,
+            secondary: Theme.secondary,
+            tertiary: Theme.tertiary,
             // surfaceText, not the onSurface alias: in the running shell that
             // alias can sit frozen at opaque black while surfaceText is correct
             // (seen live: onSurface=#000000, surfaceText=#f9dcd5). surfaceText
@@ -172,6 +177,8 @@ PluginComponent {
             surface: Theme.surface,
             surface_variant: Theme.surfaceVariant,
             surface_container_low: Theme.surfaceContainerLow,
+            surface_container: Theme.surfaceContainer,
+            surface_container_high: Theme.surfaceContainerHigh,
             surface_container_highest: Theme.surfaceContainerHighest,
             surface_bright: pick(td.surfaceBright, Theme.surfaceContainerHighest),
             surface_dim: pick(td.surfaceDim, Theme.background),
@@ -203,7 +210,7 @@ PluginComponent {
     // Only an active Qt engine, which replaces qtXct.conf, takes the Qt palette;
     // KDE colours always stay with the plugin. Uniform lists need the plugin's
     // own scheme and keep ownership in every case.
-    readonly property bool deferQtColors: qtengineActive && !uniformListBg
+    readonly property bool deferQtColors: qtengineActive && !uniformListBg && !appSurfacesActive
     readonly property bool deferKdeColors: false
     readonly property string qtColorOwner: deferQtColors ? "dms" : "plugin"
     readonly property string kdeColorOwner: deferKdeColors ? "dms" : "plugin"
@@ -222,7 +229,7 @@ PluginComponent {
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, fontScaleEffective, qtFontWeight, iconTheme, iconFolderStateApplied, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, niriBorderMode, niriBorderOpacity, niriBorderRole, niriBorderGradientTo, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, dms22Icons, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, fontScaleEffective, qtFontWeight, iconTheme, iconFolderStateApplied, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, niriBorderMode, niriBorderOpacity, niriBorderRole, niriBorderGradientTo, syncFlatpak, syncKvantum, uniformListBg, appSurfaceDepth, appSurfaceTint, materialSpec, deferQtColors, deferKdeColors, dms22Icons, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. Dux
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -334,7 +341,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-scale", String(fontScaleEffective), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", niriBorderMode !== "off" ? "true" : "false", "--niri-border-mode", niriBorderMode, "--niri-border-opacity", String(niriBorderOpacity), "--niri-border-role", niriBorderRole, "--niri-border-gradient-to", niriBorderGradientTo, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-scale", String(fontScaleEffective), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", niriBorderMode !== "off" ? "true" : "false", "--niri-border-mode", niriBorderMode, "--niri-border-opacity", String(niriBorderOpacity), "--niri-border-role", niriBorderRole, "--niri-border-gradient-to", niriBorderGradientTo, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--app-surface-depth", appSurfaceDepth, "--app-surface-tint", appSurfaceTint, "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -660,6 +667,9 @@ PluginComponent {
                 "qtSyncMode": root.qtSyncMode,
                 "applyMatugenColors": root.applyMatugenColors,
                 "uniformListBg": root.uniformListBg,
+                "appSurfaceDepth": root.appSurfaceDepth,
+                "appSurfaceTint": root.appSurfaceTint,
+                "appSurfacesActive": root.appSurfacesActive,
                 "lastOutput": root.lastOutput
             }, null, 2);
         }

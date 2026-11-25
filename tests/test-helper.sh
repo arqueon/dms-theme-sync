@@ -1365,4 +1365,181 @@ printf 'Papirus-Dark-DankFolders\n' > "$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-b
     || { printf 'icon-theme.dms-backup retained -DankFolders suffix\n' >&2; exit 1; }
 rm -f "$XDG_CONFIG_HOME/gtk-3.0/icon-theme.dms-backup"
 
+# --- App backgrounds (depth + tint) across GTK, KDE/Qt and Kvantum ----------
+mkdir -p "$XDG_CACHE_HOME/dms"
+cat > "$XDG_CACHE_HOME/dms/dms-colors.json" <<'EOF'
+{
+  "colors": {
+    "dark": {
+      "surface": "#110f0b",
+      "surface_container_lowest": "#000000",
+      "surface_container_low": "#16140f",
+      "surface_container": "#1d1b15",
+      "surface_container_high": "#24221b",
+      "surface_container_highest": "#2c2921",
+      "surface_bright": "#37342a",
+      "primary": "#f1bf48",
+      "secondary": "#afd282",
+      "tertiary": "#89c4f4"
+    },
+    "light": {
+      "surface": "#fff8f2",
+      "surface_container_lowest": "#ffffff",
+      "surface_container_low": "#f6f3ee",
+      "surface_container": "#eeeae3",
+      "surface_container_high": "#e6e1d9",
+      "surface_container_highest": "#dfd9d0",
+      "surface_bright": "#d6d0c7",
+      "primary": "#755700",
+      "secondary": "#4f6632",
+      "tertiary": "#255e8a"
+    }
+  }
+}
+EOF
+cat > "$XDG_DATA_HOME/color-schemes/DankMatugenDark.colors" <<'EOF'
+[General]
+ColorScheme=DankMatugenDark
+Name=Dank Shell (matugen) Dark
+
+[Colors:Button]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[Colors:Complementary]
+BackgroundAlternate=35,24,1
+BackgroundNormal=17,15,11
+
+[Colors:Header]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[Colors:Header][Inactive]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[Colors:Tooltip]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[Colors:View]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[Colors:Window]
+BackgroundAlternate=17,15,11
+BackgroundNormal=17,15,11
+
+[WM]
+activeBackground=17,15,11
+inactiveBackground=17,15,11
+EOF
+cp "$XDG_DATA_HOME/color-schemes/DankMatugenDark.colors" "$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
+sed -i 's/DankMatugenDark/DankMatugenLight/g' "$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
+
+kv_test_colors="primary=#f1bf48;secondary=#afd282;tertiary=#89c4f4;on_surface=#eae6dc;surface=#110f0b;surface_variant=#24221b;surface_container_low=#16140f;surface_container=#1d1b15;surface_container_high=#24221b;surface_container_highest=#2c2921;surface_bright=#37342a;surface_dim=#110f0b;inverse_on_surface=#110f0b;inverse_primary=#755700;primary_fixed_dim=#d1a32c;tertiary_fixed_dim=#89c4f4"
+run_surfaces() {
+    env -u NIRI_SOCKET DMS_THEME_SYNC_LIB_DIRS="$FAKE_KV" "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd false --compositor generic \
+        --kvantum-colors "$kv_test_colors" --no-runtime "$@" >/dev/null
+}
+
+# 1. Default (dux/dux): no surface CSS override, no DankThemeSync.colors
+rm -f "$XDG_CONFIG_HOME/gtk-3.0/dms-theme-sync-surfaces.css" \
+      "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css" \
+      "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors"
+sed -i '/dms-theme-sync-surfaces\.css/d' "$XDG_CONFIG_HOME/gtk-3.0/gtk.css" "$XDG_CONFIG_HOME/gtk-4.0/gtk.css"
+run_surfaces --mode dark --qt-style Fusion --uniform-list-bg false \
+    --app-surface-depth dux --app-surface-tint dux
+[[ ! -e $XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css && ! -e $XDG_DATA_HOME/color-schemes/DankThemeSync.colors ]] \
+    || { printf 'App surface artifacts created under dux/dux default\n' >&2; exit 1; }
+grep -Fq 'dms-theme-sync-surfaces.css' "$XDG_CONFIG_HOME/gtk-4.0/gtk.css" \
+    && { printf 'gtk.css imported surfaces under dux/dux default\n' >&2; exit 1; }
+
+# 2. Dark balanced + expressive: GTK CSS import order, lifted luminance, KDE hierarchy, Kvantum render
+run_surfaces --mode dark --qt-style kvantum --sync-kvantum true --uniform-list-bg false \
+    --app-surface-depth balanced --app-surface-tint expressive
+for gtk_dir in "$XDG_CONFIG_HOME/gtk-3.0" "$XDG_CONFIG_HOME/gtk-4.0"; do
+    [[ -f $gtk_dir/dms-theme-sync-surfaces.css ]] \
+        || { printf 'Missing %s/dms-theme-sync-surfaces.css\n' "$gtk_dir" >&2; exit 1; }
+    awk '
+        /dank-colors\.css/ { dank = NR }
+        /dms-theme-sync-surfaces\.css/ { surf = NR }
+        END { exit !(dank > 0 && surf > dank) }
+    ' "$gtk_dir/gtk.css" || { printf 'Surface import not ordered after dank-colors.css in %s/gtk.css\n' "$gtk_dir" >&2; exit 1; }
+done
+gtk_view_hex=$(sed -n 's/^@define-color view_bg_color \(#[0-9a-f]\{6\}\);/\1/p' "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css")
+gtk_win_hex=$(sed -n 's/^@define-color window_bg_color \(#[0-9a-f]\{6\}\);/\1/p' "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css")
+gtk_side_hex=$(sed -n 's/^@define-color sidebar_bg_color \(#[0-9a-f]\{6\}\);/\1/p' "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css")
+[[ -n $gtk_view_hex && $gtk_view_hex != "$gtk_win_hex" && $gtk_win_hex != "$gtk_side_hex" ]] \
+    || { printf 'Surface elevation hierarchy collapsed: %s / %s / %s\n' "$gtk_view_hex" "$gtk_win_hex" "$gtk_side_hex" >&2; exit 1; }
+(( 16#${gtk_view_hex:3:2} > 16#16 )) \
+    || { printf 'Balanced depth did not lift view above Bold Dux (#16140f): %s\n' "$gtk_view_hex" >&2; exit 1; }
+
+[[ -f $XDG_DATA_HOME/color-schemes/DankThemeSync.colors ]] \
+    || { printf 'DankThemeSync.colors not generated\n' >&2; exit 1; }
+grep -Fq 'ColorScheme=DankThemeSync' "$XDG_CONFIG_HOME/kdeglobals" \
+    || { printf 'kdeglobals did not switch to DankThemeSync\n' >&2; exit 1; }
+kde_view_bg=$(awk '/^\[/{s=$0} s=="[Colors:View]" && /^BackgroundNormal=/ {sub(/^BackgroundNormal=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors")
+kde_view_alt=$(awk '/^\[/{s=$0} s=="[Colors:View]" && /^BackgroundAlternate=/ {sub(/^BackgroundAlternate=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors")
+kde_win_bg=$(awk '/^\[/{s=$0} s=="[Colors:Window]" && /^BackgroundNormal=/ {sub(/^BackgroundNormal=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors")
+kde_btn_bg=$(awk '/^\[/{s=$0} s=="[Colors:Button]" && /^BackgroundNormal=/ {sub(/^BackgroundNormal=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankThemeSync.colors")
+[[ -n $kde_view_bg && $kde_view_bg != "$kde_view_alt" && $kde_view_bg != "$kde_win_bg" && $kde_win_bg != "$kde_btn_bg" ]] \
+    || { printf 'KDE View<Win<Btn hierarchy broken: %s / %s / %s / %s\n' "$kde_view_bg" "$kde_view_alt" "$kde_win_bg" "$kde_btn_bg" >&2; exit 1; }
+grep -Fq "window.color=$gtk_win_hex" "$XDG_CONFIG_HOME/Kvantum/DankMatugen/DankMatugen.kvconfig" \
+    || { printf 'Kvantum DankMatugen.kvconfig did not receive adjusted window color %s\n' "$gtk_win_hex" >&2; exit 1; }
+
+# 3. Dark charcoal + neutral with uniformListBg=true -> DankUniform.colors equalizes alternate + keeps hierarchy
+run_surfaces --mode dark --qt-style Fusion --uniform-list-bg true \
+    --app-surface-depth charcoal --app-surface-tint neutral
+[[ -f $XDG_DATA_HOME/color-schemes/DankUniform.colors && ! -e $XDG_DATA_HOME/color-schemes/DankThemeSync.colors ]] \
+    || { printf 'Uniform + surfaces did not swap DankThemeSync -> DankUniform cleanly\n' >&2; exit 1; }
+uni_view_bg=$(awk '/^\[/{s=$0} s=="[Colors:View]" && /^BackgroundNormal=/ {sub(/^BackgroundNormal=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankUniform.colors")
+uni_view_alt=$(awk '/^\[/{s=$0} s=="[Colors:View]" && /^BackgroundAlternate=/ {sub(/^BackgroundAlternate=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankUniform.colors")
+uni_win_bg=$(awk '/^\[/{s=$0} s=="[Colors:Window]" && /^BackgroundNormal=/ {sub(/^BackgroundNormal=/,""); print; exit}' "$XDG_DATA_HOME/color-schemes/DankUniform.colors")
+[[ -n $uni_view_bg && $uni_view_bg == "$uni_view_alt" && $uni_view_bg != "$uni_win_bg" ]] \
+    || { printf 'DankUniform did not combine uniform lists with surface hierarchy\n' >&2; exit 1; }
+
+# 4. Light mode with dark depth only (charcoal + dux tint): leaves light surfaces untouched
+run_surfaces --mode light --qt-style Fusion --uniform-list-bg false \
+    --app-surface-depth charcoal --app-surface-tint dux
+[[ ! -e $XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css && ! -e $XDG_DATA_HOME/color-schemes/DankThemeSync.colors ]] \
+    || { printf 'Dark depth setting wrongly mutated light mode\n' >&2; exit 1; }
+
+# 5. Light mode with tint (secondary): keeps light luminance high (>= 0xd0)
+run_surfaces --mode light --qt-style Fusion --uniform-list-bg false \
+    --app-surface-depth dux --app-surface-tint secondary
+light_view_hex=$(sed -n 's/^@define-color view_bg_color \(#[0-9a-f]\{6\}\);/\1/p' "$XDG_CONFIG_HOME/gtk-4.0/dms-theme-sync-surfaces.css")
+[[ -n $light_view_hex ]] && (( 16#${light_view_hex:3:2} >= 16#d0 )) \
+    || { printf 'Light mode tint darkened view unexpectedly: %s\n' "${light_view_hex:-missing}" >&2; exit 1; }
+
+# 6. Returning to dux/dux removes surface overrides & gtk.css imports cleanly
+run_surfaces --mode dark --qt-style Fusion --uniform-list-bg false \
+    --app-surface-depth dux --app-surface-tint dux
+for gtk_dir in "$XDG_CONFIG_HOME/gtk-3.0" "$XDG_CONFIG_HOME/gtk-4.0"; do
+    [[ ! -e $gtk_dir/dms-theme-sync-surfaces.css ]] \
+        || { printf 'Surface CSS survived return to dux/dux in %s\n' "$gtk_dir" >&2; exit 1; }
+    grep -Fq 'dms-theme-sync-surfaces.css' "$gtk_dir/gtk.css" \
+        && { printf 'Surface import survived return to dux/dux in %s/gtk.css\n' "$gtk_dir" >&2; exit 1; }
+done
+[[ ! -e $XDG_DATA_HOME/color-schemes/DankThemeSync.colors ]] \
+    || { printf 'DankThemeSync.colors survived return to dux/dux\n' >&2; exit 1; }
+
+# 7. Invalid surface flags rejected with exit code 2
+for bad_surf in "--app-surface-depth=bogus" "--app-surface-tint=bogus"; do
+    sflag=${bad_surf%%=*}
+    sval=${bad_surf#*=}
+    rc=0
+    env -u NIRI_SOCKET "$ROOT/scripts/apply-theme.sh" \
+        --compositor generic --qt-platform-theme preserve --qt-style preserve \
+        --backup-enabled false --no-runtime "$sflag" "$sval" >/dev/null 2>&1 || rc=$?
+    [[ $rc -eq 2 ]] || { printf 'Expected exit 2 for %s %s, got %s\n' "$sflag" "$sval" "$rc" >&2; exit 1; }
+done
+
 printf 'helper tests: ok\n'

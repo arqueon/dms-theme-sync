@@ -34,6 +34,8 @@ NIRI_BORDER_GRADIENT_TO="secondary"
 SYNC_FLATPAK=false
 SYNC_KVANTUM=false
 UNIFORM_LIST_BG=false
+APP_SURFACE_DEPTH="dux"
+APP_SURFACE_TINT="dux"
 KV_COLORS=""
 DRY_RUN=false
 NO_RUNTIME=${DMS_THEME_SYNC_NO_RUNTIME:-false}
@@ -78,6 +80,8 @@ while (( $# )); do
         --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
         --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
         --uniform-list-bg) UNIFORM_LIST_BG=${2:?}; shift 2 ;;
+        --app-surface-depth) APP_SURFACE_DEPTH=${2:?}; shift 2 ;;
+        --app-surface-tint) APP_SURFACE_TINT=${2:?}; shift 2 ;;
         --kvantum-colors) KV_COLORS=${2-}; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --no-runtime) NO_RUNTIME=true; shift ;;
@@ -125,6 +129,14 @@ case "$NIRI_BORDER_GRADIENT_TO" in
     secondary|tertiary|primary_container|outline) ;;
     *) printf 'Invalid niri-border-gradient-to: %s\n' "$NIRI_BORDER_GRADIENT_TO" >&2; exit 2 ;;
 esac
+case "$APP_SURFACE_DEPTH" in
+    dux|balanced|charcoal|deep) ;;
+    *) printf 'Invalid app-surface-depth: %s\n' "$APP_SURFACE_DEPTH" >&2; exit 2 ;;
+esac
+case "$APP_SURFACE_TINT" in
+    dux|neutral|subtle|expressive|secondary|tertiary) ;;
+    *) printf 'Invalid app-surface-tint: %s\n' "$APP_SURFACE_TINT" >&2; exit 2 ;;
+esac
 
 niri_dms_active_color() {
     awk -v want="$1" '
@@ -132,6 +144,260 @@ niri_dms_active_color() {
         insec && $1 == "active-color" { gsub(/"/, "", $2); print $2; exit }
         insec && /}/ { insec = 0 }
     ' "$NIRI_DIR/dms/colors.kdl" 2>/dev/null
+}
+
+dms_cache_color() {
+    local role=$1 cache_file found=""
+    for cache_file in "$XDG_CACHE_HOME/dms/dms-colors.json" \
+                      "$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json"; do
+        [[ -f $cache_file ]] || continue
+        found=$(awk -v mode="$MODE" -v role="$role" '
+            { buf = buf " " $0 }
+            END {
+                gsub(/\r/, "", buf)
+                if (!match(buf, /"colors"[[:space:]]*:[[:space:]]*\{/)) exit
+                rest = substr(buf, RSTART + RLENGTH)
+                depth = 1
+                endpos = 0
+                n = length(rest)
+                for (i = 1; i <= n; i++) {
+                    ch = substr(rest, i, 1)
+                    if (ch == "{") depth++
+                    else if (ch == "}") {
+                        depth--
+                        if (depth == 0) { endpos = i; break }
+                    }
+                }
+                if (endpos == 0) exit
+                colors_obj = substr(rest, 1, endpos)
+                pat_mode = "\"" mode "\"[[:space:]]*:[[:space:]]*\\{"
+                if (!match(colors_obj, pat_mode)) exit
+                mrest = substr(colors_obj, RSTART + RLENGTH)
+                if (!match(mrest, /\}/)) exit
+                block = substr(mrest, 1, RSTART - 1)
+                pat_role = "\"" role "\"[[:space:]]*:[[:space:]]*\"#[0-9a-fA-F]{6}\""
+                if (match(block, pat_role)) {
+                    kv = substr(block, RSTART, RLENGTH)
+                    sub(/^[^#]*/, "", kv)
+                    sub(/".*$/, "", kv)
+                    print tolower(kv)
+                }
+            }
+        ' "$cache_file" 2>/dev/null)
+        if [[ $found =~ ^#[0-9a-fA-F]{6}$ ]]; then
+            printf '%s' "$found"
+            return 0
+        fi
+    done
+
+    if [[ -n $KV_COLORS ]]; then
+        found=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n "s/^${role}=//p" | head -n 1)
+        if [[ $found =~ ^#[0-9a-fA-F]{6}$ ]]; then
+            printf '%s' "${found,,}"
+            return 0
+        fi
+    fi
+
+    case "$role" in
+        primary)
+            found=$(niri_dms_active_color border)
+            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
+            ;;
+        primary_container)
+            found=$(niri_dms_active_color highlight)
+            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
+            ;;
+    esac
+
+    local css_var="" css_file="$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+    case "$role" in
+        primary)                 css_var="accent_bg_color" ;;
+        surface_container_low)   css_var="view_bg_color" ;;
+        surface_container)       css_var="window_bg_color" ;;
+        surface_container_high)  css_var="sidebar_bg_color" ;;
+    esac
+    if [[ -n $css_var && -f $css_file ]]; then
+        found=$(sed -n "s/^@define-color[[:space:]]\+${css_var}[[:space:]]\+\(#[0-9a-fA-F]\{6\}\).*/\1/p" "$css_file" | head -n 1)
+        if [[ $found =~ ^#[0-9a-fA-F]{6}$ ]]; then
+            printf '%s' "${found,,}"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+hex_to_rgb_csv() {
+    local c=${1#\#}
+    printf '%d,%d,%d' "0x${c:0:2}" "0x${c:2:2}" "0x${c:4:2}"
+}
+
+APP_SURFACES_ACTIVE=false
+APP_SURF_VIEW=""
+APP_SURF_WINDOW=""
+APP_SURF_SIDEBAR=""
+APP_SURF_CARD=""
+APP_SURF_BRIGHT=""
+APP_SURF_LOWEST=""
+
+compute_app_surfaces() {
+    local def_view def_win def_lowest
+    if [[ $MODE == light ]]; then
+        def_view="#f6f6f9"; def_win="#efeff2"; def_lowest="#ffffff"
+    else
+        def_view="#1b1b1e"; def_win="#222226"; def_lowest="#111113"
+    fi
+
+    local base_surf base_view base_win base_side base_card base_bright base_lowest
+    base_surf=$(dms_cache_color surface || true)
+    base_view=$(dms_cache_color surface_container_low || true)
+    base_view=${base_view:-${base_surf:-$def_view}}
+    base_win=$(dms_cache_color surface_container || true)
+    base_win=${base_win:-${base_surf:-$def_win}}
+    base_side=$(dms_cache_color surface_container_high || true)
+    base_side=${base_side:-$base_win}
+    base_card=$(dms_cache_color surface_container_highest || true)
+    base_card=${base_card:-$base_side}
+    base_bright=$(dms_cache_color surface_bright || true)
+    base_bright=${base_bright:-$base_card}
+    base_lowest=$(dms_cache_color surface_container_lowest || true)
+    base_lowest=${base_lowest:-$def_lowest}
+
+    local hue_hex=""
+    case "$APP_SURFACE_TINT" in
+        subtle|expressive|dux)
+            hue_hex=$(dms_cache_color primary || dms_cache_color source_color || true)
+            ;;
+        secondary)
+            hue_hex=$(dms_cache_color secondary || dms_cache_color primary || true)
+            ;;
+        tertiary)
+            hue_hex=$(dms_cache_color tertiary || dms_cache_color secondary || dms_cache_color primary || true)
+            ;;
+        neutral)
+            hue_hex=$base_win
+            ;;
+    esac
+    hue_hex=${hue_hex:-$base_win}
+
+    local result
+    result=$(awk -v depth="$APP_SURFACE_DEPTH" -v tint="$APP_SURFACE_TINT" -v mode="$MODE" \
+        -v b_view="$base_view" -v b_win="$base_win" -v b_side="$base_side" \
+        -v b_card="$base_card" -v b_bright="$base_bright" -v b_lowest="$base_lowest" \
+        -v hue_hex="$hue_hex" '
+        function hex2int(h,    i, c, v) {
+            v = 0; h = tolower(h)
+            for (i = 1; i <= length(h); i++) {
+                c = substr(h, i, 1)
+                v = v * 16 + index("0123456789abcdef", c) - 1
+            }
+            return v
+        }
+        function clamp01(x) { return (x < 0) ? 0 : ((x > 1) ? 1 : x) }
+        function srgb_to_lin(c) {
+            return (c <= 0.04045) ? (c / 12.92) : exp(2.4 * log((c + 0.055) / 1.055))
+        }
+        function lin_to_srgb(c) {
+            c = clamp01(c)
+            return clamp01((c <= 0.0031308) ? (12.92 * c) : (1.055 * exp(log(c) / 2.4) - 0.055))
+        }
+        function cbrt(x,    sgn) {
+            if (x == 0) return 0
+            sgn = (x < 0) ? -1 : 1
+            return sgn * exp(log(sgn * x) / 3.0)
+        }
+        function hex_to_oklab(hex, out,    r, g, b, l, m, s, l_, m_, s_) {
+            sub(/^#/, "", hex)
+            r = srgb_to_lin(hex2int(substr(hex, 1, 2)) / 255.0)
+            g = srgb_to_lin(hex2int(substr(hex, 3, 2)) / 255.0)
+            b = srgb_to_lin(hex2int(substr(hex, 5, 2)) / 255.0)
+            l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+            m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+            s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+            l_ = cbrt(l); m_ = cbrt(m); s_ = cbrt(s)
+            out[1] = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
+            out[2] = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+            out[3] = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+        }
+        function oklab_to_hex(L, a, b,    l_, m_, s_, l, m, s, r, g, bl, ri, gi, bi) {
+            l_ = L + 0.3963377774 * a + 0.2158037573 * b
+            m_ = L - 0.1055613458 * a - 0.0638541728 * b
+            s_ = L - 0.0894841775 * a - 1.2914855480 * b
+            l = l_ * l_ * l_; m = m_ * m_ * m_; s = s_ * s_ * s_
+            r  = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+            g  = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+            bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+            ri = int(lin_to_srgb(r)  * 255.0 + 0.5)
+            gi = int(lin_to_srgb(g)  * 255.0 + 0.5)
+            bi = int(lin_to_srgb(bl) * 255.0 + 0.5)
+            return sprintf("#%02x%02x%02x", ri, gi, bi)
+        }
+        BEGIN {
+            base_hex[1] = b_view; base_hex[2] = b_win; base_hex[3] = b_side
+            base_hex[4] = b_card; base_hex[5] = b_bright; base_hex[6] = b_lowest
+
+            hex_to_oklab(hue_hex, hlab)
+            hmag = sqrt(hlab[2] * hlab[2] + hlab[3] * hlab[3])
+            if (hmag < 0.0001) { ua = 0; ub = 0 } else { ua = hlab[2] / hmag; ub = hlab[3] / hmag }
+
+            for (i = 1; i <= 6; i++) {
+                hex_to_oklab(base_hex[i], blab)
+                origL[i] = blab[1]; origA[i] = blab[2]; origB[i] = blab[3]
+            }
+
+            if (mode == "light") {
+                tL[1]=0.985; tL[2]=0.960; tL[3]=0.935; tL[4]=0.992; tL[5]=0.915; tL[6]=0.996
+                if      (tint == "neutral")    { tC[1]=0.003; tC[2]=0.004; tC[3]=0.005; tC[4]=0.002; tC[5]=0.006; tC[6]=0.001 }
+                else if (tint == "subtle")     { tC[1]=0.010; tC[2]=0.015; tC[3]=0.020; tC[4]=0.006; tC[5]=0.024; tC[6]=0.003 }
+                else if (tint == "expressive") { tC[1]=0.016; tC[2]=0.026; tC[3]=0.036; tC[4]=0.010; tC[5]=0.040; tC[6]=0.005 }
+                else if (tint == "secondary")  { tC[1]=0.014; tC[2]=0.023; tC[3]=0.032; tC[4]=0.009; tC[5]=0.036; tC[6]=0.004 }
+                else if (tint == "tertiary")   { tC[1]=0.013; tC[2]=0.021; tC[3]=0.029; tC[4]=0.008; tC[5]=0.033; tC[6]=0.004 }
+            } else {
+                if      (depth == "balanced") { tL[1]=0.235; tL[2]=0.265; tL[3]=0.300; tL[4]=0.322; tL[5]=0.355; tL[6]=0.195 }
+                else if (depth == "charcoal") { tL[1]=0.275; tL[2]=0.305; tL[3]=0.340; tL[4]=0.365; tL[5]=0.395; tL[6]=0.235 }
+                else if (depth == "deep")     { tL[1]=0.125; tL[2]=0.165; tL[3]=0.205; tL[4]=0.225; tL[5]=0.260; tL[6]=0.080 }
+                else {
+                    tL[1] = origL[1]
+                    tL[2] = (origL[2] >= tL[1] + 0.025) ? origL[2] : (tL[1] + 0.025)
+                    tL[3] = (origL[3] >= tL[2] + 0.030) ? origL[3] : (tL[2] + 0.030)
+                    tL[4] = (origL[4] >= tL[3] + 0.020) ? origL[4] : (tL[3] + 0.020)
+                    tL[5] = (origL[5] >= tL[4] + 0.025) ? origL[5] : (tL[4] + 0.025)
+                    tL[6] = (origL[6] <= tL[1] - 0.030) ? origL[6] : ((tL[1] > 0.030) ? (tL[1] - 0.030) : 0)
+                }
+
+                if      (tint == "neutral")    { tC[1]=0.004; tC[2]=0.004; tC[3]=0.005; tC[4]=0.005; tC[5]=0.005; tC[6]=0.003 }
+                else if (tint == "subtle")     { tC[1]=0.015; tC[2]=0.020; tC[3]=0.025; tC[4]=0.027; tC[5]=0.029; tC[6]=0.011 }
+                else if (tint == "expressive") { tC[1]=0.028; tC[2]=0.036; tC[3]=0.045; tC[4]=0.050; tC[5]=0.053; tC[6]=0.020 }
+                else if (tint == "secondary")  { tC[1]=0.026; tC[2]=0.034; tC[3]=0.042; tC[4]=0.046; tC[5]=0.049; tC[6]=0.018 }
+                else if (tint == "tertiary")   { tC[1]=0.024; tC[2]=0.031; tC[3]=0.039; tC[4]=0.043; tC[5]=0.046; tC[6]=0.016 }
+            }
+
+            out_str = ""
+            for (i = 1; i <= 6; i++) {
+                if (tint == "dux") {
+                    omag = sqrt(origA[i] * origA[i] + origB[i] * origB[i])
+                    if (omag > 0.055) {
+                        ca = origA[i] * (0.055 / omag)
+                        cb = origB[i] * (0.055 / omag)
+                    } else {
+                        ca = origA[i]; cb = origB[i]
+                    }
+                } else {
+                    ca = ua * tC[i]
+                    cb = ub * tC[i]
+                }
+                hx = oklab_to_hex(tL[i], ca, cb)
+                out_str = (i == 1) ? hx : (out_str " " hx)
+            }
+            print out_str
+        }
+    ')
+    read -r APP_SURF_VIEW APP_SURF_WINDOW APP_SURF_SIDEBAR APP_SURF_CARD APP_SURF_BRIGHT APP_SURF_LOWEST <<<"$result"
+    APP_SURF_VIEW=${APP_SURF_VIEW:-$base_view}
+    APP_SURF_WINDOW=${APP_SURF_WINDOW:-$base_win}
+    APP_SURF_SIDEBAR=${APP_SURF_SIDEBAR:-$base_side}
+    APP_SURF_CARD=${APP_SURF_CARD:-$base_card}
+    APP_SURF_BRIGHT=${APP_SURF_BRIGHT:-$base_bright}
+    APP_SURF_LOWEST=${APP_SURF_LOWEST:-$base_lowest}
 }
 
 case "$MODE" in light|dark) ;; *) printf 'Invalid mode: %s\n' "$MODE" >&2; exit 2 ;; esac
@@ -893,6 +1159,12 @@ wait_for_dms_matugen_export() {
 }
 wait_for_dms_matugen_export
 
+if [[ $APPLY_MATUGEN_COLORS == true ]] && { [[ $APP_SURFACE_TINT != dux ]] || [[ $APP_SURFACE_DEPTH != dux && $MODE == dark ]]; }; then
+    APP_SURFACES_ACTIVE=true
+    compute_app_surfaces
+    log "app-surfaces: depth=$APP_SURFACE_DEPTH tint=$APP_SURFACE_TINT mode=$MODE view=$APP_SURF_VIEW window=$APP_SURF_WINDOW sidebar=$APP_SURF_SIDEBAR card=$APP_SURF_CARD"
+fi
+
 resolve_matugen_accent() {
     local css_accent kv_primary
     css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
@@ -1293,10 +1565,91 @@ ensure_matugen_css_import() {
     commit_staged_file "$tmp" "$css_file"
 }
 
+sync_gtk_surface_css() {
+    local gtk_dir=$1 colors_file css_file surf_file tmp
+    colors_file="$gtk_dir/dank-colors.css"
+    css_file="$gtk_dir/gtk.css"
+    surf_file="$gtk_dir/dms-theme-sync-surfaces.css"
+
+    if [[ $APPLY_MATUGEN_COLORS != true || $APP_SURFACES_ACTIVE != true ]]; then
+        if $DRY_RUN; then
+            [[ -f $surf_file ]] && log "DRY-RUN: remove $surf_file"
+            return
+        fi
+        if [[ -f $css_file ]] && ! [[ -L $css_file && $css_file -ef $colors_file ]] \
+           && grep -Fq '@import url("dms-theme-sync-surfaces.css");' "$css_file"; then
+            tmp="$css_file.tmp.$$"
+            grep -Fv '@import url("dms-theme-sync-surfaces.css");' "$css_file" > "$tmp"
+            commit_staged_file "$tmp" "$css_file"
+        fi
+        rm -f "$surf_file"
+        return
+    fi
+
+    if $DRY_RUN; then
+        log "DRY-RUN: write $surf_file and ensure import in $css_file"
+        return
+    fi
+    if [[ -L $css_file && $css_file -ef $colors_file ]]; then
+        log "gtk: cannot import dms-theme-sync-surfaces.css because $css_file links directly to $colors_file"
+        return
+    fi
+
+    mkdir -p "$gtk_dir"
+    tmp="$surf_file.tmp.$$"
+    cat > "$tmp" <<EOF
+/* AUTO-GENERATED BY dmsThemeSync — DO NOT EDIT */
+@define-color view_bg_color $APP_SURF_VIEW;
+@define-color window_bg_color $APP_SURF_WINDOW;
+@define-color headerbar_bg_color $APP_SURF_WINDOW;
+@define-color dialog_bg_color $APP_SURF_WINDOW;
+@define-color secondary_sidebar_bg_color $APP_SURF_WINDOW;
+@define-color sidebar_bg_color $APP_SURF_SIDEBAR;
+@define-color card_bg_color $APP_SURF_CARD;
+@define-color overview_bg_color $APP_SURF_SIDEBAR;
+@define-color popover_bg_color $APP_SURF_SIDEBAR;
+@define-color headerbar_backdrop_color @window_bg_color;
+@define-color sidebar_backdrop_color @sidebar_bg_color;
+@define-color theme_unfocused_bg_color @window_bg_color;
+@define-color theme_unfocused_base_color @view_bg_color;
+EOF
+    if [[ ! -f $surf_file ]] || ! cmp -s "$tmp" "$surf_file"; then
+        commit_staged_file "$tmp" "$surf_file"
+    else
+        rm -f "$tmp"
+    fi
+
+    tmp="$css_file.tmp.$$"
+    if [[ -f $css_file ]] && grep -Fq 'dank-colors.css' "$css_file"; then
+        awk '
+            index($0, "dms-theme-sync-surfaces.css") > 0 { next }
+            {
+                print
+                if (!inserted && index($0, "dank-colors.css") > 0) {
+                    print "@import url(\"dms-theme-sync-surfaces.css\");"
+                    inserted = 1
+                }
+            }
+        ' "$css_file" > "$tmp"
+    elif [[ -s $css_file ]]; then
+        printf '@import url("dms-theme-sync-surfaces.css");\n' > "$tmp"
+        grep -Fv 'dms-theme-sync-surfaces.css' "$css_file" >> "$tmp" || true
+    else
+        printf '@import url("dms-theme-sync-surfaces.css");\n' > "$tmp"
+    fi
+    if [[ ! -f $css_file ]] || ! cmp -s "$tmp" "$css_file"; then
+        commit_staged_file "$tmp" "$css_file"
+    else
+        rm -f "$tmp"
+    fi
+}
+
 if [[ $APPLY_MATUGEN_COLORS == true ]]; then
     ensure_matugen_css_import "$XDG_CONFIG_HOME/gtk-3.0"
     ensure_matugen_css_import "$XDG_CONFIG_HOME/gtk-4.0"
 fi
+sync_gtk_surface_css "$XDG_CONFIG_HOME/gtk-3.0"
+sync_gtk_surface_css "$XDG_CONFIG_HOME/gtk-4.0"
 
 GTK2_RC="$HOME/.gtkrc-2.0"
 [[ -n $GTK_THEME ]] && update_equals_key "$GTK2_RC" gtk-theme-name "\"$GTK_THEME\""
@@ -1341,44 +1694,74 @@ set_gsetting_string org.gnome.desktop.interface color-scheme "$([[ $MODE == dark
 #    from; the stripes return with Dux's next regeneration.
 DANK_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
 UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankUniform.colors"
+SURFACE_SCHEME="$XDG_DATA_HOME/color-schemes/DankThemeSync.colors"
 # v0.8.0 briefly named the derived scheme DankMatugenUniform; sweep it so the
 # picker holds one uniform scheme, not two.
 LEGACY_UNIFORM_SCHEME="$XDG_DATA_HOME/color-schemes/DankMatugenUniform.colors"
 
-derive_uniform_scheme() {
+derive_plugin_scheme() {
+    local out_file=$1 scheme_id=$2 scheme_label=$3 uniform_flag=$4 surfaces_flag=$5
     [[ -f $DANK_SCHEME_MODE ]] || return 1
     if $DRY_RUN; then
-        log "DRY-RUN: derive ${UNIFORM_SCHEME##*/} from ${DANK_SCHEME_MODE##*/}"
+        log "DRY-RUN: derive ${out_file##*/} from ${DANK_SCHEME_MODE##*/} (uniform=$uniform_flag surfaces=$surfaces_flag)"
         return 0
     fi
-    local tmp="$UNIFORM_SCHEME.tmp.$$"
-    # The name deliberately does NOT carry the DankMatugen prefix: Dux core's
+    local view_rgb="" win_rgb="" side_rgb="" card_rgb=""
+    if [[ $surfaces_flag == true ]]; then
+        view_rgb=$(hex_to_rgb_csv "$APP_SURF_VIEW")
+        win_rgb=$(hex_to_rgb_csv "$APP_SURF_WINDOW")
+        side_rgb=$(hex_to_rgb_csv "$APP_SURF_SIDEBAR")
+        card_rgb=$(hex_to_rgb_csv "$APP_SURF_CARD")
+    fi
+    local tmp="$out_file.tmp.$$"
+    # Names deliberately do NOT carry the DankMatugen prefix: Dux core's
     # isDMSKDEColorSchemeActive() matches by prefix and then runs
     # plasma-apply-colorscheme with the (non-uniform) DankMatugenDark/Light
-    # scheme, stomping the uniform sections out of kdeglobals until the next
-    # plugin apply — a ~10 s window in which every KDE app that (re)reads its
-    # palette picks the stripes back up (seen live in a Dolphin split pane).
-    # With a foreign prefix Dux leaves kdeglobals alone, and the refresh below
-    # is its only writer while the toggle is on.
-    awk '
-        /^\[/ { in_view = ($0 == "[Colors:View]"); in_general = ($0 == "[General]") }
-        in_view && index($0, "BackgroundNormal=") == 1 { normal = substr($0, 18) }
+    # scheme, stomping custom sections out of kdeglobals until the next
+    # plugin apply. With a foreign prefix Dux leaves kdeglobals alone, and the
+    # refresh below is its only writer while uniform lists or app surfaces are on.
+    awk -v scheme_id="$scheme_id" -v scheme_label="$scheme_label" \
+        -v uniform_flag="$uniform_flag" -v surfaces_flag="$surfaces_flag" \
+        -v view_rgb="$view_rgb" -v win_rgb="$win_rgb" -v side_rgb="$side_rgb" -v card_rgb="$card_rgb" '
+        /^\[/ { section = $0 }
+        section == "[Colors:View]" && index($0, "BackgroundNormal=") == 1 { orig_view = substr($0, 18) }
         { lines[++n] = $0 }
         END {
+            section = ""
             for (i = 1; i <= n; i++) {
                 line = lines[i]
-                if (line ~ /^\[/) { in_view = (line == "[Colors:View]"); in_general = (line == "[General]") }
-                if (in_view && index(line, "BackgroundAlternate=") == 1 && normal != "")
-                    line = "BackgroundAlternate=" normal
-                if (in_general && index(line, "ColorScheme=") == 1)
-                    line = "ColorScheme=DankUniform"
-                if (in_general && index(line, "Name=") == 1)
-                    line = "Name=Dank (uniform lists)"
+                if (line ~ /^\[/) { section = line; print line; continue }
+                if (section == "[General]") {
+                    if (index(line, "ColorScheme=") == 1) line = "ColorScheme=" scheme_id
+                    else if (index(line, "Name=") == 1) line = "Name=" scheme_label
+                }
+                if (surfaces_flag == "true" && view_rgb != "") {
+                    if (section == "[Colors:View]") {
+                        if (index(line, "BackgroundNormal=") == 1) line = "BackgroundNormal=" view_rgb
+                        else if (index(line, "BackgroundAlternate=") == 1)
+                            line = "BackgroundAlternate=" ((uniform_flag == "true") ? view_rgb : win_rgb)
+                    } else if (section == "[Colors:Window]" || section == "[Colors:Header]" || section == "[Colors:Header][Inactive]" || section == "[Colors:Complementary]") {
+                        if (index(line, "BackgroundNormal=") == 1) line = "BackgroundNormal=" win_rgb
+                        else if (index(line, "BackgroundAlternate=") == 1) line = "BackgroundAlternate=" side_rgb
+                    } else if (section == "[Colors:Button]") {
+                        if (index(line, "BackgroundNormal=") == 1) line = "BackgroundNormal=" side_rgb
+                        else if (index(line, "BackgroundAlternate=") == 1) line = "BackgroundAlternate=" card_rgb
+                    } else if (section == "[Colors:Tooltip]") {
+                        if (index(line, "BackgroundNormal=") == 1) line = "BackgroundNormal=" card_rgb
+                        else if (index(line, "BackgroundAlternate=") == 1) line = "BackgroundAlternate=" side_rgb
+                    } else if (section == "[WM]") {
+                        if (index(line, "activeBackground=") == 1) line = "activeBackground=" win_rgb
+                        else if (index(line, "inactiveBackground=") == 1) line = "inactiveBackground=" view_rgb
+                    }
+                } else if (uniform_flag == "true" && section == "[Colors:View]") {
+                    if (index(line, "BackgroundAlternate=") == 1 && orig_view != "")
+                        line = "BackgroundAlternate=" orig_view
+                }
                 print line
             }
         }
     ' "$DANK_SCHEME_MODE" > "$tmp"
-    commit_staged_file "$tmp" "$UNIFORM_SCHEME"
+    commit_staged_file "$tmp" "$out_file"
 }
 
 # Move 2 above: equalise the View alternate inside Dux's own scheme files, for
@@ -1409,8 +1792,9 @@ uniform_dms_schemes() {
     done
 }
 
-# The scheme every Qt/KDE consumer below points at: the uniform derivation when
-# the toggle is on and the source exists, Dux's own export otherwise.
+# The scheme every Qt/KDE consumer below points at: the plugin-derived scheme
+# when uniform list backgrounds or app surface adjustments are active, and Dux's
+# own export otherwise.
 #
 # Dux 2.0 writes a per-mode scheme next to the historical mode-agnostic one.
 # Prefer the file that matches the current mode so a stale `.default` section
@@ -1429,12 +1813,19 @@ if [[ -f $SCHEME_SOURCE ]]; then
 fi
 if [[ $UNIFORM_LIST_BG == true && $APPLY_MATUGEN_COLORS == true ]]; then
     uniform_dms_schemes
-    if derive_uniform_scheme; then
+    if derive_plugin_scheme "$UNIFORM_SCHEME" "DankUniform" "Dank (uniform lists)" true "$APP_SURFACES_ACTIVE"; then
         SCHEME_SOURCE="$UNIFORM_SCHEME"
         KDE_SCHEME_NAME="DankUniform"
     fi
-elif [[ -f $UNIFORM_SCHEME ]] && ! $DRY_RUN; then
-    rm -f "$UNIFORM_SCHEME"   # toggle turned off: leave no orphan scheme behind
+    $DRY_RUN || rm -f "$SURFACE_SCHEME"
+elif [[ $APP_SURFACES_ACTIVE == true && $APPLY_MATUGEN_COLORS == true ]]; then
+    if derive_plugin_scheme "$SURFACE_SCHEME" "DankThemeSync" "Dank (custom surfaces)" false true; then
+        SCHEME_SOURCE="$SURFACE_SCHEME"
+        KDE_SCHEME_NAME="DankThemeSync"
+    fi
+    $DRY_RUN || rm -f "$UNIFORM_SCHEME"
+elif ! $DRY_RUN; then
+    rm -f "$UNIFORM_SCHEME" "$SURFACE_SCHEME"
 fi
 $DRY_RUN || rm -f "$LEGACY_UNIFORM_SCHEME"
 
@@ -1498,7 +1889,7 @@ for qt_version in 5 6; do
             # If we were the previous owner, hand the scheme back once instead
             # of leaving Qt pointed at DankUniform forever.
             current_path=$(read_ini_value "$qt_file" Appearance color_scheme_path || true)
-            if [[ $current_path == "$UNIFORM_SCHEME" || $current_path == "$LIVE_SCHEME_DIR/"* ]]; then
+            if [[ $current_path == "$UNIFORM_SCHEME" || $current_path == "$SURFACE_SCHEME" || $current_path == "$LIVE_SCHEME_DIR/"* ]]; then
                 update_ini "$qt_file" Appearance color_scheme_path "$DANK_SCHEME"
                 log "qt-colors: handed palette back to Dux (qt${qt_version}ct)"
             else
@@ -1580,7 +1971,7 @@ if [[ $SYNC_KDE == true ]]; then
             # rewriting General ColorScheme here would undo that on every apply.
             # Hand back only if the plugin's uniform scheme is still active.
             current_scheme=$(read_ini_value "$KDEGLOBALS" General ColorScheme || true)
-            if [[ $current_scheme == DankUniform ]]; then
+            if [[ $current_scheme == DankUniform || $current_scheme == DankThemeSync ]]; then
                 update_ini "$KDEGLOBALS" General ColorScheme "$KDE_SCHEME_NAME"
                 refresh_kdeglobals_colors "$SCHEME_SOURCE" "$KDEGLOBALS"
                 log "kde-colors: handed scheme back to Dux ($KDE_SCHEME_NAME)"
@@ -1733,12 +2124,24 @@ sync_kvantum_theme() {
     mkdir -p "$out_dir"
 
     local -a sed_args=()
+    declare -A kv_map=()
     # KV_COLORS is "role=#hex;role=#hex;..." — no trailing separator, so the last
     # pair has no newline and plain `read` would silently drop it.
     while IFS='=' read -r role hex || [[ -n $role ]]; do
         [[ -n $role && $hex =~ ^#[0-9a-fA-F]{6}$ ]] || continue
-        sed_args+=(-e "s|{{colors\.${role}\.default\.hex}}|${hex}|g")
+        kv_map[$role]=$hex
     done < <(printf '%s' "$KV_COLORS" | tr ';' '\n')
+    if [[ $APP_SURFACES_ACTIVE == true && ${#kv_map[@]} -gt 0 ]]; then
+        kv_map[surface]=$APP_SURF_WINDOW
+        kv_map[surface_dim]=$APP_SURF_VIEW
+        kv_map[surface_container_low]=$APP_SURF_VIEW
+        kv_map[surface_variant]=$APP_SURF_SIDEBAR
+        kv_map[surface_container_highest]=$APP_SURF_CARD
+        kv_map[surface_bright]=$APP_SURF_BRIGHT
+    fi
+    for role in "${!kv_map[@]}"; do
+        sed_args+=(-e "s|{{colors\.${role}\.default\.hex}}|${kv_map[$role]}|g")
+    done
     (( ${#sed_args[@]} )) || { log "kvantum: no usable colours; skipping"; return 1; }
 
     local f
@@ -2076,67 +2479,6 @@ niri_format_color() {
     else
         printf '%s%s' "$c" "$(niri_alpha_hex "$NIRI_BORDER_OPACITY")"
     fi
-}
-
-dms_cache_color() {
-    local role=$1 cache_file found=""
-    for cache_file in "$XDG_CACHE_HOME/dms/dms-colors.json" \
-                      "$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json"; do
-        [[ -f $cache_file ]] || continue
-        found=$(awk -v mode="$MODE" -v role="$role" '
-            { buf = buf " " $0 }
-            END {
-                gsub(/\r/, "", buf)
-                if (!match(buf, /"colors"[[:space:]]*:[[:space:]]*\{/)) exit
-                rest = substr(buf, RSTART + RLENGTH)
-                depth = 1
-                endpos = 0
-                n = length(rest)
-                for (i = 1; i <= n; i++) {
-                    ch = substr(rest, i, 1)
-                    if (ch == "{") depth++
-                    else if (ch == "}") {
-                        depth--
-                        if (depth == 0) { endpos = i; break }
-                    }
-                }
-                if (endpos == 0) exit
-                colors_obj = substr(rest, 1, endpos)
-                pat_mode = "\"" mode "\"[[:space:]]*:[[:space:]]*\\{"
-                if (!match(colors_obj, pat_mode)) exit
-                mrest = substr(colors_obj, RSTART + RLENGTH)
-                if (!match(mrest, /\}/)) exit
-                block = substr(mrest, 1, RSTART - 1)
-                pat_role = "\"" role "\"[[:space:]]*:[[:space:]]*\"#[0-9a-fA-F]{6}\""
-                if (match(block, pat_role)) {
-                    kv = substr(block, RSTART, RLENGTH)
-                    sub(/^[^#]*/, "", kv)
-                    sub(/".*$/, "", kv)
-                    print tolower(kv)
-                }
-            }
-        ' "$cache_file" 2>/dev/null)
-        if [[ $found =~ ^#[0-9a-fA-F]{6}$ ]]; then
-            printf '%s' "$found"
-            return 0
-        fi
-    done
-
-    case "$role" in
-        primary)
-            found=$(niri_dms_active_color border)
-            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
-            ;;
-        primary_container)
-            found=$(niri_dms_active_color highlight)
-            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
-            ;;
-    esac
-    if [[ -n $KV_COLORS ]]; then
-        found=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n "s/^${role}=//p" | head -n 1)
-        [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
-    fi
-    return 1
 }
 
 write_niri_env_include() {
@@ -2548,4 +2890,4 @@ if ! $DRY_RUN; then
     fi
 fi
 
-log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${NATIVE_PAIR_STYLE:+ native-pair=$NATIVE_PAIR_STYLE}${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG"
+log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${NATIVE_PAIR_STYLE:+ native-pair=$NATIVE_PAIR_STYLE}${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG app-surfaces=${APP_SURFACE_DEPTH}/${APP_SURFACE_TINT}"

@@ -361,7 +361,7 @@ dynamically and rendered only when exposed by the running shell.
 
 | Dux capability | Theme Sync coverage and boundary |
 | --- | --- |
-| Theme category, registry themes, Material spec, Matugen scheme & contrast | *Color theme* switches cleanly between Dynamic, Generic themes, and installed Registry themes/flavors. *Material palette* offers Standard (2021), Expressive (2025), and Bold (Dux 2025). *Matugen palette* renders live swatch tiles (`MatugenPreviewService.schemeOptions`) alongside contrast controls. |
+| Theme category, registry themes, Material spec, Matugen scheme & contrast | *Color theme* switches cleanly between Dynamic, Generic themes, and installed Registry themes/flavors. *Material palette* offers Standard (2021), Expressive (2025), and Bold (Dux 2025). *Matugen palette* renders live swatch tiles (`MatugenPreviewService.schemeOptions`) alongside contrast controls, while **App backgrounds** (*Dark surface depth* + *App background tint*) let you adjust dark-mode surface lightness (`Balanced` / `Charcoal` / `Deep`) and tint source (`Neutral` / `Subtle` / `Expressive` / `Secondary` / `Tertiary`) across GTK 3/4, Flatpak, Qt 5/6, KDE, and Kvantum without modifying Dux Shell. |
 | Wallpaper, source color, seed and smart mode | Dux owns extraction. Theme Sync provides interactive color swatch pickers (`PopoutService.colorPickerModal`) for *Source color* (custom wallpaper seed) and *Derived color*, plus automatic mode control (Manual / Schedule / Location / Wallpaper smart mode). |
 | Terminal ANSI palette (`dank16`) | Mirrors `SettingsData.terminalPalette` (*Tonal* = `"default"`, *Soft* = `"low"`, *Medium* = `"medium"`, *Vibrant* = `"high"`), plus `terminalOpacity` and `terminalsAlwaysDark`. |
 | Dux 2.1/2.2 shapes, surfaces and rounded screen corners | Mirrors `interfaceStyle`, `density`, `sectionDividerOpacity`, `radiusMode`/`radiusStrength`/`fixedRadius`, plus probed `containerSaturation`, `buttonColorMode`, `controlCenterTileColorMode`, collapsible 5-role *Surface colors* (`host`, `card`, `chip`, `chipNested`, `tooltip`), and *Rounded screen corners* (`screenCornersEnabled`/`screenCornerRadius`/`screenCornersOverFullscreen`). These configure Dux shell surfaces only; GTK/Qt keep their own theme geometry. |
@@ -376,12 +376,13 @@ dynamically and rendered only when exposed by the running shell.
 | Qt engine and other new app templates | Dux owns its Qt engine export. Theme Sync has no dedicated Qt engine route and defers the Qt palette while the Qt engine is the active platform theme. Avoid assigning the same Qt settings to competing managers. |
 
 `status` includes the active Material specification, scheme, contrast, source
-mode, seed, smart mode, corner settings, terminal options, configurable Niri
-border settings (`niriBorderMode`, `niriBorderOpacity`, `niriBorderRole`,
-`niriBorderGradientTo`), `dms22Icons`, `folderColorDeferred`, `cursorColorDeferred`
-(`false`), and Dux GTK/KColorScheme/Niri template flags. Stale Dux exports
-(including `niri/dms/colors.kdl` when border customization is active) are
-flagged in `staleExport`.
+mode, seed, smart mode, corner settings, terminal options, app surface
+customization (`appSurfaceDepth`, `appSurfaceTint`, `appSurfacesActive`),
+configurable Niri border settings (`niriBorderMode`, `niriBorderOpacity`,
+`niriBorderRole`, `niriBorderGradientTo`), `dms22Icons`, `folderColorDeferred`,
+`cursorColorDeferred` (`false`), and Dux GTK/KColorScheme/Niri template flags.
+Stale Dux exports (including `niri/dms/colors.kdl` when border customization is
+active) are flagged in `staleExport`.
 
 ## Qt synchronization
 
@@ -725,7 +726,12 @@ options, it may also create:
 
 - `~/.config/fontconfig/conf.d/99-dms-theme-sync.conf`
 - `~/.local/share/icons/<base>-DankFolders/`
-- `~/.local/share/color-schemes/DankUniform.colors`
+- `~/.config/gtk-3.0/dms-theme-sync-surfaces.css` and
+  `~/.config/gtk-4.0/dms-theme-sync-surfaces.css` (imported in `gtk.css` right
+  after `dank-colors.css` when **App backgrounds** adjustments are active)
+- `~/.local/share/color-schemes/DankUniform.colors` and
+  `~/.local/share/color-schemes/DankThemeSync.colors` (derived schemes with
+  optional uniform lists and `View < Window/Header < Button/Card` hierarchy)
 - `~/.local/share/color-schemes/.dms-live/<scheme>-<sha8>.colors` (content-hashed
   live copy pointed to by `qt5ct.conf` and `qt6ct.conf` so `qt6ct-kde` reloads
   changed palettes without hitting `KSharedConfig`'s path cache)
