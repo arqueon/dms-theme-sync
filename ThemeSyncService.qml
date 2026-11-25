@@ -58,11 +58,20 @@ PluginComponent {
     readonly property int regularSize: Number(pluginData.regularFontSize || 11)
     readonly property int monoSize: Number(pluginData.monoFontSize || 12)
     readonly property int documentSize: Number(pluginData.documentFontSize || 11)
-    readonly property string iconTheme: SettingsData.iconTheme || "System Default"
+    readonly property string logicalIconTheme: SettingsData.iconTheme || "System Default"
+    readonly property string appliedIconTheme: (typeof SettingsData.resolveAppliedIconTheme === "function" ? SettingsData.resolveAppliedIconTheme() : "") || logicalIconTheme
+    readonly property string iconFolderStateApplied: (typeof SettingsData.iconFolderState !== "undefined" && SettingsData.iconFolderState && SettingsData.iconFolderState.applied) ? String(SettingsData.iconFolderState.applied) : ""
+    readonly property string iconTheme: dms22Icons ? appliedIconTheme : logicalIconTheme
     readonly property bool iconThemePerMode: typeof SettingsData.iconThemePerMode !== "undefined" ? SettingsData.iconThemePerMode : false
-    readonly property string iconThemeDark: typeof SettingsData.iconThemeDark !== "undefined" ? SettingsData.iconThemeDark : iconTheme
-    readonly property string iconThemeLight: typeof SettingsData.iconThemeLight !== "undefined" ? SettingsData.iconThemeLight : iconTheme
-    property var discoveredIconThemes: []
+    readonly property string iconThemeDark: typeof SettingsData.iconThemeDark !== "undefined" ? SettingsData.iconThemeDark : logicalIconTheme
+    readonly property string iconThemeLight: typeof SettingsData.iconThemeLight !== "undefined" ? SettingsData.iconThemeLight : logicalIconTheme
+    readonly property bool hasDmsIconThemes: typeof SettingsData !== "undefined" && Array.isArray(SettingsData.availableIconThemes) && SettingsData.availableIconThemes.some(function(name) {
+        return name && name !== "System Default";
+    })
+    property var fallbackIconThemes: []
+    readonly property var discoveredIconThemes: hasDmsIconThemes ? SettingsData.availableIconThemes.filter(function(name) {
+        return name && name !== "System Default";
+    }) : fallbackIconThemes
     readonly property string cursorTheme: (SettingsData.cursorSettings && SettingsData.cursorSettings.theme) || "System Default"
     readonly property int cursorSize: Number((SettingsData.cursorSettings && SettingsData.cursorSettings.size) || 24)
     readonly property string colorMode: Theme.isLightMode ? "light" : "dark"
@@ -85,7 +94,7 @@ PluginComponent {
     // Once the overlay is applied it *is* SettingsData.iconTheme, so the base to
     // derive from has to be remembered rather than inferred.
     readonly property string savedFolderBaseTheme: lightIconMode ? (pluginData.folderColorBaseThemeLight || pluginData.folderColorBaseTheme || "") : (pluginData.folderColorBaseThemeDark || pluginData.folderColorBaseTheme || "")
-    readonly property string folderBaseTheme: iconTheme.endsWith(overlaySuffix) ? (savedFolderBaseTheme || iconTheme.slice(0, -overlaySuffix.length)) : iconTheme
+    readonly property string folderBaseTheme: logicalIconTheme.endsWith(overlaySuffix) ? (savedFolderBaseTheme || logicalIconTheme.slice(0, -overlaySuffix.length)) : logicalIconTheme
     readonly property string folderBaseThemeDark: iconThemeDark.endsWith(overlaySuffix) ? (pluginData.folderColorBaseThemeDark || iconThemeDark.slice(0, -overlaySuffix.length)) : iconThemeDark
     readonly property string folderBaseThemeLight: iconThemeLight.endsWith(overlaySuffix) ? (pluginData.folderColorBaseThemeLight || iconThemeLight.slice(0, -overlaySuffix.length)) : iconThemeLight
     readonly property bool iconThemeSupportsFolderColor: folderBaseTheme.indexOf("Papirus") === 0
@@ -93,7 +102,7 @@ PluginComponent {
         return name.indexOf("Papirus") === 0;
     })
     readonly property string folderColorCapability: iconThemeSupportsFolderColor ? "ready" : "blocked"
-    readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but Dux uses " + iconTheme : "Papirus not installed")
+    readonly property string folderColorReason: iconThemeSupportsFolderColor ? "Papirus selected" : (papirusInstalled ? "Papirus installed but Dux uses " + logicalIconTheme : "Papirus not installed")
     readonly property bool syncFolderColorRequestedRaw: pluginData.syncFolderColor !== undefined ? pluginData.syncFolderColor : false
     // Dux 2.2 ships its own icon-folder pipeline (iconFolderRecolor + a
     // staged generated theme + icon-folders.json state). While it is present
@@ -112,17 +121,24 @@ PluginComponent {
     // to has to be remembered rather than inferred.
     readonly property string materialCursorPrefix: "Bibata-Material-"
     readonly property string cursorBaseTheme: cursorTheme.indexOf(materialCursorPrefix) === 0 ? (pluginData.cursorColorBaseTheme || "System Default") : cursorTheme
-    // Same 2.2 defer for the cursor: Dux's icons/cursors pipeline family
-    // (same feature probe) installs and manages cursor themes on its own.
+    // Dux 2.2 adds cursor theme install/remove management only; it does not
+    // recolor cursors by Matugen accent, so syncCursorColor stays active.
     readonly property bool syncCursorColorRequestedRaw: pluginData.syncCursorColor !== undefined ? pluginData.syncCursorColor : false
-    readonly property bool cursorColorDeferred: syncCursorColorRequestedRaw && dms22Icons
-    readonly property bool syncCursorColor: syncCursorColorRequestedRaw && !dms22Icons
-    // Softens the focused border/focus ring by reusing Dux's primary with
-    // alpha (the helper derives it from the exported niri colors), through
-    // the plugin's own Niri include. The hue follows the palette; only the
-    // punch is dialed down. The helper writes or removes the block, and Niri
-    // reloads its configuration without a Dux setting change.
+    readonly property bool cursorColorDeferred: false
+    readonly property bool syncCursorColor: syncCursorColorRequestedRaw
+    // Configurable focused-border override for Niri: off (Dux pure primary),
+    // soften (primary with adjustable alpha), role (secondary/tertiary/outline/
+    // primary_container/surface_variant), or gradient (primary -> target role).
+    // Preserves backwards compatibility with dimNiriBorder when niriBorderMode
+    // has not been stored explicitly.
     readonly property bool dimNiriBorder: pluginData.dimNiriBorder !== undefined ? pluginData.dimNiriBorder : false
+    readonly property string niriBorderMode: pluginData.niriBorderMode !== undefined && pluginData.niriBorderMode !== "" ? String(pluginData.niriBorderMode) : (dimNiriBorder ? "soften" : "off")
+    readonly property int niriBorderOpacity: {
+        const v = Number(pluginData.niriBorderOpacity);
+        return isFinite(v) && v >= 30 && v <= 100 ? Math.round(v) : 70;
+    }
+    readonly property string niriBorderRole: pluginData.niriBorderRole ? String(pluginData.niriBorderRole) : "secondary"
+    readonly property string niriBorderGradientTo: pluginData.niriBorderGradientTo ? String(pluginData.niriBorderGradientTo) : "secondary"
     readonly property bool syncFlatpak: pluginData.syncFlatpak !== undefined ? pluginData.syncFlatpak : false
     // Only the user's toggle. Whether Kvantum actually applies is the helper's
     // call: it resolves an "auto" style first, and gating here on
@@ -195,18 +211,18 @@ PluginComponent {
     readonly property string materialSpec: typeof SettingsData.matugenSpec !== "undefined" ? (SettingsData.matugenSpec || "2021") : "2021"
 
     Process {
-        running: true
+        running: !root.hasDmsIconThemes
         command: ["sh", "-c", "for base in \"$HOME/.icons\" \"$HOME/.local/share/icons\" /usr/local/share/icons /usr/share/icons; do [ -d \"$base\" ] || continue; for dir in \"$base\"/*; do [ -f \"$dir/index.theme\" ] || continue; grep -q '^Directories=' \"$dir/index.theme\" || continue; basename \"$dir\"; done; done | grep -vxE 'default|hicolor|locolor' | LC_ALL=C sort -fu"]
 
         stdout: StdioCollector {
-            onStreamFinished: root.discoveredIconThemes = (text || "").split("\n").map(function(name) {
+            onStreamFinished: root.fallbackIconThemes = (text || "").split("\n").map(function(name) {
                 return name.trim();
             }).filter(function(name) {
                 return name !== "";
             })
         }
     }
-    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, fontScaleEffective, qtFontWeight, iconTheme, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, dimNiriBorder, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, dms22Icons, kvantumColors])
+    readonly property string configSignature: JSON.stringify([regularFont, monoFont, documentFont, regularSize, monoSize, documentSize, fontScaleEffective, qtFontWeight, iconTheme, iconFolderStateApplied, iconThemeDark, iconThemeLight, iconThemePerMode, cursorTheme, cursorSize, colorMode, gtkThemeLight, gtkThemeDark, qtPlatformTheme, qtStyle, qtSyncMode, applyMatugenColors, syncKde, syncXsettingsd, syncTerminalFonts, syncFolderColorRequested, syncCursorColor, niriBorderMode, niriBorderOpacity, niriBorderRole, niriBorderGradientTo, syncFlatpak, syncKvantum, uniformListBg, materialSpec, deferQtColors, deferKdeColors, dms22Icons, kvantumColors])
 
     // The helper only builds the overlay; it never decides the icon theme. Dux
     // does, through setIconTheme(), which is also what marks lastAppliedIconTheme.
@@ -300,7 +316,7 @@ PluginComponent {
 
     Timer {
         interval: 60000
-        running: true
+        running: !root.dms22Icons
         repeat: true
         onTriggered: root.pruneXresourcesBackups()
     }
@@ -318,7 +334,7 @@ PluginComponent {
     }
 
     function buildCommand(dryRun) {
-        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-scale", String(fontScaleEffective), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", dimNiriBorder ? "true" : "false", "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
+        const args = [helperPath(), "--font", regularFont, "--mono-font", monoFont, "--document-font", documentFont, "--font-size", String(regularSize), "--mono-size", String(monoSize), "--document-size", String(documentSize), "--font-scale", String(fontScaleEffective), "--font-weight", String(qtFontWeight), "--icon-theme", iconTheme, "--cursor-theme", cursorTheme, "--cursor-size", String(cursorSize), "--mode", colorMode, "--gtk-theme-light", gtkThemeLight, "--gtk-theme-dark", gtkThemeDark, "--qt-platform-theme", qtPlatformTheme, "--qt-style", qtStyle, "--qt-sync-mode", qtSyncMode, "--compositor", CompositorService.compositor || "", "--apply-matugen-colors", applyMatugenColors ? "true" : "false", "--sync-kde", syncKde ? "true" : "false", "--sync-xsettingsd", syncXsettingsd ? "true" : "false", "--sync-terminal-fonts", syncTerminalFonts ? "true" : "false", "--sync-folder-color", syncFolderColor ? "true" : "false", "--folder-base-theme", folderBaseTheme, "--sync-cursor-color", syncCursorColor ? "true" : "false", "--dim-niri-border", niriBorderMode !== "off" ? "true" : "false", "--niri-border-mode", niriBorderMode, "--niri-border-opacity", String(niriBorderOpacity), "--niri-border-role", niriBorderRole, "--niri-border-gradient-to", niriBorderGradientTo, "--sync-flatpak", syncFlatpak ? "true" : "false", "--sync-kvantum", syncKvantum ? "true" : "false", "--uniform-list-bg", uniformListBg ? "true" : "false", "--defer-qt-colors", deferQtColors ? "true" : "false", "--defer-kde-colors", deferKdeColors ? "true" : "false", "--kvantum-colors", kvantumColors, "--backup-enabled", backupEnabled ? "true" : "false", "--backup-retention", String(backupRetention)];
         if (dryRun)
             args.push("--dry-run");
 
@@ -498,7 +514,7 @@ PluginComponent {
             root.lastExitCode = exitCode;
             const output = ((stdoutCollector.text || "") + (stderrCollector.text || "")).trim();
             const qtStyleRestartRequired = output.indexOf("QT_RESTART_REQUIRED:style:") !== -1;
-            const staleExport = output.indexOf("Dux's exported GTK palette") !== -1;
+            const staleExport = output.indexOf("Dux's exported GTK palette") !== -1 || output.indexOf("Dux's exported Niri palette") !== -1 || output.indexOf("KDE apps are painting a stale palette") !== -1;
             root.lastOutput = output || (exitCode === 0 ? "Theme synchronized" : "Theme synchronization failed");
             root.applying = false;
             if (exitCode === 0 && root.currentAction === "apply") {
@@ -587,6 +603,9 @@ PluginComponent {
                 "font": root.regularFont,
                 "monoFont": root.monoFont,
                 "iconTheme": root.iconTheme,
+                "logicalIconTheme": root.logicalIconTheme,
+                "appliedIconTheme": root.appliedIconTheme,
+                "iconFolderStateApplied": root.iconFolderStateApplied,
                 "iconThemePerMode": root.iconThemePerMode,
                 "iconThemeDark": root.iconThemeDark,
                 "iconThemeLight": root.iconThemeLight,
@@ -598,7 +617,11 @@ PluginComponent {
                 "folderColorReason": root.folderColorReason,
                 "cursorTheme": root.cursorTheme,
                 "cursorSize": root.cursorSize,
-                "dimNiriBorder": root.dimNiriBorder,
+                "dimNiriBorder": root.niriBorderMode !== "off",
+                "niriBorderMode": root.niriBorderMode,
+                "niriBorderOpacity": root.niriBorderOpacity,
+                "niriBorderRole": root.niriBorderRole,
+                "niriBorderGradientTo": root.niriBorderGradientTo,
                 "dms22Icons": root.dms22Icons,
                 "folderColorDeferred": root.folderColorDeferred,
                 "cursorColorDeferred": root.cursorColorDeferred,

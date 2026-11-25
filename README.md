@@ -31,7 +31,7 @@ and includes a standalone **configuration dialog**.
 - [Hot reload for running applications](#hot-reload-for-running-applications)
 - [Install](#install)
 - [Configure](#configure)
-- [Dux 2.0 and 2.1 compatibility](#dux-20-and-21-compatibility)
+- [Dux 2.0, 2.1, and 2.2 compatibility](#dux-20-21-and-22-compatibility)
 - [Qt synchronization](#qt-synchronization)
 - [Optional integrations](#optional-integrations)
 - [Backups and restore](#backups-and-restore)
@@ -294,8 +294,8 @@ boundary too.
 
 Requirements:
 
-- Dux Shell **1.5.0 or newer** (Dux 2.0 recommended)
-- Bash
+- Dux Shell **2.0.0 or newer** (`requires_dms: >=2.0.0`; reviewed against Dux 2.1.2 and 2.2-dev)
+- Bash and `dbus-send`
 
 The plugin is available from the Dux plugin registry. Open
 *Dux Settings → Plugins → Browse*, install **Dux Theme Sync**, and enable it.
@@ -332,7 +332,7 @@ is −100 to 100 for Standard and 0 to 100 for Expressive, matching Dux.
 These controls affect generated palettes. Stock and downloaded themes can
 supply their own colors. A fixed GTK/Kvantum pair also keeps its authored
 palette; selecting Expressive does not recolor every application unconditionally.
-See [Dux 2.0 and 2.1 compatibility](#dux-20-and-21-compatibility) for the boundaries.
+See [Dux 2.0, 2.1, and 2.2 compatibility](#dux-20-21-and-22-compatibility) for the boundaries.
 
 The main IPC commands are:
 
@@ -352,41 +352,36 @@ dms ipc call dmsThemeSync restore SNAPSHOT_ID
 applications; existing Qt/KDE applications may need a restart, and persistent
 session changes may require logging out and back in.
 
-## Dux 2.0 and 2.1 compatibility
+## Dux 2.0, 2.1, and 2.2 compatibility
 
-The integration below was reviewed against Theme Sync 0.14.0, Dux Shell 2.0.0
-and **Dux Shell 2.1.0** (released 4 November 2026). Controls that depend on
-newer APIs are shown only when those APIs exist; the minimum supported Dux
-version remains 1.5.0.
+The integration below was reviewed against Theme Sync 0.17.0, Dux Shell 2.0/2.1.2,
+and **Dux Shell 2.2-dev**. All plugin QML surfaces use Dux 2.0+ `D*` / `DModal`
+components (`requires_dms: >=2.0.0`), while newer Dux 2.1/2.2 controls are probed
+dynamically and rendered only when exposed by the running shell.
 
 | Dux capability | Theme Sync coverage and boundary |
 | --- | --- |
-| Standard / Expressive / Bold palettes and contrast | Mirrors Dux's three Material specifications, scheme and contrast controls. Consumes the resulting colors; does not implement another generator. |
-| Wallpaper, source color, seed and smart mode | Dux owns extraction. Theme Sync mirrors the source-color choice, reports a pinned seed and clears it, and exposes smart mode; the monitor choice stays in Dux. |
-| Terminal ANSI palette (`dank16`) | Mirrors `SettingsData.terminalPalette` (*Tonal* = `"default"` vs *Vibrant* = `"high"`). *Tonal* keeps red, green, yellow, blue, magenta and cyan distinct for git diffs and syntax highlighting across Kitty, Foot, Alacritty, Ghostty, WezTerm and other `dank16` consumers. |
-| Dux 2.1 interface style, density and section dividers | Mirrors `SettingsData.interfaceStyle` (`Expressive` vs `Classic`), `SettingsData.density` (`Spacious`, `Comfortable`, `Compact`, `Dense`) and `SettingsData.sectionDividerOpacity` (`0%–40%` in Classic mode), and reports them plus `tooltipSurfaceColor` in IPC `status`. |
+| Theme category, registry themes, Material spec, Matugen scheme & contrast | *Color theme* switches cleanly between Dynamic, Generic themes, and installed Registry themes/flavors. *Material palette* offers Standard (2021), Expressive (2025), and Bold (Dux 2025). *Matugen palette* renders live swatch tiles (`MatugenPreviewService.schemeOptions`) alongside contrast controls. |
+| Wallpaper, source color, seed and smart mode | Dux owns extraction. Theme Sync provides interactive color swatch pickers (`PopoutService.colorPickerModal`) for *Source color* (custom wallpaper seed) and *Derived color*, plus automatic mode control (Manual / Schedule / Location / Wallpaper smart mode). |
+| Terminal ANSI palette (`dank16`) | Mirrors `SettingsData.terminalPalette` (*Tonal* = `"default"`, *Soft* = `"low"`, *Medium* = `"medium"`, *Vibrant* = `"high"`), plus `terminalOpacity` and `terminalsAlwaysDark`. |
+| Dux 2.1/2.2 shapes, surfaces and rounded screen corners | Mirrors `interfaceStyle`, `density`, `sectionDividerOpacity`, `radiusMode`/`radiusStrength`/`fixedRadius`, plus probed `containerSaturation`, `buttonColorMode`, `controlCenterTileColorMode`, collapsible 5-role *Surface colors* (`host`, `card`, `chip`, `chipNested`, `tooltip`), and *Rounded screen corners* (`screenCornersEnabled`/`screenCornerRadius`/`screenCornersOverFullscreen`). These configure Dux shell surfaces only; GTK/Qt keep their own theme geometry. |
 | Dux 2.1 GTK 4.22+ live refresh and GTK theme preservation | Dux 2.1 removed `HighContrastInverse` and pulses `org.gnome.desktop.a11y.interface reduced-motion` when `matugen` finishes so GTK 4.22+ apps reload `dank-colors.css` in hot; `reload-application-theme.sh` pulses the same key on manual applies and restores. Dux 2.1 also leaves `org.gnome.desktop.interface gtk-theme` untouched when set to a custom theme (such as `Breeze-Dark`, `Matcha`, or `WhiteSur`). |
+| Dux 2.2 applied icon-theme resolution & Dux Icons controls | Resolves Dux 2.2 staged packs via `SettingsData.resolveAppliedIconTheme()` and watches `iconFolderState.applied` so `*-dms-<hash>` overlays propagate reliably to GTK/Qt/KDE. Displays `"Dux Icons"` for `dux-icons`, exposes `iconFolderRecolor` for regular icon themes, and exposes `iconShape`, `iconAppStyle`, `iconGradient`, `iconTileColor`, and `iconFileStyle` when `dux-icons` is active. |
 | Dux 2.1 icon-theme backup (`icon-theme.dms-backup`) | Dux 2.1 records the pre-Dux GSettings icon theme in `~/.config/gtk-3.0/icon-theme.dms-backup` and restores it when `"System Default"` is chosen. Theme Sync strips any `-DankFolders` suffix from that backup file so restoring `"System Default"` after disabling folder-color sync always lands on the real base theme. |
 | Dux 2.1 `Theme.matugenCompleted` signal | Connects to `Theme.onMatugenCompleted(mode, result)` so if an apply pass raced Dux's asynchronous `matugen` worker, the follow-up synchronization runs immediately when the worker exits. |
 | Separate light/dark icon themes | Mirrors both choices and keeps separate Papirus overlay bases. An overlay is generated when its mode is applied, and rebuilding is skipped when `X-DmsThemeSync-Signature` already matches. |
-| Per-template export switches | Warns about disabled GTK/KColorScheme exports when Matugen colors are enabled, and about a disabled Niri export when border substitution is enabled. Does not re-enable exports or remove old user CSS automatically. |
+| Per-template export switches | Warns about disabled GTK/KColorScheme exports when Matugen colors are enabled, and about a disabled Niri export when focused-border styling is enabled, with direct buttons to enable each missing template on demand. Does not mutate Dux settings automatically. |
 | Qt and KDE colour ownership | Dux 2.0/2.1's qt5ct/qt6ct templates only write `colors/matugen.conf`; they never point `qtXct.conf` at a palette, so Theme Sync keeps setting it (using content-hashed `.dms-live/<scheme>-<sha8>.colors` copies so `qt6ct-kde` reloads in hot). When Dux's Qt engine is the active platform theme, the plugin defers the Qt palette and keeps style, fonts and icons. KDE colours always stay with the plugin. Uniform list backgrounds keep plugin ownership in every case. |
-| Fonts and typography | Family, mono and document fonts are written to GTK, Qt, KDE, XSettings and Fontconfig. Dux's font weight is converted to Qt's legacy scale; the document font defaults to the regular font (Dux's `displayFontFamily` is a bundled headline face, not exported). Dux's UI scale is not applied to application sizes. |
-| Shapes, spacing, effects and animations | Interface style, density, corner style, strength and fixed radius are mirrored as Dux settings but never exported: GTK and Qt themes keep their own geometry. |
-| Shell surfaces and selection colors | The plugin UI uses Dux widgets and `Theme` colors. GTK/Qt exports and generated Kvantum have their own supported roles; shell surface tint, transparency and every selected-container role do not have a one-to-one application mapping. |
+| Fonts and typography | Mirrors `fontFamily`, `monoFontFamily`, `documentFontFamily`, `fontWeight` (100–900, mapped to Qt's legacy scale), and `fontScale` (75–150%), propagating to GTK, Qt, KDE, XSettings, and Fontconfig. With `applyFontScale` enabled, app point sizes multiply by `fontScale` (rounded to whole points). |
 | Qt engine and other new app templates | Dux owns its Qt engine export. Theme Sync has no dedicated Qt engine route and defers the Qt palette while the Qt engine is the active platform theme. Avoid assigning the same Qt settings to competing managers. |
 
 `status` includes the active Material specification, scheme, contrast, source
-mode, seed, smart mode, corner settings, terminal options, Qt/KDE colour owners
-and the Dux/GTK/KColorScheme/Niri template flags. A `null` capability means that
-Dux version does not expose the corresponding setting; it is not the same as
-`false`. These flags describe configuration, not export freshness.
-
-Remaining integration work is to detect stale or disabled exports at apply time
-without deleting user styling, and to validate mappings for newer shell surface
-roles. A dedicated Qt engine route is deliberately not implemented: Dux owns it,
-and the plugin defers instead of competing. [Change history](CHANGELOG.md)
-records the current documentation and diagnostic changes.
+mode, seed, smart mode, corner settings, terminal options, configurable Niri
+border settings (`niriBorderMode`, `niriBorderOpacity`, `niriBorderRole`,
+`niriBorderGradientTo`), `dms22Icons`, `folderColorDeferred`, `cursorColorDeferred`
+(`false`), and Dux GTK/KColorScheme/Niri template flags. Stale Dux exports
+(including `niri/dms/colors.kdl` when border customization is active) are
+flagged in `staleExport`.
 
 ## Qt synchronization
 
@@ -525,11 +520,9 @@ landing on an arbitrary hue. The plugin never builds cursors itself and only
 chooses among variants that are actually installed; turning the option off
 returns the cursor to the theme recorded before the first switch.
 
-**Dux 2.2+ defers this option automatically too.** The same 2.2 pipeline
-family adds a cursor-theme install/remove manager
-(`dms cursor-theme install|remove`) with the settings UI to drive it; when
-`iconFolderRecolor` is present the variant picker stands down and the settings
-page points at Dux's own cursor manager instead.
+Even alongside Dux 2.2+'s cursor installer (`dms cursor-theme install|remove`),
+`syncCursorColor` remains active when opted in so existing `Bibata-Material-*`
+accents continue to follow wallpaper hue changes automatically.
 
 **KDE color-scheme overlap (Dux 2.2+).** Dux's own matugen Qt template run can
 now write `ColorScheme=DankMatugen` and the icon-theme name into `kdeglobals`.
@@ -542,47 +535,39 @@ an apply can only re-state values the plugin will restate on the next apply.
 
 ### Focused-border contrast (Niri)
 
-**Niri border: soften Dux primary** (previously **Dim the focused-window
-border**, then **Niri border: use Dux highlight color**) replaces only the
-focused `border` and `focus-ring` active colors. It reads the primary that
-Dux's template writes as the border `active-color` in `dms/colors.kdl` and
-reuses it with **~70% alpha** (`#RRGGBBAA`): Niri composites the translucent
-color over whatever sits behind the border, keeping the hue while dialing
-the punch down. Dux's template always writes the full-strength primary, which
-reads as a neon ring with vibrant palettes. The setting key remains
-`dimNiriBorder`, so existing preferences keep working.
+**Niri focused border** replaces only the focused `border` and `focus-ring`
+active directives inside `~/.config/niri/dms-theme-sync.kdl` (preserving border
+width, inactive/urgent colors, tabs, icons, and text):
 
-This is an alpha overlay over the surface or wallpaper behind the border, not
-a palette-role swap and not a brightness slider. Both modes stay legible, and
-the result no longer depends on how far a palette's container tones sit from
-its primary — the earlier role substitution (Expressive 2025 palettes could
-turn a bright orange border into a nearly invisible dark brown) is why the
-source changed.
+- **Dux default (`off`):** removes the plugin's active border block on the next
+  apply so Dux's pure primary takes effect.
+- **Softened Dux primary (`soften`):** reuses Dux's exported `primary` from
+  `dms/colors.kdl` (with `--kvantum-colors` / `dms-colors.json` fallback) at
+  configurable alpha (`30%–100%`, default `70%` → `#RRGGBBAA`).
+- **Palette role (`role`):** picks a live `secondary`, `tertiary`, `outline`,
+  `primary_container`, or `surface_variant` color from `dms-colors.json` (plus
+  fallbacks) at the selected opacity.
+- **Dynamic palette gradient (`gradient`):** emits `active-gradient from="..."
+  to="..." angle=45` blending `primary` into `secondary`, `tertiary`,
+  `primary_container`, or `outline` at the selected opacity.
 
-Dux's own shell surfaces may use additional derived colors. Those surfaces
-are not the source of this option: it follows the **exported Niri primary**.
-It leaves border width, inactive and urgent colors, tabs, icons and text
-alone.
+Legacy `dimNiriBorder` remains synchronized automatically when a non-`off` mode
+is selected. Both `wait_for_dms_matugen_export()` and `staleExport` track
+`niri/dms/colors.kdl`, and the settings panel provides direct buttons if Dux's
+Niri template export is disabled.
 
 The override lives in `dms-theme-sync.kdl`, after Dux's color include and before
-user overrides on a fresh configuration. Existing include placement is
-respected; later includes and window rules can supersede the result. Disabling
-the option removes the plugin's color block on the next apply, returning control
-to the remaining Niri configuration. The combined configuration is validated
-with `niri validate` (which accepts `#RRGGBBAA`); invalid writes are rolled
-back. Other compositors are unaffected.
+user overrides on a fresh configuration. If your personal Niri `layout.kdl`
+defines `active-gradient` or `inactive-gradient` under `focus-ring`/`border`,
+remove or comment those static gradients because Niri gives `active-gradient`
+precedence over `active-color`. The combined configuration is validated with
+`niri validate`; invalid writes are rolled back. Other compositors are
+unaffected.
 
-Keep Dux's **Run DMS templates** and **Niri** export enabled to follow palette
-changes. If the generated file is missing or unreadable, the helper skips the
-color override and reports it. A disabled export with a surviving file can
-reuse an older color; the settings panel warns about that configuration.
-
-To inspect a suspected failure, compare the `border` `active-color` in
-`~/.config/niri/dms/colors.kdl` with the active colors in
-`~/.config/niri/dms-theme-sync.kdl` (same hex plus `b3`), then check the
-`niri-border:` line in `dms ipc call dmsThemeSync status`. `reconcile: clean`
-alone is not a visual contrast check or a confirmation that no later Niri
-rule overrides the color.
+To inspect a suspected failure, compare `~/.config/niri/dms/colors.kdl` and
+`~/.cache/dms/dms-colors.json` with the active directives in
+`~/.config/niri/dms-theme-sync.kdl`, then check the `niri-border:` line in
+`dms ipc call dmsThemeSync status`.
 
 ### Terminal fonts
 

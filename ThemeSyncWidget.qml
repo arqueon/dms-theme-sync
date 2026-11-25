@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Common
 import qs.Services
-import qs.Widgets
+import qs.DCommon.Widgets
 import qs.Modules.Plugins
 
 PluginComponent {
@@ -33,7 +33,7 @@ PluginComponent {
             implicitHeight: root.iconSize
             anchors.verticalCenter: parent.verticalCenter
 
-            DankIcon {
+            DIcon {
                 anchors.centerIn: parent
                 name: "palette"
                 size: root.iconSize
@@ -59,7 +59,7 @@ PluginComponent {
             implicitHeight: root.iconSize
             anchors.horizontalCenter: parent.horizontalCenter
 
-            DankIcon {
+            DIcon {
                 anchors.centerIn: parent
                 name: "palette"
                 size: root.iconSize

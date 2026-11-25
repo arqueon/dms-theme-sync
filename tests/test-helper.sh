@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_CACHE_HOME="$HOME/.cache"
 mkdir -p "$XDG_CONFIG_HOME/gtk-3.0" "$XDG_DATA_HOME/themes/Matcha-dark-sea" \
     "$XDG_DATA_HOME/themes/Matcha-light-sea" "$XDG_DATA_HOME/color-schemes"
 
@@ -402,6 +403,71 @@ printf '%s\n' "$dim_out" | grep -q 'niri-border: no primary active-color' \
 grep -q 'active-color' "$NIRI_DIR/dms-theme-sync.kdl" \
     && { printf 'Border override written from a missing palette\n' >&2; exit 1; }
 mv "$NIRI_DIR/dms/colors.kdl.away" "$NIRI_DIR/dms/colors.kdl"
+
+# Configurable Niri focused-border modes (soften / role / gradient) & validation
+mkdir -p "$XDG_CACHE_HOME/dms"
+cat > "$XDG_CACHE_HOME/dms/dms-colors.json" <<'EOF'
+{
+  "colors": {
+    "light": {
+      "primary": "#4f6600",
+      "secondary": "#5c6148",
+      "tertiary": "#3a665d",
+      "outline": "#76786b",
+      "primary_container": "#d0ee78",
+      "surface_variant": "#e2e4d5"
+    },
+    "dark": {
+      "primary": "#b4d35d",
+      "secondary": "#c4c9ab",
+      "tertiary": "#a1d0c5",
+      "outline": "#909284",
+      "primary_container": "#3a4d00",
+      "surface_variant": "#45483d"
+    }
+  }
+}
+EOF
+
+run_niri --niri-border-mode soften --niri-border-opacity 50
+[[ $(grep -c 'active-color "#9ee60080"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+    || { printf 'Soften 50%% opacity mismatch:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+
+run_niri --niri-border-mode soften --niri-border-opacity 100
+[[ $(grep -c 'active-color "#9ee600"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+    || { printf 'Soften 100%% opacity mismatch:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+
+run_niri --niri-border-mode role --niri-border-role secondary --niri-border-opacity 80
+[[ $(grep -c 'active-color "#5c6148cc"' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+    || { printf 'Role secondary 80%% opacity mismatch:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+
+run_niri --niri-border-mode gradient --niri-border-gradient-to tertiary --niri-border-opacity 70
+[[ $(grep -c 'active-gradient from="#9ee600b3" to="#3a665db3" angle=45' "$NIRI_DIR/dms-theme-sync.kdl") -eq 2 ]] \
+    || { printf 'Gradient tertiary 70%% opacity mismatch:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+
+for bad_spec in \
+    "--niri-border-mode=invalid" \
+    "--niri-border-opacity=20" \
+    "--niri-border-opacity=105" \
+    "--niri-border-role=bogus" \
+    "--niri-border-gradient-to=bogus"; do
+    flag=${bad_spec%%=*}
+    val=${bad_spec#*=}
+    rc=0
+    "$ROOT/scripts/apply-theme.sh" \
+        --font "Archivo" --mono-font "Cascadia Mono" --document-font "Literata" \
+        --font-size 11 --mono-size 12 --document-size 13 \
+        --icon-theme "Papirus-Dark" --cursor-theme "Breeze" --cursor-size 32 \
+        --mode light --gtk-theme-light auto --gtk-theme-dark auto \
+        --qt-platform-theme qtct --qt-style Fusion \
+        --apply-matugen-colors true \
+        --backup-enabled false --backup-retention 10 \
+        --sync-kde true --sync-xsettingsd true --no-runtime \
+        --compositor niri "$flag" "$val" >/dev/null 2>&1 || rc=$?
+    [[ $rc -eq 2 ]] || { printf 'Expected exit 2 for %s %s, got %s\n' "$flag" "$val" "$rc" >&2; exit 1; }
+done
+
+run_niri
 
 # --- Dux font scale: multiplies the three sizes, rounded to whole points ----
 run_niri --font-scale 1.25

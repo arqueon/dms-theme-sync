@@ -1,9 +1,9 @@
 import QtQuick
 import qs.Common
 import qs.Modals.Common
-import qs.Widgets
+import qs.DCommon.Widgets
 
-DankModal {
+DModal {
     id: window
 
     property var parentWidget: null
@@ -36,7 +36,7 @@ DankModal {
                 anchors.margins: Theme.spacingL
                 height: 44
 
-                DankIcon {
+                DIcon {
                     id: headerIcon
 
                     name: "palette"
@@ -59,7 +59,7 @@ DankModal {
                     elide: Text.ElideRight
                 }
 
-                DankButton {
+                DButton {
                     id: closeButton
 
                     text: "Close"

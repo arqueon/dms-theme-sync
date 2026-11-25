@@ -27,6 +27,10 @@ SYNC_FOLDER_COLOR=false
 FOLDER_BASE_THEME=""
 SYNC_CURSOR_COLOR=false
 DIM_NIRI_BORDER=false
+NIRI_BORDER_MODE=""
+NIRI_BORDER_OPACITY=70
+NIRI_BORDER_ROLE="secondary"
+NIRI_BORDER_GRADIENT_TO="secondary"
 SYNC_FLATPAK=false
 SYNC_KVANTUM=false
 UNIFORM_LIST_BG=false
@@ -66,6 +70,10 @@ while (( $# )); do
         --sync-folder-color) SYNC_FOLDER_COLOR=${2:?}; shift 2 ;;
         --sync-cursor-color) SYNC_CURSOR_COLOR=${2:?}; shift 2 ;;
         --dim-niri-border) DIM_NIRI_BORDER=${2:?}; shift 2 ;;
+        --niri-border-mode) NIRI_BORDER_MODE=${2-}; shift 2 ;;
+        --niri-border-opacity) NIRI_BORDER_OPACITY=${2:?}; shift 2 ;;
+        --niri-border-role) NIRI_BORDER_ROLE=${2:?}; shift 2 ;;
+        --niri-border-gradient-to) NIRI_BORDER_GRADIENT_TO=${2:?}; shift 2 ;;
         --folder-base-theme) FOLDER_BASE_THEME=${2-}; shift 2 ;;
         --sync-flatpak) SYNC_FLATPAK=${2:?}; shift 2 ;;
         --sync-kvantum) SYNC_KVANTUM=${2:?}; shift 2 ;;
@@ -88,6 +96,43 @@ DEFER_QT_COLORS=${DEFER_QT_COLORS:-false}
 DEFER_KDE_COLORS=${DEFER_KDE_COLORS:-false}
 XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+XDG_CACHE_HOME=${XDG_CACHE_HOME:-$HOME/.cache}
+NIRI_DIR="$XDG_CONFIG_HOME/niri"
+NIRI_INCLUDE="$NIRI_DIR/dms-theme-sync.kdl"
+NIRI_ENV_KDL="$NIRI_DIR/environment.kdl"
+NIRI_CONFIG_KDL="$NIRI_DIR/config.kdl"
+
+if [[ -z $NIRI_BORDER_MODE ]]; then
+    if [[ $DIM_NIRI_BORDER == true ]]; then
+        NIRI_BORDER_MODE="soften"
+    else
+        NIRI_BORDER_MODE="off"
+    fi
+fi
+case "$NIRI_BORDER_MODE" in
+    off|soften|role|gradient) ;;
+    *) printf 'Invalid niri-border-mode: %s\n' "$NIRI_BORDER_MODE" >&2; exit 2 ;;
+esac
+if ! [[ $NIRI_BORDER_OPACITY =~ ^[0-9]+$ ]] || (( NIRI_BORDER_OPACITY < 30 || NIRI_BORDER_OPACITY > 100 )); then
+    printf 'Invalid niri-border-opacity: %s\n' "$NIRI_BORDER_OPACITY" >&2
+    exit 2
+fi
+case "$NIRI_BORDER_ROLE" in
+    secondary|tertiary|outline|primary_container|surface_variant) ;;
+    *) printf 'Invalid niri-border-role: %s\n' "$NIRI_BORDER_ROLE" >&2; exit 2 ;;
+esac
+case "$NIRI_BORDER_GRADIENT_TO" in
+    secondary|tertiary|primary_container|outline) ;;
+    *) printf 'Invalid niri-border-gradient-to: %s\n' "$NIRI_BORDER_GRADIENT_TO" >&2; exit 2 ;;
+esac
+
+niri_dms_active_color() {
+    awk -v want="$1" '
+        $1 == want { insec = 1; next }
+        insec && $1 == "active-color" { gsub(/"/, "", $2); print $2; exit }
+        insec && /}/ { insec = 0 }
+    ' "$NIRI_DIR/dms/colors.kdl" 2>/dev/null
+}
 
 case "$MODE" in light|dark) ;; *) printf 'Invalid mode: %s\n' "$MODE" >&2; exit 2 ;; esac
 # Any platform-theme plugin name Qt can load is allowed (gtk3, kde, qt6ct,
@@ -813,13 +858,13 @@ if ! $DRY_RUN; then
 fi
 
 # Dux updates Theme.* in QML before its asynchronous matugen export finishes
-# writing dank-colors.css and DankMatugen*.colors on disk. Wait briefly when
-# the live primary colour from --kvantum-colors has not landed in those files
-# yet, so folder/cursor accents, DankUniform.colors, qt6ct.conf, and kdeglobals
-# all consume the fresh palette in a single pass.
+# writing dank-colors.css, DankMatugen*.colors, and niri/dms/colors.kdl on disk.
+# Wait briefly when the live primary colour from --kvantum-colors has not landed
+# in those files yet, so folder/cursor accents, DankUniform.colors, qt6ct.conf,
+# kdeglobals, and the Niri border override all consume the fresh palette in one pass.
 wait_for_dms_matugen_export() {
     [[ $DRY_RUN == true || $NO_RUNTIME == true || $APPLY_MATUGEN_COLORS != true ]] && return 0
-    local kv_primary want_rgb scheme_mode css_file got_css got_scheme i
+    local kv_primary want_rgb scheme_mode css_file got_css got_scheme got_niri check_niri=false i
     kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
     [[ $kv_primary =~ ^#[0-9a-fA-F]{6}$ ]] || return 0
     want_rgb=$(printf '%d,%d,%d' \
@@ -828,13 +873,19 @@ wait_for_dms_matugen_export() {
     [[ $MODE == light ]] && scheme_mode="$XDG_DATA_HOME/color-schemes/DankMatugenLight.colors"
     [[ -f $scheme_mode ]] || scheme_mode="$XDG_DATA_HOME/color-schemes/DankMatugen.colors"
     css_file="$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css"
+    if [[ $COMPOSITOR == niri && $NIRI_BORDER_MODE != off && -f $NIRI_DIR/dms/colors.kdl ]]; then
+        check_niri=true
+    fi
 
     for (( i = 0; i < 16; i++ )); do
         got_css=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' "$css_file" 2>/dev/null \
             | grep -oE '#[0-9a-fA-F]{6}' || true)
         got_scheme=$(grep -m1 '^DecorationFocus=' "$scheme_mode" 2>/dev/null | cut -d= -f2 || true)
+        got_niri=""
+        $check_niri && got_niri=$(niri_dms_active_color border || true)
         if [[ ( -z $got_css || ${got_css,,} == "${kv_primary,,}" ) && \
-              ( -z $got_scheme || $got_scheme == "$want_rgb" ) ]]; then
+              ( -z $got_scheme || $got_scheme == "$want_rgb" ) && \
+              ( -z $got_niri || ${got_niri,,} == "${kv_primary,,}" ) ]]; then
             return 0
         fi
         sleep 0.15
@@ -1862,10 +1913,6 @@ fi
 
 ENV_DIR="$XDG_CONFIG_HOME/environment.d"
 ENV_FILE="$ENV_DIR/90-dms-theme-sync.conf"
-NIRI_DIR="$XDG_CONFIG_HOME/niri"
-NIRI_INCLUDE="$NIRI_DIR/dms-theme-sync.kdl"
-NIRI_ENV_KDL="$NIRI_DIR/environment.kdl"
-NIRI_CONFIG_KDL="$NIRI_DIR/config.kdl"
 
 HYPR_DIR="$XDG_CONFIG_HOME/hypr"
 HYPR_INCLUDE="$HYPR_DIR/dms-theme-sync.conf"       # hyprlang (legacy)
@@ -2018,12 +2065,78 @@ write_labwc_env_block() {
 # One active-color out of the dms/colors.kdl Dux generates through Matugen.
 # $1 names the KDL node to read from ("border", "highlight"); the first
 # active-color inside it wins.
-niri_dms_active_color() {
-    awk -v want="$1" '
-        $1 == want { insec = 1; next }
-        insec && $1 == "active-color" { gsub(/"/, "", $2); print $2; exit }
-        insec && /}/ { insec = 0 }
-    ' "$NIRI_DIR/dms/colors.kdl" 2>/dev/null
+niri_alpha_hex() {
+    awk -v p="$1" 'BEGIN { printf "%02x", int(p * 255 / 100 + 0.5) }'
+}
+
+niri_format_color() {
+    local c=${1,,}
+    if (( NIRI_BORDER_OPACITY >= 100 )); then
+        printf '%s' "$c"
+    else
+        printf '%s%s' "$c" "$(niri_alpha_hex "$NIRI_BORDER_OPACITY")"
+    fi
+}
+
+dms_cache_color() {
+    local role=$1 cache_file found=""
+    for cache_file in "$XDG_CACHE_HOME/dms/dms-colors.json" \
+                      "$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json"; do
+        [[ -f $cache_file ]] || continue
+        found=$(awk -v mode="$MODE" -v role="$role" '
+            { buf = buf " " $0 }
+            END {
+                gsub(/\r/, "", buf)
+                if (!match(buf, /"colors"[[:space:]]*:[[:space:]]*\{/)) exit
+                rest = substr(buf, RSTART + RLENGTH)
+                depth = 1
+                endpos = 0
+                n = length(rest)
+                for (i = 1; i <= n; i++) {
+                    ch = substr(rest, i, 1)
+                    if (ch == "{") depth++
+                    else if (ch == "}") {
+                        depth--
+                        if (depth == 0) { endpos = i; break }
+                    }
+                }
+                if (endpos == 0) exit
+                colors_obj = substr(rest, 1, endpos)
+                pat_mode = "\"" mode "\"[[:space:]]*:[[:space:]]*\\{"
+                if (!match(colors_obj, pat_mode)) exit
+                mrest = substr(colors_obj, RSTART + RLENGTH)
+                if (!match(mrest, /\}/)) exit
+                block = substr(mrest, 1, RSTART - 1)
+                pat_role = "\"" role "\"[[:space:]]*:[[:space:]]*\"#[0-9a-fA-F]{6}\""
+                if (match(block, pat_role)) {
+                    kv = substr(block, RSTART, RLENGTH)
+                    sub(/^[^#]*/, "", kv)
+                    sub(/".*$/, "", kv)
+                    print tolower(kv)
+                }
+            }
+        ' "$cache_file" 2>/dev/null)
+        if [[ $found =~ ^#[0-9a-fA-F]{6}$ ]]; then
+            printf '%s' "$found"
+            return 0
+        fi
+    done
+
+    case "$role" in
+        primary)
+            found=$(niri_dms_active_color border)
+            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
+            ;;
+        primary_container)
+            found=$(niri_dms_active_color highlight)
+            [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
+            ;;
+    esac
+    if [[ -n $KV_COLORS ]]; then
+        found=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n "s/^${role}=//p" | head -n 1)
+        [[ $found =~ ^#[0-9a-fA-F]{6}$ ]] && { printf '%s' "${found,,}"; return 0; }
+    fi
+    return 1
 }
 
 write_niri_env_include() {
@@ -2054,16 +2167,16 @@ write_niri_env_include() {
             printf '    QT_QPA_PLATFORMTHEME_QT6 "%s"\n' "$qt6"
         fi
         printf '%s\n' '}'
-        if [[ -n $NIRI_BORDER_DIM_COLOR ]]; then
+        if [[ -n $NIRI_BORDER_DIRECTIVE && -n $NIRI_BORDER_LINE ]]; then
             printf '\n'
             printf '%s\n' '// config.kdl loads this file after dms/colors.kdl and later includes win,'
-            printf '%s\n' "// so only these two values override Matugen; every other colour stays Dux's."
+            printf '%s\n' "// so only the active focused-border rule overrides Matugen; every other colour stays Dux's."
             printf '%s\n' 'layout {'
             printf '%s\n' '    focus-ring {'
-            printf '        active-color "%s"\n' "$NIRI_BORDER_DIM_COLOR"
+            printf '        %s\n' "$NIRI_BORDER_LINE"
             printf '%s\n' '    }'
             printf '%s\n' '    border {'
-            printf '        active-color "%s"\n' "$NIRI_BORDER_DIM_COLOR"
+            printf '        %s\n' "$NIRI_BORDER_LINE"
             printf '%s\n' '    }'
             printf '%s\n' '}'
         fi
@@ -2121,34 +2234,59 @@ write_niri_env_include() {
     fi
 }
 
-# --- Niri focused-border dimming ----------------------------------------------
+# --- Niri focused-border override ---------------------------------------------
 #
-# Reuse the highlight from Dux's Niri template (primary_container.dark).
-# Softened primary for the focused border. Dux's template always writes
-# `primary` as the active color, which reads as a neon ring with vibrant
-# palettes. Instead of substituting a container role (whose distance to
-# primary is unpredictable across palettes), the override now reuses that
-# same primary with alpha: niri composites the translucent color over
-# whatever sits behind the border, keeping the hue but dialing the punch
-# down in both modes. niri validates #RRGGBBAA.
-# Only the plugin include changes; switching off removes its override on the
-# next apply. Dux's generated file and later user overrides remain authoritative.
-NIRI_BORDER_DIM_COLOR=""
-if [[ $DIM_NIRI_BORDER == true && $COMPOSITOR == niri ]]; then
-    primary_color=$(niri_dms_active_color border)
-    if [[ ! $primary_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
-        log "niri-border: no primary active-color found in niri/dms/colors.kdl; skipping"
-    else
-        # 0xb3 ≈ 70% opacity: present on dark and light surfaces alike.
-        NIRI_BORDER_DIM_COLOR="${primary_color}b3"
-        log "niri-border: active border $primary_color -> $NIRI_BORDER_DIM_COLOR (softened primary, 70% alpha)"
-    fi
+# Supports four modes (`off`, `soften`, `role`, `gradient`) with configurable
+# opacity (30-100%). Dux's template always writes `primary` at 100% alpha.
+# Only the plugin include changes; `off` removes its override on the next
+# apply. Dux's generated file and later user overrides remain authoritative.
+NIRI_BORDER_DIRECTIVE=""
+NIRI_BORDER_LINE=""
+if [[ $COMPOSITOR == niri && $NIRI_BORDER_MODE != off ]]; then
+    case "$NIRI_BORDER_MODE" in
+        soften)
+            primary_color=$(niri_dms_active_color border)
+            if [[ ! $primary_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
+                log "niri-border: no primary active-color found in niri/dms/colors.kdl; skipping"
+            else
+                formatted=$(niri_format_color "$primary_color")
+                NIRI_BORDER_DIRECTIVE="active-color"
+                NIRI_BORDER_LINE="active-color \"$formatted\""
+                log "niri-border: active border $primary_color -> $formatted (softened primary, ${NIRI_BORDER_OPACITY}% alpha)"
+            fi
+            ;;
+        role)
+            role_color=$(dms_cache_color "$NIRI_BORDER_ROLE" || true)
+            if [[ ! $role_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
+                log "niri-border: role '$NIRI_BORDER_ROLE' unavailable in dms-colors.json; skipping"
+            else
+                formatted=$(niri_format_color "$role_color")
+                NIRI_BORDER_DIRECTIVE="active-color"
+                NIRI_BORDER_LINE="active-color \"$formatted\""
+                log "niri-border: active border -> $formatted (role $NIRI_BORDER_ROLE, ${NIRI_BORDER_OPACITY}% alpha)"
+            fi
+            ;;
+        gradient)
+            from_color=$(niri_dms_active_color border)
+            [[ $from_color =~ ^#[0-9a-fA-F]{6}$ ]] || from_color=$(dms_cache_color primary || true)
+            to_color=$(dms_cache_color "$NIRI_BORDER_GRADIENT_TO" || true)
+            if [[ ! $from_color =~ ^#[0-9a-fA-F]{6}$ || ! $to_color =~ ^#[0-9a-fA-F]{6}$ ]]; then
+                log "niri-border: gradient colors unavailable (primary/role '$NIRI_BORDER_GRADIENT_TO'); skipping"
+            else
+                c1=$(niri_format_color "$from_color")
+                c2=$(niri_format_color "$to_color")
+                NIRI_BORDER_DIRECTIVE="active-gradient"
+                NIRI_BORDER_LINE="active-gradient from=\"$c1\" to=\"$c2\" angle=45"
+                log "niri-border: active border gradient $c1 -> $c2 (primary -> $NIRI_BORDER_GRADIENT_TO, ${NIRI_BORDER_OPACITY}% alpha)"
+            fi
+            ;;
+    esac
 fi
 
 if $DRY_RUN; then
     case "$COMPOSITOR" in
         niri)     log "DRY-RUN: write Niri include $NIRI_INCLUDE (+ top-level include in config.kdl), drop $ENV_FILE"
-                  [[ -n $NIRI_BORDER_DIM_COLOR ]] && log "DRY-RUN: override focused-border colour with $NIRI_BORDER_DIM_COLOR in $NIRI_INCLUDE" ;;
+                  [[ -n $NIRI_BORDER_LINE ]] && log "DRY-RUN: override focused-border with ($NIRI_BORDER_LINE) in $NIRI_INCLUDE" ;;
         hyprland) log "DRY-RUN: write $ENV_FILE + Hyprland include (hyprlang and/or Lua, whichever main config exists)" ;;
         labwc)    log "DRY-RUN: write $ENV_FILE + labwc block in $LABWC_ENV" ;;
         *)        log "DRY-RUN: write $ENV_FILE (environment.d baseline)" ;;
@@ -2310,12 +2448,18 @@ verify_theme_assets() {
     # the *live* theme the daemon reads. Dux does not regenerate the export for
     # custom/downloaded themes, so the two can diverge — the bar shows the new
     # palette while GTK apps keep the old one. Compare the accents and say so.
-    local kv_primary css_accent
+    local kv_primary css_accent got_niri
     kv_primary=$(printf '%s' "$KV_COLORS" | tr ';' '\n' | sed -n 's/^primary=//p' | head -n 1)
     css_accent=$(grep -m1 -oE '@define-color accent_bg_color #[0-9a-fA-F]{6}' \
         "$XDG_CONFIG_HOME/gtk-4.0/dank-colors.css" 2>/dev/null | grep -oE '#[0-9a-fA-F]{6}')
     if [[ -n $kv_primary && -n $css_accent && ${kv_primary,,} != "${css_accent,,}" ]]; then
         note "Dux's exported GTK palette ($css_accent) is not the live theme ($kv_primary): GTK apps follow the stale export"
+    fi
+    if [[ $COMPOSITOR == niri && $NIRI_BORDER_MODE != off && -f $NIRI_DIR/dms/colors.kdl ]]; then
+        got_niri=$(niri_dms_active_color border || true)
+        if [[ -n $kv_primary && -n $got_niri && ${kv_primary,,} != "${got_niri,,}" ]]; then
+            note "Dux's exported Niri palette ($got_niri) is not the live theme ($kv_primary): Niri border follows the stale export"
+        fi
     fi
     return 0
 }
@@ -2397,8 +2541,11 @@ if ! $DRY_RUN; then
         command -v gsettings >/dev/null 2>&1 && verify_gsettings
         command -v fc-match  >/dev/null 2>&1 && verify_fontconfig
     fi
-    (( RECONCILE_ISSUES == 0 )) && log "reconcile: clean" \
-        || log "reconcile: $RECONCILE_ISSUES issue(s) above"
+    if (( RECONCILE_ISSUES == 0 )); then
+        log "reconcile: clean"
+    else
+        log "reconcile: $RECONCILE_ISSUES issue(s) above"
+    fi
 fi
 
 log "Synchronized mode=$MODE gtk=${GTK_THEME:-preserved} qt=$QT_PLATFORM_THEME qt-route=$QT_SYNC_ROUTE${NATIVE_PAIR_STYLE:+ native-pair=$NATIVE_PAIR_STYLE}${KVANTUM_PAIR_THEME:+ kvantum-pair=$KVANTUM_PAIR_THEME} font='$FONT'/$FONT_SIZE mono='$MONO_FONT'/$MONO_SIZE icons=${ICON_THEME:-preserved} cursor=${CURSOR_THEME:-preserved}/$CURSOR_SIZE terminal-fonts=$SYNC_TERMINAL_FONTS uniform-lists=$UNIFORM_LIST_BG"
