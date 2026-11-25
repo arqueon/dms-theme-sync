@@ -59,9 +59,22 @@ done
 # after (3.3s) qt6ct's 3.0s timer guarantees KIconLoader's process-local
 # imgDict is empty at the exact instant Dolphin and Krusader handle
 # QEvent::PaletteChange.
+zotero_addon_installed() {
+    local ext
+    local home_dir=${HOME:-}
+    [[ -n $home_dir ]] || return 1
+    for ext in \
+        "$home_dir/.zotero/zotero"/*/extensions/dux-theme@arqueon.org* \
+        "$home_dir/.var/app/org.zotero.Zotero/.zotero/zotero"/*/extensions/dux-theme@arqueon.org* \
+        "$home_dir/Zotero/extensions"/dux-theme@arqueon.org*; do
+        [[ -e $ext ]] && return 0
+    done
+    return 1
+}
+
 if [[ -z ${DMS_THEME_RELOAD_TEST_LOG:-} ]]; then
     (
-        if command -v curl >/dev/null 2>&1; then
+        if zotero_addon_installed && command -v curl >/dev/null 2>&1; then
             curl -fsS -m 1 -X POST -H 'Content-Type: application/json' -d '{}' \
                 http://127.0.0.1:23119/dux-theme/reload >/dev/null 2>&1 || true
         fi

@@ -282,11 +282,13 @@ PluginComponent {
             if (pluginService)
                 pluginService.savePluginData(pluginId, "cursorColorBaseTheme", cursorBaseTheme);
             SettingsData.setCursorTheme(variant);
+            root.scheduleXresourcesPrune();
         } else if (cursorTheme.indexOf(materialCursorPrefix) === 0 && pluginData.cursorColorBaseTheme) {
             const base = pluginData.cursorColorBaseTheme;
             if (pluginService)
                 pluginService.savePluginData(pluginId, "cursorColorBaseTheme", "");
             SettingsData.setCursorTheme(base);
+            root.scheduleXresourcesPrune();
         }
     }
 
@@ -312,19 +314,17 @@ PluginComponent {
         xresourcesCleanupProcess.running = true;
     }
 
-    // Cursor updates run asynchronously inside Dux. Periodic maintenance also
-    // catches direct Dux changes and runs when autoSync or snapshots are off.
-    Timer {
-        interval: 5000
-        running: true
-        repeat: false
-        onTriggered: root.pruneXresourcesBackups()
+    // Prune stale .Xresources backups only after cursor changes on pre-2.2
+    // shells instead of polling on a repeating background timer.
+    function scheduleXresourcesPrune() {
+        if (!root.dms22Icons)
+            xresourcesPruneTimer.restart();
     }
 
     Timer {
-        interval: 60000
-        running: !root.dms22Icons
-        repeat: true
+        id: xresourcesPruneTimer
+        interval: 5000
+        repeat: false
         onTriggered: root.pruneXresourcesBackups()
     }
 
@@ -434,6 +434,14 @@ PluginComponent {
     }
 
     pluginId: "dmsThemeSync"
+    onCursorThemeChanged: {
+        if (ready)
+            scheduleXresourcesPrune();
+    }
+    onCursorSizeChanged: {
+        if (ready)
+            scheduleXresourcesPrune();
+    }
     onConfigSignatureChanged: {
         if (autoSync && ready)
             requestApply(false);

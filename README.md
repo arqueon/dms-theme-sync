@@ -225,7 +225,7 @@ to update in place:
 | **GTK 4.22+** | Pulses `org.gnome.desktop.a11y.interface reduced-motion` for `100 ms` (matching Dux 2.1's `matugen` worker) and pulses `org.gnome.desktop.interface icon-theme` when a `*-DankFolders` overlay is active | Running GTK 4.22+ / libadwaita applications re-parse `~/.config/gtk-4.0/gtk.css` (`@import url("dank-colors.css");`) and refresh folder icons in hot without restarting or flashing. |
 | **GTK on Wayland** | Real desktop-setting changes arrive through the settings portal | Theme name, font, icon-theme name, cursor, and light/dark preference update when their value actually changes. |
 | **GTK on X11/XWayland** | `xsettingsd` reloads the synchronized XSettings values | The same settings can update in running applications that consume XSettings. |
-| **Zotero 10 (`zotero-dux-theme`)** | `reload-application-theme.sh` sends `POST http://127.0.0.1:23119/dux-theme/reload`; the add-on also polls `IOUtils.stat()` every `1200 ms` on `dms-colors.json`, `plugin_settings.json`, and `dms-typography.json` | Open Zotero 10 windows and built-in PDF/EPUB/snapshot readers repaint Matugen colors, light/dark mode, list striping, and font metadata in hot without restarting. |
+| **Zotero 10 (`zotero-dux-theme`)** | When `dux-theme@arqueon.org*` is installed in a local Zotero profile, `reload-application-theme.sh` sends `POST http://127.0.0.1:23119/dux-theme/reload`; the add-on also polls `IOUtils.stat()` every `1200 ms` on `dms-colors.json`, `plugin_settings.json`, and `dms-typography.json` | Open Zotero 10 windows and built-in PDF/EPUB/snapshot readers repaint Matugen colors, light/dark mode, list striping, and font metadata in hot without restarting. |
 
 ### Why Qt/KDE hot reload required four coordinated fixes
 
@@ -626,7 +626,7 @@ Dux's `~/.config/matugen/config.toml` hooks or native toolkit bridges:
   click **Use GTK** (`system_theme: 1`); Chromium's `GtkUi` platform observer
   tracks the GTK 3/4 theme and Matugen accent colors automatically in hot.
 - **Strata** ([`lgse/strata`](https://github.com/lgse/strata) + [`arqueon/strata-extras`](https://github.com/arqueon/strata-extras), template bundled at `assets/strata/strata-theme.toml`): copy or link the template to `~/.config/matugen/templates/strata-theme.toml`, configure `output_path = '~/.config/strata/themes/matugen.toml'` in `~/.config/matugen/config.toml`, and select **Matugen** once in Strata; Strata watches its `themes/` directory directly and updates on every wallpaper or theme change without needing any action from `apply-theme.sh`.
-- **Zotero 10 (`zotero-dux-theme`)** ([`arqueon/zotero-dux-theme`](https://github.com/arqueon/zotero-dux-theme), XPI bundled at `assets/zotero/dux-theme@arqueon.org.xpi`): install the XPI in Zotero (**Tools → Add-ons → Install Add-on From File…**); `reload-application-theme.sh` notifies `http://127.0.0.1:23119/dux-theme/reload` on every apply, and the add-on also watches `dms-colors.json` directly.
+- **Zotero 10 (`zotero-dux-theme`)** ([`arqueon/zotero-dux-theme`](https://github.com/arqueon/zotero-dux-theme)): download `dux-theme@arqueon.org.xpi` from the [GitHub releases](https://github.com/arqueon/zotero-dux-theme/releases) and install it in Zotero (**Tools → Add-ons → Install Add-on From File…**); `reload-application-theme.sh` notifies `http://127.0.0.1:23119/dux-theme/reload` only when the add-on is present in a local Zotero profile, and the add-on also watches `dms-colors.json` directly.
 
 ### Compositor and session environment
 
@@ -778,7 +778,7 @@ components used by the desktop:
 | [material-bibata-cursor](https://github.com/SakibShahariar/material-bibata-cursor) builds | Accent-matched cursor variants (`Bibata-Material-*`) |
 | Selected GTK theme and engine | Structural GTK appearance; GTK 2 themes may need Murrine |
 | Matching Kvantum theme packages | Matcha, Qogir, Lavanda, WhiteSur, Orchis, Catppuccin, or KvLibadwaita pairing |
-| [`zotero-dux-theme`](https://github.com/arqueon/zotero-dux-theme) (`assets/zotero/dux-theme@arqueon.org.xpi`) | Live Matugen palette, mode, reader page themes, and typography for Zotero 10 |
+| [`zotero-dux-theme`](https://github.com/arqueon/zotero-dux-theme/releases) (optional separate download) | Live Matugen palette, mode, reader page themes, and typography for Zotero 10 |
 | [`strata`](https://github.com/lgse/strata) + [`strata-extras`](https://github.com/arqueon/strata-extras) (`assets/strata/strata-theme.toml`) | Matugen template (`~/.config/strata/themes/matugen.toml`) watched natively by Strata |
 
 ## Limits
@@ -812,8 +812,9 @@ recoverable.
 
 Source: <https://github.com/arqueon/dms-theme-sync>
 
-Bundled companion assets live under `assets/kvantum/` (Kvantum templates),
-`assets/strata/` (`strata-theme.toml`), and `assets/zotero/` (`dux-theme@arqueon.org.xpi`).
+Bundled companion assets live under `assets/kvantum/` (Kvantum templates) and
+`assets/strata/` (`strata-theme.toml`). Instructions for obtaining the optional
+Zotero add-on live in `assets/zotero/README.md`.
 
 The plugin is listed in the
 [Dux plugin registry](https://plugins.duxlabs.dev/) and can be installed from

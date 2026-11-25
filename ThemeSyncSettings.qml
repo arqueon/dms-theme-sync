@@ -411,7 +411,7 @@ PluginSettings {
     }, {
         "label": "Neutral (remove 2025 tint)",
         "value": "neutral",
-        "color": "#88888c"
+        "color": Theme.outline
     }, {
         "label": "Subtle (soft accent wash)",
         "value": "subtle",
@@ -3674,7 +3674,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "Optional companion integrations shipped in assets/:\n• Zotero 10 (assets/zotero/dux-theme@arqueon.org.xpi — github.com/arqueon/zotero-dux-theme): synchronizes Dux Matugen colors, light/dark mode, uniformListBg, reader page themes, and typography in hot; notified by reload-application-theme.sh via 127.0.0.1:23119/dux-theme/reload.\n• Strata (assets/strata/strata-theme.toml — github.com/arqueon/strata-extras): Matugen template generating ~/.config/strata/themes/matugen.toml; Strata watches its themes folder and reloads automatically on its own."
+        text: "Optional companion integrations:\n• Zotero 10 (github.com/arqueon/zotero-dux-theme/releases — download dux-theme@arqueon.org.xpi separately): synchronizes Dux Matugen colors, light/dark mode, uniformListBg, reader page themes, and typography in hot; reload-application-theme.sh notifies 127.0.0.1:23119/dux-theme/reload only when the add-on is detected in a local Zotero profile.\n• Strata (assets/strata/strata-theme.toml — github.com/arqueon/strata-extras): Matugen template generating ~/.config/strata/themes/matugen.toml; Strata watches its themes folder and reloads automatically on its own."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap

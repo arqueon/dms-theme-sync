@@ -15,8 +15,8 @@ DModal {
 
     layerNamespace: "dms:plugins:theme-sync"
     shouldBeVisible: false
-    modalWidth: 680
-    modalHeight: Math.min(820, screenHeight - 80)
+    modalWidth: Theme.dialogMaxWidth + Theme.spacingXL * 5
+    modalHeight: Math.min(Theme.mediumBreakpoint + Theme.spacingXL * 2, screenHeight - Theme.spacingXL * 3)
     keepContentLoaded: false
     keepPopoutsOpen: true
     closeOnEscapeKey: true
@@ -34,7 +34,7 @@ DModal {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Theme.spacingL
-                height: 44
+                height: Math.max(Theme.buttonHeightS, headerIcon.size + Theme.spacingM)
 
                 DIcon {
                     id: headerIcon
@@ -85,7 +85,7 @@ DModal {
                 opacity: 0.25
             }
 
-            Flickable {
+            DFlickable {
                 id: scroll
 
                 anchors.top: divider.bottom

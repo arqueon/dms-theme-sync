@@ -1,5 +1,14 @@
 # Change history
 
+## 0.18.1 — 2026-11-24
+
+- **Address Dux Plugin Registry #1217 review feedback:**
+  - **Zotero companion packaging & local reload guard:** removed the prebuilt `assets/zotero/dux-theme@arqueon.org.xpi` binary from the plugin repository (users install releases directly from `arqueon/zotero-dux-theme`), updated README/UI companion docs, and gated `scripts/reload-application-theme.sh`'s `127.0.0.1:23119` POST behind local detection of `dux-theme@arqueon.org*` in Zotero profile extension directories.
+  - **Replace hardcoded QML literals with `Theme` tokens & `DFlickable`:** switched the Neutral app-background tint swatch from `#88888c` to `Theme.outline` in `ThemeSyncSettings.qml`, converted `ThemeSyncDialog.qml` from `Flickable` to `DFlickable` and fixed modal/header/swatch/grid dimensions (`ThemeSyncDialog.qml`, `ThemeSyncColorPickerRow.qml`, `ThemeSyncPaletteGrid.qml`) to derive from `Theme` metrics.
+  - **Replace the repeating 60s `.Xresources.backup` cleanup timer:** replaced the permanent background interval timer in `ThemeSyncService.qml` with a single-shot debounce triggered on cursor changes (`onCursorThemeChanged`, `onCursorSizeChanged`, and `reconcileCursorTheme`).
+  - **Exclude `.revision/` planning notes from version control** via `.gitignore` and `git rm --cached`.
+  - **Registry metadata & banner alignment:** restored full footprint and Dux-settings edit disclosure in `packaging/arqueon-dms-theme-sync.json` and matched `assets/screenshot.png` to `1856×664` (`0%` blur on `duxlabs.dev/plugins`).
+
 ## 0.18.0 — 2026-11-24
 
 - **Add configurable App Backgrounds (`appSurfaceDepth` & `appSurfaceTint`)** (approved via `.revision/fondos-apps-material-palette-2026-11-24.md`, 5/5):

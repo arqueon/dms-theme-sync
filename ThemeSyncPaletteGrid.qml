@@ -8,6 +8,7 @@ Column {
     property var options: []
     property string currentValue: ""
     property bool ready: true
+    readonly property real swatchSize: Theme.iconSize + Theme.spacingXS
 
     signal selected(string value)
 
@@ -24,8 +25,8 @@ Column {
         Flow {
             id: gridFlow
 
-            readonly property int cols: width >= 460 ? 3 : 2
-            readonly property real tileWidth: Math.max(120, Math.floor((width - spacing * (cols - 1)) / cols))
+            readonly property int cols: width >= Theme.smallBreakpoint ? 3 : 2
+            readonly property real tileWidth: Math.max(Theme.spacingXL * 5, Math.floor((width - spacing * (cols - 1)) / cols))
 
             width: parent.width
             spacing: Theme.spacingS
@@ -55,8 +56,8 @@ Column {
                         spacing: Theme.spacingS
 
                         DPaletteSwatch {
-                            width: 28
-                            height: 28
+                            width: root.swatchSize
+                            height: root.swatchSize
                             anchors.verticalCenter: parent.verticalCenter
                             primaryColor: tile.modelData.primary || Theme.primary
                             secondaryColor: tile.modelData.secondary || tile.modelData.primary || Theme.primary
@@ -64,7 +65,7 @@ Column {
                         }
 
                         StyledText {
-                            width: parent.width - 28 - Theme.spacingS
+                            width: parent.width - root.swatchSize - Theme.spacingS
                             anchors.verticalCenter: parent.verticalCenter
                             text: tile.modelData.label || tile.modelData.value
                             font.pixelSize: Theme.fontSizeSmall

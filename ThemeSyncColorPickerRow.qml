@@ -15,6 +15,7 @@ Column {
     property string pickerTitle: ""
     property bool showReset: false
     property string resetTooltip: "Reset to default"
+    readonly property real swatchSize: Theme.iconSize + Theme.spacingXS
 
     signal modeSelected(string mode)
     signal customColorSelected(color selectedColor)
@@ -129,7 +130,7 @@ Column {
     StyledRect {
         width: parent.width
         visible: root.currentMode === "custom"
-        height: visible ? Math.max(48, swatchRow.implicitHeight + Theme.spacingS * 2) : 0
+        height: visible ? Math.max(Theme.minimumTouchTargetSize, swatchRow.implicitHeight + Theme.spacingS * 2) : 0
         radius: Theme.cornerRadius
         color: Theme.surfaceContainerHigh
         border.width: Theme.outlineWidth
@@ -144,16 +145,16 @@ Column {
             spacing: Theme.spacingM
 
             DColorSwatch {
-                width: 28
-                height: 28
+                width: root.swatchSize
+                height: root.swatchSize
                 anchors.verticalCenter: parent.verticalCenter
                 swatchColor: root.customColor
             }
 
             Column {
-                width: parent.width - 28 - pickIcon.width - Theme.spacingM * 2
+                width: parent.width - root.swatchSize - pickIcon.width - Theme.spacingM * 2
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                spacing: Theme.spacingXXS
 
                 StyledText {
                     width: parent.width
