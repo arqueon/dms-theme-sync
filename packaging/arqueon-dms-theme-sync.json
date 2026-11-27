@@ -1,7 +1,7 @@
 {
   "id": "dmsThemeSync",
   "name": "Dux Theme Sync",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "requires_dms": ">=2.0.0",
   "capabilities": ["dankbar-widget", "daemon", "ipc"],
   "category": "appearance",

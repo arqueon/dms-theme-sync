@@ -928,6 +928,17 @@ cursor_out=$(run_cursor --sync-cursor-color true)
 grep -Fq 'cursor-color: accent #7a7a7a -> Bibata-Material-Grey' <<<"$cursor_out" \
     || { printf 'Neutral accent did not choose Grey:\n%s\n' "$cursor_out" >&2; exit 1; }
 
+# Niri: the include carries the variant chosen in this pass, so the second
+# apply (triggered once Dux applies that cursor) finds identical content and
+# leaves the file alone — rewriting it would reload Niri a second time.
+run_cursor --sync-cursor-color true --compositor niri >/dev/null
+grep -Fqx '    XCURSOR_THEME "Bibata-Material-Grey"' "$NIRI_DIR/dms-theme-sync.kdl" \
+    || { printf 'Niri include does not carry the chosen cursor:\n%s\n' "$(cat "$NIRI_DIR/dms-theme-sync.kdl")" >&2; exit 1; }
+include_inode=$(stat -c %i "$NIRI_DIR/dms-theme-sync.kdl")
+run_cursor --sync-cursor-color true --compositor niri --cursor-theme Bibata-Material-Grey >/dev/null
+[[ $(stat -c %i "$NIRI_DIR/dms-theme-sync.kdl") == "$include_inode" ]] \
+    || { printf 'Unchanged Niri include was rewritten (extra Niri reload)\n' >&2; exit 1; }
+
 # toggle off: the helper stays silent so the QML side restores the saved base
 cursor_out=$(run_cursor --sync-cursor-color false)
 ! grep -Fq 'cursor-color:' <<<"$cursor_out" \

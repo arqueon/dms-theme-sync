@@ -1,5 +1,12 @@
 # Change history
 
+## 0.18.2 — 2026-11-27
+
+- **Fewer Niri config reloads per wallpaper change.** Niri reloads its whole config whenever an included file is rewritten, even with identical bytes, and every wallpaper change runs an apply. A change used to cost up to three reloads from the plugin side: the include was rewritten unconditionally, it carried the previous cursor, and the second apply triggered by the new cursor rewrote it again.
+  - `dms-theme-sync.kdl` is only written when its content differs.
+  - With `syncCursorColor`, the include carries the variant chosen in the same pass, so the follow-up apply finds identical content and leaves it alone.
+  - The include is written as the helper's last step, close to the `niri/dms/cursor.kdl` the shell writes when it applies the new cursor, so both usually land in one Niri config-watch interval.
+
 ## 0.18.1 — 2026-11-24
 
 - **Address Dux Plugin Registry #1217 review feedback:**
